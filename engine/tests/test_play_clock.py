@@ -1,5 +1,6 @@
-"""Play from the Editor starts Assetto Corsa at the hour the Editor's clock shows."""
+"""Play passes the selected car, conditions and session to Assetto Corsa."""
 import configparser
+from io import BytesIO
 from pathlib import Path
 import sys
 import tempfile
@@ -9,7 +10,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import generator  # noqa: E402,F401
 import server  # noqa: E402
-from app import csp, system  # noqa: E402
+from app import csp, mytracks, system  # noqa: E402
+from track import kn5, obj_to_kn5  # noqa: E402
 
 RACE = "[RACE]\nMODEL=car\n\n[LIGHTING]\nSUN_ANGLE=-48.00\nTIME_MULT=1.0\n\n[TEMPERATURE]\nAMBIENT=13\nROAD=18\n"
 
@@ -26,13 +28,13 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.ac = Path(self.tmp.name, "ac")
-        track = self.ac / "content/tracks/one/one.kn5"
-        track.parent.mkdir(parents=True)
-        track.write_bytes(b"track")
+        self.track = self.ac / "content/tracks/one"
+        (self.track / "data").mkdir(parents=True)
+        (self.track / "one.kn5").write_bytes(b"track")
         self.race = Path(self.tmp.name, "race.ini")
         self.race.write_text(RACE)
 
-    def started(self, *args, weather_effects=True):
+    def started(self, *args, weather_effects=True, **options):
         with mock.patch.object(server.settings, "ac_path", return_value=str(self.ac)), \
              mock.patch.object(server.settings, "load", return_value={**server.settings.DEFAULTS, 'weather_effects': weather_effects}), \
              mock.patch.object(csp, "busy", return_value=False), \
@@ -40,9 +42,11 @@ class PlayAtAnHourTest(unittest.TestCase):
              mock.patch.object(system, "ensure_steam", return_value=True), \
              mock.patch.object(server, "race_ini", return_value=str(self.race)), \
              mock.patch.object(server, "play_car", return_value=(None, None)), \
+             mock.patch.object(server, "_watch_best") as watch, \
              mock.patch.object(system, "start_ac") as launch:
-            code = server.play("one", *args)[0]
+            code = server.play("one", *args, **options)[0]
             self.launch_args = launch.call_args
+            self.watch_args = watch.call_args
         return code, launch.called
 
     def test_global_effects_switch_disables_script_and_helper_but_keeps_native_weather(self):
@@ -117,6 +121,78 @@ class PlayAtAnHourTest(unittest.TestCase):
         for options in ({'windSpeed': 101}, {'airTemperature': -31}, {'roadTemperature': 81}):
             self.assertEqual((400, False), self.started(10, options))
             self.assertEqual(RACE, self.race.read_text())
+
+    def test_laps_start_a_native_solo_race_on_a_saved_circuit_copy(self):
+        mytracks.save(self.track, {"kind": "circuit", "edits": {"source": "original"}})
+        self.race.write_text(RACE + "\n[SESSION_0]\nWAIT_TIME=60\n\n[SESSION_1]\nTYPE=2\n\n[CAR_1]\nMODEL=opponent\n")
+        self.assertEqual((200, True), self.started(laps=1))
+        ini = self.ini()
+        self.assertEqual("Race", ini.get("SESSION_0", "NAME"))
+        for key, expected in (("TYPE", 3), ("LAPS", 1), ("DURATION_MINUTES", 0), ("WAIT_TIME", 0)):
+            self.assertEqual(expected, ini.getint("SESSION_0", key))
+        self.assertEqual("START", ini.get("SESSION_0", "SPAWN_SET"))
+        self.assertEqual(1, ini.getint("RACE", "CARS"))
+        self.assertFalse(ini.has_section("SESSION_1"))
+        self.assertFalse(ini.has_section("CAR_1"))
+        self.assertNotIn("laps", mytracks.load(self.track))
+        self.assertEqual((str(self.race), "one", "car"), self.watch_args.args)
+
+    def test_unlimited_after_a_race_clears_the_session_lap_count(self):
+        mytracks.save(self.track, {"kind": "circuit"})
+        self.assertEqual((200, True), self.started(laps=3))
+        self.assertEqual((200, True), self.started())
+        ini = self.ini()
+        self.assertEqual("Practice", ini.get("SESSION_0", "NAME"))
+        self.assertEqual(1, ini.getint("SESSION_0", "TYPE"))
+        self.assertFalse(ini.has_option("SESSION_0", "LAPS"))
+        self.assertEqual((str(self.race), "one", "car"), self.watch_args.args)
+
+    def test_laps_are_only_allowed_on_an_installed_circuit(self):
+        self.assertEqual((400, False), self.started(laps=2))
+        for options in ({"kind": "route"}, {"area": [0, 1, 2, 3]}):
+            mytracks.save(self.track, options)
+            self.assertEqual((400, False), self.started(laps=2))
+        self.assertEqual(RACE, self.race.read_text())
+
+    def test_invalid_lap_counts_do_not_start_or_rewrite_the_session(self):
+        mytracks.save(self.track, {"kind": "circuit"})
+        for laps in (True, False, "3", 0, -1, 1.5, 3.0, 2**31, float("nan"), []):
+            with self.subTest(laps=laps):
+                self.assertEqual((400, False), self.started(laps=laps))
+        self.assertEqual(RACE, self.race.read_text())
+
+    def test_route_hotlap_uses_native_start_and_watches_the_time(self):
+        mytracks.save(self.track, {"kind": "route"})
+        root = obj_to_kn5.empty("track", (0, 0, 0), (0, 0, 1))
+        for gate in ("START", "FINISH"):
+            for edge in ("L", "R"):
+                root.children.append(obj_to_kn5.empty(f"AC_AB_{gate}_{edge}", (0, 0, 0), (0, 0, 1)))
+        kn5.write(self.track / "one.kn5", [], [], root)
+        self.race.write_text(RACE + "\n[SESSION_0]\nTYPE=3\nLAPS=8\nWAIT_TIME=0\n")
+        self.assertEqual((200, True), self.started(hotlap=True))
+        ini = self.ini()
+        self.assertEqual("Hotlap", ini.get("SESSION_0", "NAME"))
+        self.assertEqual("HOTLAP", ini.get("SESSION_0", "SPAWN_SET"))
+        self.assertEqual(4, ini.getint("SESSION_0", "TYPE"))
+        self.assertFalse(ini.has_option("SESSION_0", "LAPS"))
+        self.assertEqual((str(self.race), "one", "car"), self.watch_args.args)
+
+    def test_route_without_timing_cannot_start_hotlap(self):
+        mytracks.save(self.track, {"kind": "route"})
+        self.assertEqual((400, False), self.started(hotlap=True))
+        self.assertEqual(RACE, self.race.read_text())
+
+    def test_play_request_passes_laps_to_the_session(self):
+        request = b'{"name":"one","laps":2}'
+        handler = object.__new__(server.Handler)
+        handler.command, handler.path = "POST", "/api/play"
+        handler.headers = {"Content-Length": str(len(request))}
+        handler.rfile, handler.wfile = BytesIO(request), BytesIO()
+        handler.send_response, handler.send_header, handler.end_headers = mock.Mock(), mock.Mock(), mock.Mock()
+        with mock.patch.object(server, "play", return_value=(200, {"ok": True})) as launch:
+            handler.do_POST()
+        launch.assert_called_once_with("one", None, None, None, laps=2, hotlap=False)
+        handler.send_response.assert_called_once_with(200)
 
 
 if __name__ == "__main__":

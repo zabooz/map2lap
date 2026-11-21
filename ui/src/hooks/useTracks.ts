@@ -16,7 +16,12 @@ export function useTracks() {
     setCar(r.car);
   }, []);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    void reload();
+    const onFocus = () => void reload();  // Best times may have been saved while AC had focus.
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [reload]);
 
   return {tracks, car, reload};
 }

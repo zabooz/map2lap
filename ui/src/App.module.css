@@ -26,9 +26,11 @@
 .count { font-size: 11px; font-weight: 700; min-width: 18px; padding: 1px 6px; border-radius: 99px;
          background: var(--raised); border: 1px solid var(--line); color: var(--muted); }
 .count.warn { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
-/* Forms and lists scroll in low windows; the status card and actions stay whole. */
+/* Forms and lists scroll in low windows; actions stay whole. */
 .panes { position: relative; flex: 0 1 auto; min-height: 0; display: flex; }
 .panes.mine { flex: 1 1 180px; }
+.sidebar .rebuildView { display: grid; grid-template-columns: minmax(0, 1fr);
+                       grid-template-rows: minmax(145px, 3fr) minmax(110px, 2fr) auto; }
 
 .actions { flex: none; display: grid; grid-template-columns: 1fr; gap: 8px; }
 .actions button { height: 42px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised);
@@ -40,13 +42,20 @@
 .actions.edited { grid-template-columns: 1fr 1fr; }
 .actions button.playAct { background: var(--ok); border-color: var(--ok); color: var(--ok-ink); }
 
-/* The map with a floating hint */
-.main { position: relative; min-width: 0; }
+/* The map and the track details use separate columns, like the Editor and its inspector. */
+.main { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.main.withDetails { grid-template-columns: minmax(0, 1fr) clamp(246px, 22vw, 320px); }
+.mapSpace { position: relative; min-width: 0; min-height: 0; }
+.details { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; overflow: auto;
+           padding: 14px; border-left: 1px solid var(--line); background: var(--panel); }
 .hint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 500; max-width: min(560px, 90%);
         background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 99px;
         padding: 8px 16px; box-shadow: var(--shadow); font-size: 13px; text-align: center; pointer-events: none; }
 
 @media (max-width: 760px) {
   .main { grid-row: 1; height: 50vh; }
+  .main.withDetails { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: 50vh auto; }
+  .details { border-left: 0; border-top: 1px solid var(--line); }
   .sidebar { grid-row: 2; height: auto; border-right: 0; }
+  .sidebar .rebuildView { grid-template-rows: minmax(200px, 44vh) auto auto; }
 }

@@ -10,6 +10,10 @@ export function fmtTime(seconds: number | null | undefined) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+export function fmtLap(milliseconds: number) {
+  return `${Math.floor(milliseconds / 60000)}:${String(Math.floor(milliseconds / 1000) % 60).padStart(2, "0")}.${String(milliseconds % 1000).padStart(3, "0")}`;
+}
+
 export function fmtBytes(bytes: number) {
   const mb = bytes / 1e6;
   return mb >= 1000 ? (mb / 1000).toFixed(2) + " GB" : mb.toFixed(0) + " MB";

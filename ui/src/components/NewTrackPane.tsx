@@ -1,9 +1,8 @@
-import {useLayoutEffect, useRef, useState} from "react";
+import {useId, useLayoutEffect, useRef, useState} from "react";
 import {fmtLatLon, shortName} from "../format";
 import {type MapMove, type NewTrack, type Point} from "../hooks/useNewTrack";
 import type {Mode, Place} from "../types";
 import {CodeField} from "./CodeField";
-import {CodeIcon} from "./icons";
 import styles from "./NewTrackPane.module.css";
 import {SearchField} from "./SearchField";
 import {Seg} from "./Seg";
@@ -34,7 +33,7 @@ function StopRow({index, last, point, onPick, onRemove, label, circuit}: {
   );
 }
 
-/** The pin fields; from three on the list scrolls, a new point shows at the end. */
+/** The pin fields: up to five rows fit and a new point shows at the end. */
 function Stops({track, disabled}: {track: NewTrack; disabled: boolean}) {
   const {points} = track;
   const circuit = track.mode === "circuit";
@@ -50,25 +49,26 @@ function Stops({track, disabled}: {track: NewTrack; disabled: boolean}) {
   return (
     <div className="field">
       <div className="label-row"><span>{circuit ? "Circuit" : "Route"}</span></div>
-      <div className={styles.stop}>
-        <span className={styles.tag} title="Track code"><CodeIcon /></span>
-        <CodeField code={track.code} onPaste={track.pasteCode} />
-      </div>
       <div className={styles.stopList}>
         <div className={styles.stops} ref={box}>
           {points.map((p, i) => (
             <StopRow key={p.id} index={i} last={last} point={p} circuit={circuit} onPick={place => track.movePlace(p.id, place)}
                      onRemove={() => track.removePoint(p.id)} />
           ))}
-          <StopRow key={`new-${points.length}`} index={points.length} last={last} point={null} circuit={circuit} onPick={track.addPlace}
-                   label={circuit ? "Next pin" : points.length >= 2 ? "Next stop" : undefined} />
+          {points.length < 2 && <StopRow key={`new-${points.length}`} index={points.length} last={last} point={null}
+                                        circuit={circuit} onPick={track.addPlace} label={circuit ? "Next pin" : undefined} />}
         </div>
-        {circuit && points.length >= 2 && <div className={`${styles.stop} ${styles.lap}`}>
+        {(track.closing || track.circuitClosed) && <div className={`${styles.stop} ${styles.lap}`}>
           <span className={styles.tag} aria-hidden="true">↻</span>
-          <span>Back to S{track.routeKm !== undefined && ` · Lap ${track.routeKm.toFixed(1)} km`}</span>
+          <span>Back to S{track.circuitClosed && track.routeKm !== undefined && ` · Lap ${track.routeKm.toFixed(1)} km`}</span>
         </div>}
       </div>
-      <button className="add-stop clear" disabled={disabled} onClick={track.clear}>Clear all</button>
+      <div className={styles.stopActions}>
+        <button className="add-stop clear" disabled={disabled} onClick={track.clear}>Clear all</button>
+        {circuit && <button className={`add-stop clear ${styles.closeCircuit}`}
+                            disabled={disabled || points.length < 2 || !track.canCloseCircuit}
+                            onClick={track.closeCircuit}>Close circuit</button>}
+      </div>
     </div>
   );
 }
@@ -84,10 +84,11 @@ function FindPlace({onMove}: {onMove: (move: MapMove) => void}) {
   );
 }
 
-/** "New track": the pin and area forms share the same space above the status card. */
+/** "New track": the pin and area forms share the same space. */
 export function NewTrackPane({track, off, busy, onMove}: {track: NewTrack; off: boolean; busy: boolean;
                                                          onMove: (move: MapMove) => void}) {
   const {mode} = track;
+  const codeId = useId();
   const nothing = busy || (!track.points.length && !track.area);       // (nothing to clear: quiet)
   return (
     <div className={`${styles.pane}${off ? ` ${styles.off}` : ""}`}>
@@ -97,6 +98,10 @@ export function NewTrackPane({track, off, busy, onMove}: {track: NewTrack; off: 
         <input id="title" type="text" value={track.title} spellCheck={false} aria-label="Track name"
                onChange={e => track.setTitle(e.target.value)} />
       </div>
+      <div className="field">
+        <label className="label-row" htmlFor={codeId}>Track code</label>
+        <CodeField id={codeId} code={track.code} onPaste={track.pasteCode} />
+      </div>
       <div className={styles.stack}>
         <div className={styles.block} hidden={mode === "area"}>
           <Stops track={track} disabled={nothing} />
@@ -104,7 +109,6 @@ export function NewTrackPane({track, off, busy, onMove}: {track: NewTrack; off: 
         <div className={styles.block} hidden={mode !== "area"}>
           <div className="field">
             <div className="label-row"><span>Area</span></div>
-            <CodeField code={track.code} onPaste={track.pasteCode} />
             <FindPlace onMove={onMove} />
             <p className="small muted">Everything inside the rectangle is built. The car starts on the road nearest to the
               middle.</p>

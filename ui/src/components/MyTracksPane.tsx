@@ -1,4 +1,4 @@
-import {fmtDate, fmtSize} from "../format";
+import {fmtDate} from "../format";
 import type {Track, TrackGroup} from "../types";
 import styles from "./MyTracksPane.module.css";
 import {Seg} from "./Seg";
@@ -20,12 +20,10 @@ export function MyTracksPane({tracks, group, pick, onGroup, onPick}: {tracks: Tr
       <div id="pane-mine" className={styles.list}>
         {shown.length ? shown.map(t => (
           <button key={t.name} className={`${styles.track}${t.name === pick ? ` ${styles.on}` : ""}`} aria-pressed={t.name === pick} onClick={() => onPick(t)}>
-            <b>{t.title}</b>
+            <b title={t.title}>{t.title}</b>
+            <small>{t.area ? "Area" : t.kind === "circuit" ? "Circuit" : "Route"} · {t.outdated
+              ? <span className={styles.old}>{versionTag(t)} – old</span> : versionTag(t)}</small>
             <span className={styles.when}>{fmtDate(t.saved ?? t.built)}</span>
-            <small>
-              {t.area ? "Area" : t.kind === "circuit" ? "Circuit" : "Route"} {fmtSize(t)} · {t.outdated
-                ? <span className={styles.old}>{versionTag(t)} – old</span> : versionTag(t)}
-            </small>
           </button>
         )) : <p className="empty">{group === "edited" ? "No edited tracks yet. Save a track in the Editor." : "No tracks yet. Build one under “New track”."}</p>}
       </div>

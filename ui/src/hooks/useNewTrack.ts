@@ -1,6 +1,6 @@
 import L from "leaflet";
 import {useEffect, useEffectEvent, useRef, useState} from "react";
-import {post, type WithError} from "../api";
+import {post} from "../api";
 import {shortName, slug} from "../format";
 import type {Box, BuildOptions, CodeContent, LatLon, Mode, Place} from "../types";
 
@@ -18,7 +18,7 @@ export interface Point {
 
 export type Selection =
   | {kind: "msg"; text: string; bad?: boolean; ok: false}
-  | {kind: "route"; km: number; ok: boolean}
+  | {kind: "route"; km: number; ok: boolean; openCircuit?: boolean}
   | {kind: "area"; w: number; h: number; tiles: number; ok: boolean};
 
 /** How the map should move once. */
@@ -28,11 +28,16 @@ export type MapMove =
   | {kind: "pin"; at: LatLon}
   | {kind: "view"; at: LatLon; zoom: number};
 
-interface RouteAnswer {
-  key: string;
+interface RouteResult {
   coords?: LatLon[];
-  km?: number;
+  length_m?: number;
   error?: string;
+}
+
+interface CircuitClosure {
+  key: string;
+  fit?: boolean;
+  result?: RouteResult;
 }
 
 /** The box two corners span, on the real earth though drawn on a copy of it. Pure. */
@@ -68,16 +73,15 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
   const [points, setPoints] = useState<Point[]>([]);
   const [area, setArea] = useState<Box | null>(null);
   const [draft, setDraft] = useState<Box | null>(null);     // the box while drawn or resized
-  const [answer, setAnswer] = useState<RouteAnswer | null>(null);
+  const [answer, setAnswer] = useState<{key: string; result: RouteResult} | null>(null);
+  const [closure, setClosure] = useState<CircuitClosure | null>(null);
   const [madeCode, setMadeCode] = useState<{key: string; code: string} | null>(null);
   const [message, setMessage] = useState<string | null>(null);     // (a pasted code's fault)
   const nextId = useRef(1);
   const titleAuto = useRef(true);       // the name comes from the places until a name is typed; emptied it does again
   const nameAsk = useRef(0);
   const askedPlace = useRef(new Set<string>());
-  const pastedLap = useRef<string | null>(null);
-
-  const touch = () => { pastedLap.current = null; setMessage(null); onTouch(); };
+  const touch = () => { setClosure(null); setMessage(null); onTouch(); };
 
   async function askName(body: {points?: LatLon[]; area?: Box}) {
     if (!titleAuto.current) return;
@@ -90,32 +94,52 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
   const circuit = mode === "circuit";
   const positions: LatLon[] = points.map(p => [p.lat, p.lon]);
   const pinBody = {points: positions, ...(circuit ? {kind: mode} : {})};
-  const routeKey = JSON.stringify(pinBody);
-  const route = mode !== "area" && answer?.key === routeKey ? answer : null;
+  const routeKey = JSON.stringify({points: positions});
+  const openRoute = mode !== "area" && answer?.key === routeKey ? answer.result : null;
+  const activeClosure = circuit && closure?.key === routeKey ? closure : null;
+  const lap = activeClosure?.result?.coords?.length ? activeClosure.result : null;
+  const route = lap ?? openRoute;
+  const routeKm = route?.length_m !== undefined ? route.length_m / 1000 : undefined;
+  const openReady = Boolean(openRoute?.coords?.length);
+  const closing = activeClosure !== null && !activeClosure.result && !openRoute?.error;
 
-  const routeCame = useEffectEvent((key: string, asked: LatLon[], r: WithError<Partial<{coords: LatLon[]; length_m: number}>>) => {
+  const routeCame = useEffectEvent((key: string, asked: LatLon[], result: RouteResult) => {
     onTouch();
-    if (pastedLap.current === key) {
-      pastedLap.current = null;
-      if (r.coords?.length) onMove({kind: "fitCircuit", coords: r.coords, pins: asked, padding: 60});
-    }
-    if (r.error) {
-      setAnswer({key, error: r.error});
-      return;
-    }
-    setAnswer({key, coords: r.coords, km: (r.length_m ?? 0) / 1000});
-    void askName({points: asked});
+    setAnswer({key, result});
+    if (!result.error) void askName({points: asked});
   });
 
   useEffect(() => {
-    const asked: {points: LatLon[]; kind?: "circuit"} = JSON.parse(routeKey);
+    const asked: {points: LatLon[]} = JSON.parse(routeKey);
     if (mode === "area" || asked.points.length < 2) return;
     let alive = true;
-    post<{coords: LatLon[]; length_m: number}>("/api/route", asked).then(r => {
+    post<RouteResult>("/api/route", mode === "circuit" ? {...asked, circuit_draft: true} : asked).then(r => {
       if (alive) routeCame(routeKey, asked.points, r);
     });
     return () => { alive = false; };
   }, [mode, routeKey]);
+
+  const closedCourseCame = useEffectEvent((request: CircuitClosure, pins: LatLon[], result: RouteResult) => {
+    if (closure !== request) return;
+    setClosure({...request, result});
+    if (request.fit && result.coords?.length) onMove({kind: "fitCircuit", coords: result.coords, pins, padding: 60});
+  });
+
+  useEffect(() => {
+    if (!openReady || !activeClosure || activeClosure.result) return;
+    const {points}: {points: LatLon[]} = JSON.parse(activeClosure.key);
+    let alive = true;
+    post<RouteResult>("/api/route", {points, kind: "circuit"}).then(result => {
+      if (alive) closedCourseCame(activeClosure, points, result);
+    });
+    return () => { alive = false; };
+  }, [activeClosure, openReady]);
+
+  const closeCircuit = () => {
+    setMessage(null);
+    onTouch();
+    setClosure({key: routeKey});
+  };
 
   // --- a pin set on the map: its place instead of the coordinates, once known ---
   useEffect(() => {
@@ -133,7 +157,7 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
 
   // --- its track code (made by the server: trackcode.py) ---
   const makes = mode === "area" ? area && {title: title.trim(), area, ...options}
-    : route?.coords && positions.length >= 2 ? {title: title.trim(), width, ...pinBody, ...options} : null;
+    : (circuit ? lap : openRoute)?.coords && positions.length >= 2 ? {title: title.trim(), width, ...pinBody, ...options} : null;
   const makesKey = makes ? JSON.stringify(makes) : "";
   const code = madeCode?.key === makesKey ? madeCode.code : "";
 
@@ -156,9 +180,13 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
     if (shownBox) selection = {kind: "area", ...boxSize(shownBox), ok: !draft && Boolean(area)};
   } else if (points.length === 1) selection = {kind: "msg", text: circuit ? "Now click the next pin." : "Now click the finish.", ok: false};
   else if (points.length > 1) {
-    if (route?.error) selection = {kind: "msg", text: `${circuit ? "Circuit" : "Route"}: ${route.error}`, bad: true, ok: false};
-    else if (route?.km !== undefined) selection = {kind: "route", km: route.km, ok: route.km <= MAX_KM};
-    else selection = {kind: "msg", text: circuit ? "Calculating lap …" : "Calculating route …", ok: false};
+    const error = activeClosure?.result?.error ?? (closing ? undefined : route?.error);
+    if (error) selection = {kind: "msg", text: `${circuit ? "Circuit" : "Route"}: ${error}`, bad: true, ok: false};
+    else if (closing) selection = {kind: "msg", text: "Closing circuit …", ok: false};
+    else if (routeKm !== undefined) {
+      const openCircuit = circuit && !lap;
+      selection = {kind: "route", km: routeKm, ok: !openCircuit && routeKm <= MAX_KM, openCircuit};
+    } else selection = {kind: "msg", text: "Calculating route …", ok: false};
   }
 
   // --- changes ---
@@ -272,12 +300,7 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
     const isCircuit = c.kind === "circuit";
     if (isCircuit && next.length > 1) {
       const pins = next.map((p): LatLon => [p.lat, p.lon]);
-      const key = JSON.stringify({points: pins, kind: c.kind});
-      if (answer?.key === key && answer.coords?.length) {
-        onMove({kind: "fitCircuit", coords: answer.coords, pins, padding: 60});
-        return;
-      }
-      pastedLap.current = key;
+      setClosure({key: JSON.stringify({points: pins}), fit: true});
     }
     const move = moveTo(next, isCircuit);
     if (move) onMove(move);
@@ -302,7 +325,8 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
             ...(mode === "area" ? {area} : {...pinBody, width})};
   };
 
-  return {mode, title, width, options, setOptions, points, area, shownBox, routeCoords: route?.coords ?? null, routeKm: route?.km, selection,
+  return {mode, title, width, options, setOptions, points, area, shownBox, routeCoords: route?.coords ?? null, routeKm, selection,
+          closing, circuitClosed: lap !== null, canCloseCircuit: openReady && !closing && !lap, closeCircuit,
           code: makes ? code : "", setMode, setTitle, setWidth, addPoint, addPlace, movePlace, dragPoint, removePoint,
           clear, showBox, pasteCode, buildBody};
 }

@@ -391,6 +391,7 @@ def stand_ins():
         return circuitlap.Lap([*points, points[0]], 1000.0 * len(points), [], [1000.0 * i for i in range(len(points))])
 
     generator.route = lambda points: ([list(p) for p in points], 1000.0 * (len(points) - 1))
+    generator.circuit_draft = generator.route
     generator.circuit_route = circuit_route
     generator.place = lambda lat, lon: ("Testtown", f"Part {round(lat * 100) % 7}")
     generator.auto_title = lambda points=None, area=None: "Testtown Area" if area else "Testtown Route"
@@ -403,7 +404,8 @@ def stand_ins():
     server.csp.inspect = lambda ac: {"status": "installed", "version": "0.2.11", "build": 3465, "enabled": True}
     mapcache.usage = lambda: (5000000, 3)
     mapcache.clear = lambda: (calls.append(["map data cleared"]), 5000000)[1]
-    server.play = lambda name, clock=None, weather_options=None, car=None: (calls.append(["play", name]), (200, {"ok": True}))[1]
+    server.play = lambda name, clock=None, weather_options=None, car=None, *, laps=None: (
+        calls.append(["play", name] if laps is None else ["play", name, laps]), (200, {"ok": True}))[1]
     server.browse_folder = record("browse")
     server.start_build = start_build
     system.kill_tree = lambda pid: stopped.set()
@@ -453,7 +455,8 @@ def _build(name, title, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, wi
         make_track(name, title, terrain_cell_m=terrain_cell_m, parked_cars=parked_cars, tree_spacing_m=tree_spacing_m,
                    corridor_width=width, ground_quality=ground_quality, circuit=circuit)
         server.job.update(state="done", ended=time.time(), result={
-            "name": name, "kn5_bytes": 1500000, "seconds": 1.2, "tiles": 2, "area_m": None, "length_m": circuit.get("length_m", 250.0)})
+            "name": name, "kn5_bytes": 1500000, "seconds": 1.2, "tiles": 2, "area_m": None,
+            "length_m": circuit.get("length_m", 250.0), "kind": kind})
     server.running["proc"] = None
 
 

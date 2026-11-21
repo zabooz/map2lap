@@ -17,16 +17,18 @@ import os
 import re
 import secrets
 import shutil
+import struct
 import subprocess
 import sys
 import threading
 import time
 import traceback
 import webbrowser
+from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from app import buildoptions, circuitlap, named
+from app import buildoptions, circuitlap, named, personalbest
 
 if __name__ == "__main__":      # (before the engine loads: the python.exe left waiting stays small)
     named.restart_as("server")
@@ -40,6 +42,7 @@ from app.paths import ROOT, SRC  # noqa: E402
 from server_editor import EditorHandlers, IMAGE_TYPES  # noqa: E402
 from server_library import LibraryHandlers, MATERIAL_UPLOADS  # noqa: E402
 from server_roadtools import RoadToolHandlers  # noqa: E402
+from track import kn5  # noqa: E402
 
 PORT = 8800
 job = {"state": "idle", "log": [], "result": None, "error": None,     # state: idle running stopping stopped done error
@@ -141,6 +144,8 @@ def run_build(args, name, clean, started, terrain_cell_m=2, parked_cars=True, tr
         with lock:
             job["state"] = "stopped"
     elif code == 0 and result:
+        if result.get("kn5") and result.get("kind") != "circuit" and not result.get("area_m"):
+            result["hotlap"] = _has_ab_timing(result["kn5"])
         with lock:
             job.update(state="done", result=result)
     else:
@@ -350,11 +355,77 @@ def valid_clock(clock):
     return isinstance(clock, (int, float)) and not isinstance(clock, bool) and 0 <= clock < 24     # (NaN compares false)
 
 
-def play(name, clock=None, weather_options=None, car=None):
+def _is_circuit(track_dir):
+    info = mytracks.load(track_dir)
+    return isinstance(info, dict) and info.get("kind") == "circuit" and not info.get("area")
+
+
+@lru_cache(maxsize=128)
+def _timing_points_present(path, revision):
+    """Read gate names of this installed KN5 revision. Edits and rebuilds have their own revision."""
+    points = kn5.scan(path)["points"]
+    return all(f"AC_AB_{gate}_{edge}" in points for gate in ("START", "FINISH") for edge in ("L", "R"))
+
+
+def _has_ab_timing(path):
+    try:
+        stat = os.stat(path)
+        return _timing_points_present(path, (stat.st_ino, stat.st_size, stat.st_mtime_ns))
+    except (OSError, ValueError, struct.error, AssertionError):
+        return False
+
+
+def _watch_best(race_file, track, car):
+    """Watch a timed session's result independently of the Play request."""
+    started_ns = os.stat(race_file).st_mtime_ns
+    documents = os.path.dirname(os.path.dirname(race_file))
+    threading.Thread(target=personalbest.watch, args=(documents, track, car, started_ns), daemon=True).start()
+
+
+def _previous_best(ac, race_file, ini, resume=False):
+    """Pick up the last timed local drive if the server wasn't around when AC closed."""
+    track = ini.get("RACE", "TRACK", fallback="")
+    car = ini.get("RACE", "MODEL", fallback="")
+    session = ini.get("SESSION_0", "TYPE", fallback="")
+    if (not track or generator.slug(track) != track or not car or
+            ini.get("RACE", "CARS", fallback="") != "1" or ini.get("RACE", "CONFIG_TRACK", fallback="") or
+            ini.get("REMOTE", "ACTIVE", fallback="0") != "0" or session not in ("1", "3", "4")):
+        return
+    directory = os.path.join(ac, "content", "tracks", track)
+    if not (_has_ab_timing(os.path.join(directory, track + ".kn5")) if session == "4" else _is_circuit(directory)):
+        return
+    try:
+        if resume and system.running("acs.exe"):
+            _watch_best(race_file, track, car)
+        else:
+            documents = os.path.dirname(os.path.dirname(race_file))
+            personalbest.import_result(documents, track, car, os.stat(race_file).st_mtime_ns)
+    except (OSError, UnicodeError) as error:
+        print(f"Assetto Corsa Personal Best could not be saved: {error}", flush=True)
+
+
+def _resume_best():
+    """Recheck the last timed session when the generator page starts."""
+    import configparser
+    ac = settings.ac_path()
+    if not ac:
+        return
+    race_file = race_ini()
+    ini = configparser.ConfigParser(interpolation=None, strict=False)
+    try:
+        ini.read(race_file, encoding="utf-8-sig")
+    except (configparser.Error, UnicodeError):
+        return
+    _previous_best(ac, race_file, ini, resume=True)
+
+
+def play(name, clock=None, weather_options=None, car=None, *, laps=None, hotlap=False):
     """Drive the track in AC (My tracks and the Editor, "Play"): race.ini the way Content Manager writes it, with the last
-    settings (car, skin, weather, assists) but this track, Practice, no opponents and offline; then acs.exe (system.start_ac;
+    settings (car, skin, weather, assists) but this track, no opponents and offline; then acs.exe (system.start_ac;
     system.ensure_steam starts Steam if needed). clock: the local hour to start at (the Editor's), else the last one stays.
     car: an installed car folder for this session, empty for last driven, None for the saved setting.
+    laps: the lap count for a Circuit's solo Race, None for unlimited Practice.
+    hotlap: a timed start-to-finish drive on a Route with both timing lines.
     Returns (HTTP code, response)."""
     import configparser
     if clock is not None and not valid_clock(clock):
@@ -366,8 +437,19 @@ def play(name, clock=None, weather_options=None, car=None):
     except ValueError as error:
         return 400, {"error": str(error)}
     ac = settings.ac_path()
-    if not os.path.exists(os.path.join(ac, "content", "tracks", name, name + ".kn5")):
+    track_dir = os.path.join(ac, "content", "tracks", name)
+    track_file = os.path.join(track_dir, name + ".kn5")
+    if not os.path.exists(track_file):
         return 404, {"error": "This track has no track file (build it again)"}
+    circuit = _is_circuit(track_dir)
+    if type(hotlap) is not bool or (hotlap and (laps is not None or circuit or not _has_ab_timing(track_file))):
+        return 400, {"error": "Hotlap is only available on a Route with start and finish timing"}
+    if laps is not None:
+        # AC represents the session's lap count as a signed 32-bit integer.
+        if type(laps) is not int or not 1 <= laps < 2**31:
+            return 400, {"error": "Enter a whole number of laps from 1 to 2147483647"}
+        if not circuit:
+            return 400, {"error": "A lap count is only available for a Circuit"}
     with lock:
         if job["state"] in ("running", "stopping"):
             return 409, {"error": "Not while a build is running"}
@@ -379,12 +461,14 @@ def play(name, clock=None, weather_options=None, car=None):
         return 409, {"error": "Steam did not start (or is not signed in): start it and try again"}
     ini = configparser.ConfigParser(interpolation=None, strict=False)
     ini.optionxform = str
+    race_file = race_ini()
     try:
-        ini.read(race_ini(), encoding="utf-8")
+        ini.read(race_file, encoding="utf-8-sig")
     except (configparser.Error, UnicodeDecodeError):
         ini = None
     if ini is None or not ini.has_option("RACE", "MODEL"):
         return 409, {"error": "Drive once in Assetto Corsa first, so Map2Lap knows your car"}
+    _previous_best(ac, race_file, ini)
     model = play_car()[0] if car is None else (last_car() if car == "" else car)
     if model and model != ini.get("RACE", "MODEL"):        # (the car set, its first skin)
         skins = os.path.join(ac, "content", "cars", model, "skins")
@@ -403,10 +487,16 @@ def play(name, clock=None, weather_options=None, car=None):
     for sec in ("REMOTE", "REPLAY", "BENCHMARK", "RESTART", "__PREVIEW_GENERATION"):
         if ini.has_section(sec):
             ini.set(sec, "ACTIVE", "0")
-    if not ini.has_section("SESSION_0"):
-        ini.add_section("SESSION_0")
-    for k, v in (("NAME", "Practice"), ("TYPE", "1"), ("DURATION_MINUTES", "0"), ("SPAWN_SET", "START")):
-        ini.set("SESSION_0", k, v)
+    session = {"NAME": "Practice", "TYPE": "1", "DURATION_MINUTES": "0", "SPAWN_SET": "START"}
+    if hotlap:
+        ini["SESSION_0"] = {**session, "NAME": "Hotlap", "TYPE": "4", "SPAWN_SET": "HOTLAP"}
+    elif laps is None:
+        if not ini.has_section("SESSION_0"):
+            ini.add_section("SESSION_0")
+        ini["SESSION_0"].update(session)
+        ini.remove_option("SESSION_0", "LAPS")
+    else:
+        ini["SESSION_0"] = {**session, "NAME": "Race", "TYPE": "3", "LAPS": str(laps), "WAIT_TIME": "0"}
     if clock is not None:
         if not ini.has_section("LIGHTING"):
             ini.add_section("LIGHTING")
@@ -418,18 +508,20 @@ def play(name, clock=None, weather_options=None, car=None):
         ini.add_section('LIGHTING')
     ini['LIGHTING']['__MAP2LAP_WEATHER_EFFECTS'] = str(int(effects))
     try:
-        weather.install_track(os.path.join(ac, 'content', 'tracks', name), weather.scenery_options(ini, selected_weather), effects=effects)
+        weather.install_track(track_dir, weather.scenery_options(ini, selected_weather), effects=effects)
         if ini.get('LIGHTING', '__CM_WEATHER_CONTROLLER', fallback='') == 'map2lap':
             weather.install_controller(ac)
     except OSError as error:
         return 409, {"error": f"Weather could not be prepared: {error}"}
-    with open(race_ini(), "w", encoding="utf-8") as f:
+    with open(race_file, "w", encoding="utf-8") as f:
         ini.write(f, space_around_delimiters=False)
     with lock:
         # Steam sign-in can take a while; a requested CSP install may have started since the first check.
         if csp.busy():
             return 409, {"error": "CSP is being installed: wait for it, then play"}
         system.start_ac(ac, weather_effects=effects)
+        if circuit or hotlap:
+            _watch_best(race_file, name, ini.get("RACE", "MODEL"))
     return 200, {"ok": True}
 
 
@@ -719,6 +811,15 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
         elif self.path == "/api/tracks":
             ac = settings.ac_path()
             tracks = [{**t, "build_files": has_build_files(t["name"]), "draft": trackedits.changes(ac, t["name"])} for t in mytracks.listing(ac)]
+            if tracks:
+                times = personalbest.fastest_by_track(os.path.join(system.documents(ac), "Assetto Corsa"))
+                for track in tracks:
+                    if track["kind"] == "route" and not track.get("area_m") and track["kn5_bytes"]:
+                        name = track["name"]
+                        track["hotlap"] = _has_ab_timing(os.path.join(ac, "content", "tracks", name, name + ".kn5"))
+                    if (best := times.get(track["name"].casefold())) is not None:
+                        model, elapsed = best
+                        track["best_lap"] = {"car": car_name(model), "time_ms": elapsed}
             self._send(200, {"tracks": tracks, "car": play_car()[1]})
         elif self.path == "/api/cars":
             last = last_car()
@@ -864,12 +965,15 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
             body = self._body()
             if self.path == "/api/route":
                 points = [tuple(p) for p in body["points"]]
-                if body.get("kind") == "circuit":
+                if body.get("circuit_draft") or body.get("kind") == "circuit":
                     try:
-                        lap = generator.circuit_route(points)
+                        if body.get("circuit_draft"):
+                            pts, length = generator.circuit_draft(points)
+                        else:
+                            lap = generator.circuit_route(points)
+                            pts, length = lap.coords, lap.length_m
                     except circuitlap.NoLap as e:
                         return self._send(400, {"error": str(e)})
-                    pts, length = lap.coords, lap.length_m
                 else:
                     pts, length = generator.route(points)
                 self._send(200, {"coords": pts, "length_m": length})
@@ -952,7 +1056,8 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                                         body.get("tree_spacing_m", info.get("tree_spacing_m", 0)),
                                         body.get("ground_quality", info.get("ground_quality", "sd")), **mode))
             elif self.path == "/api/play":
-                self._send(*play(generator.slug(body.get("name") or ""), body.get("clock"), body.get("weather"), body.get("car")))
+                self._send(*play(generator.slug(body.get("name") or ""), body.get("clock"), body.get("weather"), body.get("car"),
+                                 laps=body.get("laps"), hotlap=body.get("hotlap", False)))
             elif self.path == "/api/delete":
                 self._send(*delete_track(generator.slug(body.get("name") or "")))
             elif self.path == "/api/cache/clear":
@@ -982,6 +1087,7 @@ if __name__ == "__main__":
     system.trust_windows_certificates()
     srv = Server(("127.0.0.1", PORT), Handler)
     tidy_interrupted()
+    _resume_best()
     try:
         trackcopy.tidy(settings.ac_path() or "")
     except OSError:

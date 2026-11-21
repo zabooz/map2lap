@@ -3,6 +3,7 @@
 import {useCallback, useState} from "react";
 import {post} from "../../api";
 import {usePlay} from "../../hooks/usePlay";
+import type {TimedMode} from "../../types";
 import {isCurrent, type EditState, type TrackEdits} from "./edits";
 import type {TrackView} from "../scene/view";
 
@@ -15,7 +16,9 @@ const isAsBuilt = (s: EditState) => !isChanged(s) && !s.recipe;
 const clock = (at: number) => new Date(at * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
 
 /** Saving the track name, whose edits have the state now. onSaved: the track is saved as name (a copy: another one). */
-export function useSave({name, edits, state, view, onSaved}: {name: string; edits: TrackEdits; state: EditState; view: TrackView; onSaved: (name: string) => void}) {
+export function useSave({name, timedMode, edits, state, view, onSaved}: {
+  name: string; timedMode?: TimedMode; edits: TrackEdits; state: EditState; view: TrackView; onSaved: (name: string) => void;
+}) {
   const [asking, setAsking] = useState(false);
   const [saving, setSaving] = useState<{busy: boolean; text: string | null}>({busy: false, text: null});
   const [waiting, setWaiting] = useState<{play: boolean} | null>(null);   // (Save or Play pressed, changes still on their way)
@@ -94,7 +97,7 @@ export function useSave({name, edits, state, view, onSaved}: {name: string; edit
         const now = edits.state();
         return isCurrent(now) || isAsBuilt(now) ? name : write();
       })() : undefined;
-      const session = await choose(view.clockHours(), view.weatherOptions(), prepared);
+      const session = await choose(timedMode, view.clockHours(), view.weatherOptions(), prepared);
       if (!session) return;
       if (!prepared || await prepared) void play(name, session);
     },

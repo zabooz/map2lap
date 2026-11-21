@@ -3,14 +3,15 @@ import {post} from "../api";
 import {PlayDialog} from "../components/PlayDialog";
 import {DEFAULT_WEATHER} from "../editor/scene/weather";
 import type {WeatherOptions} from "../editor/scene/weather";
+import type {TimedMode} from "../types";
 
 const STARTING_MS = 5000;       // how long Play stays "Starting …": AC's window takes a while, the server answers at once
-export type PlaySession = {car: string; clock?: number; weather: WeatherOptions};
+export type PlaySession = {car: string; clock?: number; weather: WeatherOptions; laps?: number; hotlap?: true};
 
-/** Start AC on a track (Practice, the set car; the server starts Steam if needed); clock: the local hour to start at, else the last one. */
+/** Start AC with the chosen car and conditions in Practice, Race or Hotlap. */
 export function usePlay() {
   const [starting, setStarting] = useState(false);
-  const [asking, setAsking] = useState<{clock?: number; weather: WeatherOptions; saving: boolean; saveFailed: boolean;
+  const [asking, setAsking] = useState<{timedMode?: TimedMode; clock?: number; weather: WeatherOptions; saving: boolean; saveFailed: boolean;
     resolve: (session: PlaySession | null) => void} | null>(null);
 
   const play = async (name: string, session: PlaySession) => {
@@ -21,9 +22,10 @@ export function usePlay() {
   };
 
   /** Ask for this drive's options while an optional Editor Save runs. Null means the user cancelled. */
-  const choose = (clock?: number, weather: WeatherOptions = DEFAULT_WEATHER, saving?: Promise<string | null>): Promise<PlaySession | null> =>
+  const choose = (timedMode?: TimedMode, clock?: number, weather: WeatherOptions = DEFAULT_WEATHER,
+    saving?: Promise<string | null>): Promise<PlaySession | null> =>
     new Promise(resolve => {
-      const request = {clock, weather: {...weather}, saving: !!saving, saveFailed: false, resolve};
+      const request = {timedMode, clock, weather: {...weather}, saving: !!saving, saveFailed: false, resolve};
       setAsking(request);
       if (saving) void saving.then(saved => setAsking(current => current === request
         ? {...current, saving: false, saveFailed: saved === null} : current),
@@ -35,6 +37,6 @@ export function usePlay() {
   };
 
   return {starting, play, choose, choosing: !!asking,
-    dialog: asking && <PlayDialog initialClock={asking.clock} initialWeather={asking.weather} saving={asking.saving}
+    dialog: asking && <PlayDialog timedMode={asking.timedMode} initialClock={asking.clock} initialWeather={asking.weather} saving={asking.saving}
       saveFailed={asking.saveFailed} onStart={finish} onCancel={() => finish(null)} />};
 }

@@ -57,9 +57,10 @@ test("terrain toggle follows codes, builds and rebuilds while the log remains ac
   await page.getByLabel("Track name").fill("Grid trial");
   await clickMap(page, .3, .3);
   await clickMap(page, .6, .6);
-  await expect(card(page)).toContainText("1 m grid");
-  await expect(card(page)).toContainText("Cars off");
-  await expect(card(page)).toContainText("Trees min. 5.5 m");
+  for (const [label, value] of [["Terrain grid", "1 m"], ["Ground textures", "HD"], ["Parked cars", "Off"], ["Tree spacing", "Min. 5.5 m"]]) {
+    const row = card(page).locator("dl > div").filter({has: page.getByText(label, {exact: true})});
+    await expect(row.locator("dd")).toHaveText(value);
+  }
   const code = page.getByRole("textbox", {name: "Track code"});
   await expect(code).toHaveValue(/^M2L3-/);
   const decoded = await page.request.post("/api/code", {data: {code: await code.inputValue()}});
@@ -96,7 +97,7 @@ test("terrain toggle follows codes, builds and rebuilds while the log remains ac
   await expect(card(page)).toContainText("Installed in Assetto Corsa.");
 });
 
-test("My tracks gives the list the free space and Edited has no build controls, even when empty", async ({page}) => {
+test("My tracks shares space between the list and build controls; Edited has no build controls", async ({page}) => {
   await page.setViewportSize({width: 1500, height: 1280});
   await page.goto('/');
   await page.locator('#t-mine').click();
@@ -104,7 +105,8 @@ test("My tracks gives the list the free space and Edited has no build controls, 
   const list = (await page.locator('#pane-mine').boundingBox())!;
   const panel = (await page.getByRole('region', {name: 'Build details', exact: true}).boundingBox())!;
   expect(list.height).toBeGreaterThan(panel.height);
-  expect(panel.height).toBeLessThanOrEqual(320);
+  expect(panel.height / list.height).toBeGreaterThan(0.6);
+  expect(panel.y).toBeGreaterThanOrEqual(list.y + list.height);
   await page.getByRole('button', {name: 'Edited', exact: true}).click();
   await expect(page.getByRole('tab', {name: 'Build options', exact: true})).toHaveCount(0);
   await expect(page.getByRole('tab', {name: 'Build log', exact: true})).toHaveCount(0);

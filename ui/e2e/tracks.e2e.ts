@@ -68,6 +68,7 @@ test("My tracks: the list, a picked track on the card, its code, old ones marked
   await expect(card(page)).toContainText("Alpha Test");
   await expect(list.first()).toHaveAttribute('aria-pressed', 'true');
   await expect(list.filter({hasText: "Gamma Old"})).toContainText("old");
+  await expect(list.first()).not.toContainText("km");
   await list.filter({hasText: "Alpha Test"}).click();
   await expect(card(page)).toContainText("Alpha Test");
   await expect(card(page)).toContainText("up to date");

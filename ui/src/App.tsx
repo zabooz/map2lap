@@ -27,7 +27,7 @@ import {useRelease} from "./hooks/useRelease";
 import {useSettings} from "./hooks/useSettings";
 import {useStored} from "./hooks/useStored";
 import {useTracks} from "./hooks/useTracks";
-import type {BuildOptions, EditorLoadStatus, Mode, Tab, Track, TrackGroup} from "./types";
+import type {BuildOptions, EditorLoadStatus, Mode, Tab, TimedMode, Track, TrackGroup} from "./types";
 
 const EditorScene = lazy(() => import("./editor/EditorScene"));
 
@@ -35,6 +35,8 @@ const TABS: readonly Tab[] = ["new", "mine", "edit"];
 const GROUPS: readonly TrackGroup[] = ["built", "edited"];
 
 const NO_AC = "Assetto Corsa not found: choose its folder under Settings";
+const timedMode = (kind?: Mode, hotlap?: boolean): TimedMode | undefined =>
+  kind === "circuit" ? "race" : hotlap ? "hotlap" : undefined;
 const HINTS: Record<Mode | Exclude<Tab, "new">, string> = {
   route: "Click to set start, finish and waypoints · drag to move · right-click to remove",
   area: "Press and drag to draw the area · drag a corner to resize · \"Clear\" removes it",
@@ -94,6 +96,7 @@ export function App() {
   const picked = mine ? tracks.find(t => t.name === picks[group] && groupOf(t) === group)
     ?? tracks.find(t => groupOf(t) === group) : undefined;
   const pick = picked?.name ?? null;
+  const hasRebuildPanel = mine && group === "built" && !!picked;
   const options: BuildOptions = mine ? {terrain_cell_m: picked?.terrain_cell_m ?? 2, parked_cars: picked?.parked_cars ?? true,
     tree_spacing_m: picked?.tree_spacing_m ?? 0, ground_quality: picked?.ground_quality ?? "sd", ...(picked ? rebuildOptions[picked.name] : {})} : track.options;
   const setOptions = (value: Partial<BuildOptions>) => {
@@ -108,8 +111,10 @@ export function App() {
   const editing = tracks.find(t => t.name === editTrack && t.kn5_bytes);      // (deleted meanwhile: none)
   const shownEditTrack = editing ? editTrack : "";
   const result = ["done", "error", "stopped"].includes(status.state) && showResult;
+  const installed = tracks.find(t => t.name === status.result?.name);
   const outdated = tracks.some(t => t.outdated);
-  const playTitle = !acOk ? NO_AC : car ? `Practice with ${car}, the car you drove last` : "Practice with the car you drove last";
+  const playTitle = (kind?: Mode) => !acOk ? NO_AC : kind === "circuit" ? "Drive this Circuit in Assetto Corsa"
+    : car ? `Practice with ${car}, the car you drove last` : "Practice with the car you drove last";
 
   const pickTrack = (t: Track) => {
     setPicks(old => ({...old, [groupOf(t)]: t.name}));
@@ -165,12 +170,12 @@ export function App() {
   const goText = busy ? (status.state === "stopping" ? "Stopping …" : "Stop build") : !mine ? "Build track" : group === "edited" ? "Edit" : "Rebuild";
   const goTitle = busy ? undefined : !acOk ? NO_AC : !mine ? undefined : group === "edited" ? "Open it in the Editor" : "Build it again with this version and replace it";
 
-  const startPlay = async (name: string) => {
-    const session = await choose();
+  const startPlay = async (name: string, kind?: Mode, hotlap?: boolean) => {
+    const session = await choose(timedMode(kind, hotlap));
     if (session) void play(name, session);
   };
-  const playButton = (name: string) => (
-    <PlayButton title={playTitle} disabled={!acOk || starting} starting={starting} onClick={() => void startPlay(name)} />
+  const playButton = (name: string, kind?: Mode, hotlap?: boolean) => (
+    <PlayButton title={playTitle(kind)} disabled={!acOk || starting} starting={starting} onClick={() => void startPlay(name, kind, hotlap)} />
   );
 
   const tabButton = (t: Tab, text: string, extra?: ReactNode) => (
@@ -209,22 +214,16 @@ export function App() {
 
         <EditorPanel tracks={tracks} choice={shownEditTrack} status={editStatus} hidden={tab !== "edit"} fileRef={setFileHost} savedRef={setSavedHost} toolsRef={setToolsHost} notesRef={setNotesHost} onChoose={setEditTrack} />
 
-        <div id="work" className="view" hidden={tab === "edit"}>
+        <div id="work" className={`view${hasRebuildPanel ? ` ${styles.rebuildView}` : ""}`} hidden={tab === "edit"}>
           <div className={`${styles.panes}${mine ? ` ${styles.mine}` : ""}`}>
             <NewTrackPane track={track} off={tab !== "new"} busy={busy} onMove={setMove} />
             {mine && <MyTracksPane tracks={tracks} group={group} pick={pick}
               onGroup={value => { setGroup(value); setShowResult(false); }} onPick={pickTrack} />}
           </div>
 
-          <StatusCard status={status} showResult={showResult} tab={tab} mode={track.mode} group={group} picked={picked}
-                      selection={track.selection} width={track.width} options={options} hasTracks={tracks.some(t => groupOf(t) === group)} version={version}
-                      playButton={playButton} footer={!busy && !result && picked && (
-            <CardCode code={picked.edited ? null : picked.code ?? ""} onDelete={() => void deleteTrack(picked)} />
-          )} />
-
-          {(!mine || (group === "built" && picked)) && <BuildPanel tab={buildTab} onTab={setBuildTab} options={options} onOptions={setOptions}
+          {(!mine || hasRebuildPanel) && <BuildPanel tab={buildTab} onTab={setBuildTab} options={options} onOptions={setOptions}
                       corridor={(mine ? picked && !picked.area : track.mode !== "area") ? {width, onWidth: setWidth} : undefined}
-                      compact={mine} disabled={busy || (mine && !picked)} busy={busy} text={build.log} started={status.started} focusLog={focusLog} />}
+                      separated={hasRebuildPanel} disabled={busy || (mine && !picked)} busy={busy} text={build.log} started={status.started} focusLog={focusLog} />}
 
           <div id="actions" className={`${styles.actions}${mine ? ` ${group === "edited" ? styles.edited : styles.mine}` : ""}`}>
             {mine && group === "built" && (
@@ -237,22 +236,34 @@ export function App() {
             )}
             <button id="go" className={busy ? styles.danger : styles.primary} title={goTitle} disabled={goDisabled} onClick={onGo}>{goText}</button>
             {mine && (
-              <button className={styles.playAct} title={playTitle} onClick={() => { if (pick) void startPlay(pick); }}
+              <button className={styles.playAct} title={playTitle(picked?.kind)} onClick={() => { if (picked) void startPlay(picked.name, picked.kind, picked.hotlap); }}
                       disabled={busy || !picked?.kn5_bytes || starting || !acOk}>{starting ? "Starting …" : "▶ Play"}</button>
             )}
           </div>
 
         </div>
-        <ThemeSwitch />
+        {tab === "edit" && <ThemeSwitch />}
       </aside>
 
-      <main className={styles.main} inert={settingsOpen}>
-        <TrackMap tab={tab} track={track} picked={picked} move={move} />
-        {hint && <div className={styles.hint}>{hint}</div>}
+      <main className={`${styles.main}${tab !== "edit" ? ` ${styles.withDetails}` : ""}`} inert={settingsOpen}>
+        <div className={styles.mapSpace}>
+          <TrackMap tab={tab} track={track} picked={picked} move={move} />
+          {hint && <div className={styles.hint}>{hint}</div>}
+        </div>
+        {tab !== "edit" && <aside className={styles.details} aria-label="Track details">
+          <ThemeSwitch top />
+          <StatusCard status={status} showResult={showResult} tab={tab} mode={track.mode} group={group} picked={picked}
+                      installed={installed} title={track.title.trim()} selection={track.selection} width={track.width}
+                      options={options} hasTracks={tracks.some(t => groupOf(t) === group)} version={version}
+                      playButton={playButton} footer={!busy && !result && picked && (
+            <CardCode code={picked.edited ? null : picked.code ?? ""} onDelete={() => void deleteTrack(picked)} />
+          )} />
+        </aside>}
         {editorSeen && (
           <ErrorBoundary message="The 3D view could not start">
             <Suspense fallback={null}>
-              <EditorScene name={shownEditTrack} title={editing?.title ?? ""} taken={tracks.filter(t => t !== editing).map(t => t.title)}
+              <EditorScene name={shownEditTrack} title={editing?.title ?? ""} timedMode={timedMode(editing?.kind, editing?.hotlap)}
+                           taken={tracks.filter(t => t !== editing).map(t => t.title)}
                            built={editing?.built ?? null} visible={tab === "edit"} controls={controls} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost}
                            onStatus={reportEditLoad} onSaved={onSaved} onDelete={() => { if (editing) void deleteTrack(editing); }} />
             </Suspense>

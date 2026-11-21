@@ -42,6 +42,12 @@ function View({move}: {move: MapMove | null}) {
   });
 
   useEffect(() => {
+    const resize = new ResizeObserver(() => map.invalidateSize({debounceMoveend: true}));
+    resize.observe(map.getContainer());
+    return () => resize.disconnect();
+  }, [map]);
+
+  useEffect(() => {
     if (move?.kind === "fit") map.fitBounds(move.bounds, {padding: [move.padding, move.padding], maxZoom: move.maxZoom});
     else if (move?.kind === "fitCircuit") {
       const coords = circuitLine(move.coords, map.getCenter().lng);
@@ -123,7 +129,7 @@ function Route({track}: {track: NewTrack}) {
     <>
       {coords && <Corridor coords={coords} width={track.width} />}
       {coords && <Polyline positions={coords} pathOptions={{color: ROUTE_COLOR, weight: 4}} />}
-      {circuit && coords && routeKm !== undefined && <LapArrows coords={coords} lengthM={routeKm * 1000} />}
+      {track.circuitClosed && coords && routeKm !== undefined && <LapArrows coords={coords} lengthM={routeKm * 1000} />}
       {track.points.map((p, i) => (
         <PointMarker key={p.id} track={track} point={p} lon={ref === undefined ? p.lon : longitudeNear(p.lon, ref)}
                      label={circuit ? (i === 0 ? "S" : String(i + 1)) : i === 0 ? "Start" : i === n - 1 ? "Finish" : String(i)} />

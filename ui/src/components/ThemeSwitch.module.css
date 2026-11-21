@@ -1,6 +1,7 @@
 .row { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
        padding-top: 12px; border-top: 1px solid var(--line); }
-.label { color: var(--muted); font-size: 12px; }
+.row.top { gap: 8px; padding: 0 0 12px; border-top: 0; border-bottom: 1px solid var(--line); }
+.label { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .choices { display: flex; gap: 3px; padding: 3px; border-radius: 9px; background: var(--raised); border: 1px solid var(--line); }
 .choices button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; padding: 4px 10px;
                   border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }

@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from "react";
 import {createPortal} from "react-dom";
+import type {TimedMode} from "../types";
 import {useKerbs} from "./tools/useKerbs";
 import {useStitch} from "./tools/useStitch";
 import {ToolToasts} from "./tools/ToolToasts";
@@ -50,10 +51,11 @@ import {editorToasts} from "./editorToasts";
     Each tool hook hands its controller to useToolHost, which routes the view's input and the keys (toolDefs.globalKey; they count while the focus is in scene or in
     those hosts). A new tool: its definition (toolDefs), its hook called here and its controller in `controllers`. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
     tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). onDelete: Delete was pressed. */
-export function EditTools({name, title, visible, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, inspectorHost,
+export function EditTools({name, title, timedMode, visible, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, inspectorHost,
   inspectorWidth, onInspectorWidth, inspectorCollapsed, onInspectorCollapsed, elevationSpeed, reopen, onSaved, onDelete}: {
   name: string;
   title: string;
+  timedMode?: TimedMode;
   visible: boolean;
   taken: string[];
   view: TrackView;
@@ -110,7 +112,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   // (Copy, Insert and Groups register their wheel from their own components, which stay mounted with the Library)
   const placingWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
   const setPlacingWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { placingWheel.current = wheel; }, []);
-  const saving = useSave({name, edits, state, view, onSaved});
+  const saving = useSave({name, timedMode, edits, state, view, onSaved});
   const painting = usePaint(name, edits, view);
   const walls = useWalls(name, edits);
   const wallIds = (tool === "select" || tool === "move") && editable ? view.objects.wallIds((picked?.all ?? []).map(p => p.id)) : [];

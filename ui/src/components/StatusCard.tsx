@@ -1,7 +1,7 @@
-import type {ReactNode} from "react";
-import {fmtBytes, fmtDate, fmtSize, fmtTime} from "../format";
+import {useId, type ReactNode} from "react";
+import {fmtBytes, fmtDate, fmtLap, fmtSize, fmtTime} from "../format";
 import {MAX_KM, type Selection} from "../hooks/useNewTrack";
-import type {BuildOptions, BuildStatus, Mode, Tab, Track, TrackGroup} from "../types";
+import type {BestLap, BuildOptions, BuildStatus, Mode, Tab, Track, TrackGroup} from "../types";
 import {CodeField} from "./CodeField";
 import {TrashIcon} from "./icons";
 import styles from "./StatusCard.module.css";
@@ -35,7 +35,7 @@ function Progress({status}: {status: BuildStatus}) {
 }
 
 function Stat({label, value}: {label: string; value: string | number}) {
-  return <div><small>{label}</small><b>{value}</b></div>;
+  return <div><dt>{label}</dt><dd>{value}</dd></div>;
 }
 
 const big = (title: ReactNode, note: ReactNode) => (
@@ -43,10 +43,19 @@ const big = (title: ReactNode, note: ReactNode) => (
 );
 
 function OptionsSummary({options}: {options: BuildOptions}) {
-  return <p className={styles.options}>
-    <span>{options.ground_quality.toUpperCase()} ground</span><span>{options.terrain_cell_m} m grid</span><span>Cars {options.parked_cars ? "on" : "off"}</span>
-    <span>{options.tree_spacing_m ? `Trees min. ${options.tree_spacing_m} m` : "Original trees"}</span>
-  </p>;
+  return <dl className={styles.stats}>
+    <Stat label="Terrain grid" value={`${options.terrain_cell_m} m`} />
+    <Stat label="Ground textures" value={options.ground_quality.toUpperCase()} />
+    <Stat label="Parked cars" value={options.parked_cars ? "On" : "Off"} />
+    <Stat label="Tree spacing" value={options.tree_spacing_m ? `Min. ${options.tree_spacing_m} m` : "Original"} />
+  </dl>;
+}
+
+function BestLapSummary({best, stage}: {best?: BestLap; stage?: boolean}) {
+  return <div className={styles.best}>
+    <div><span>{stage ? "Best time" : "Best lap"}</span><strong>{best ? fmtLap(best.time_ms) : "—"}</strong></div>
+    {best && <p>{best.car}</p>}
+  </div>;
 }
 
 /** A picked track's lines. */
@@ -56,19 +65,24 @@ function PickedTrack({track: t, version}: {track: Track; version: string}) {
     : t.current_copy ? `Built with ${was}; “${t.current_copy}” is the current build.` : `Built with ${was}, up to date.`;
   return (
     <>
-      <div className={`${styles.big} ell`}>{t.title}</div>
-      <p className="small muted">
-        {fmtSize(t)}{t.area ? "" : ` · corridor ±${Math.round(t.width ?? 0)} m`} · {t.tiles} tiles
-        {t.kn5_bytes ? ` · ${fmtBytes(t.kn5_bytes)}` : ""}
-      </p>
-      <p className="small muted ell">{built}</p>
+      <h2 className={styles.title}>{t.title}</h2>
+      <dl className={styles.stats}>
+        <Stat label={t.area ? "Dimensions" : "Length"} value={fmtSize(t)} />
+        {!t.area && t.width != null && <Stat label="Corridor" value={`±${Math.round(t.width)} m`} />}
+        <Stat label="Tiles" value={t.tiles} />
+        {!!t.kn5_bytes && <Stat label="Track file" value={fmtBytes(t.kn5_bytes)} />}
+      </dl>
+      <p className="small muted">{built}</p>
+      {(t.best_lap || t.kind === "circuit" || t.hotlap) && <BestLapSummary best={t.best_lap} stage={t.hotlap} />}
     </>
   );
 }
 
 /** What the card shows: a build's progress or result, the picked track, or what is selected. Pure. */
 function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: Mode; group: TrackGroup; picked: Track | undefined;
-                     selection: Selection | null; width: number; options: BuildOptions; hasTracks: boolean; version: string; playButton: (name: string) => ReactNode}): Shown {
+                     title: string; installed: Track | undefined; selection: Selection | null; width: number;
+                     options: BuildOptions; hasTracks: boolean; version: string;
+                     playButton: (name: string, kind?: Mode, hotlap?: boolean) => ReactNode}): Shown {
   const {status: s, picked: t, selection: sel} = a;
   const circuit = a.mode === "circuit";
   const pinMode = circuit ? "Circuit" : "Route";
@@ -77,20 +91,23 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
   }
   if (a.showResult && s.state === "done" && s.result) {
     const r = s.result;
+    const hotlap = a.installed?.hotlap ?? r.hotlap;
     return {badge: ["Done", "ok"], time: fmtTime(r.seconds), body: (
       <>
-        <div className={styles.stats}>
-          <Stat label="Track file" value={fmtBytes(r.kn5_bytes)} />
-          <Stat label={r.area_m ? "Area" : "Length"} value={fmtSize(r)} />
-          <Stat label="Build time" value={fmtTime(r.seconds)} />
+        <h2 className={styles.title}>{a.installed?.title ?? r.title ?? r.name}</h2>
+        <dl className={styles.stats}>
+          <Stat label={r.area_m ? "Dimensions" : "Length"} value={fmtSize(r)} />
+          {a.installed?.width != null && <Stat label="Corridor" value={`±${Math.round(a.installed.width)} m`} />}
           <Stat label="Tiles" value={r.tiles} />
-        </div>
-        <div className={styles.foot}><p className="small muted">Installed in Assetto Corsa.</p>{a.playButton(r.name)}</div>
+          <Stat label="Track file" value={fmtBytes(r.kn5_bytes)} />
+        </dl>
+        {(a.installed?.best_lap || r.kind === "circuit" || hotlap) && <BestLapSummary best={a.installed?.best_lap} stage={hotlap} />}
+        <div className={styles.foot}><p className="small muted">Installed in Assetto Corsa.</p>{a.playButton(r.name, r.kind, hotlap)}</div>
       </>)};
   }
   if (a.showResult && s.state === "error") {
     return {badge: ["Error", "bad"], time: fmtTime(s.elapsed), body: (
-      <><p className={styles.err}>{s.error || "The build failed"}</p><p className="small muted">Details in the log below.</p></>)};
+      <><p className={styles.err}>{s.error || "The build failed"}</p><p className="small muted">See the Build log.</p></>)};
   }
   if (a.showResult && s.state === "stopped") {
     return {badge: ["Stopped", "bad"], time: fmtTime(s.elapsed),
@@ -107,12 +124,29 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
       : big("No tracks yet", "Tracks you build show up here.")};
   }
   if (sel?.kind === "route") {
-    return {badge: sel.ok ? [pinMode, "ok"] : ["Too long", "bad"], body: <>{big(`${sel.km.toFixed(2)} km`,
-      sel.ok ? `Corridor ±${a.width} m on each side of the ${circuit ? "lap" : "route"}` : `At most ${MAX_KM} km per track`)}<OptionsSummary options={a.options} /></>};
+    const tooLong = sel.km > MAX_KM;
+    return {badge: tooLong ? ["Too long", "bad"] : [pinMode, sel.openCircuit ? "" : "ok"], body: (
+      <>
+        {a.title && <h2 className={styles.title}>{a.title}</h2>}
+        <dl className={styles.stats}>
+          <Stat label="Length" value={`${sel.km.toFixed(2)} km`} />
+          <Stat label="Corridor" value={`±${a.width} m`} />
+        </dl>
+        {tooLong && <p className="small muted">At most {MAX_KM} km per track</p>}
+        <OptionsSummary options={a.options} />
+      </>)};
   }
   if (sel?.kind === "area") {
-    return {badge: ["Area", "ok"], body: <>{big(`${(sel.w / 1000).toFixed(2)} × ${(sel.h / 1000).toFixed(2)} km`,
-      `${(sel.w * sel.h / 1e6).toFixed(1)} km² · ${sel.tiles} tiles`)}<OptionsSummary options={a.options} /></>};
+    return {badge: ["Area", "ok"], body: (
+      <>
+        {a.title && <h2 className={styles.title}>{a.title}</h2>}
+        <dl className={styles.stats}>
+          <Stat label="Dimensions" value={`${(sel.w / 1000).toFixed(2)} × ${(sel.h / 1000).toFixed(2)} km`} />
+          <Stat label="Area" value={`${(sel.w * sel.h / 1e6).toFixed(1)} km²`} />
+          <Stat label="Tiles" value={sel.tiles} />
+        </dl>
+        <OptionsSummary options={a.options} />
+      </>)};
   }
   if (sel?.kind === "msg") {
     return {badge: sel.bad ? ["Error", "bad"] : [pinMode, ""], body: <p className={sel.bad ? styles.err : "muted"}>{sel.text}</p>};
@@ -133,18 +167,18 @@ export function PlayButton({title, disabled, starting, onClick}: {title: string;
   );
 }
 
-/** The picked track's code, with delete beside it. code null: delete alone, in its place (an edited track: a code would only build it
-    without its edits). */
+/** The picked track's code and delete action. An edited track has no code. */
 export function CardCode({code, onDelete}: {code: string | null; onDelete: () => void}) {
+  const id = useId();
   return (
     <div id="card-code" className={styles.code}>
-      {code !== null && <CodeField code={code} />}
-      <button className={styles.icon} title="Delete track" aria-label="Delete track" onClick={onDelete}><TrashIcon /></button>
+      {code !== null && <><label htmlFor={id}>Track code</label><CodeField id={id} code={code} /></>}
+      <button type="button" className={styles.delete} onClick={onDelete}><TrashIcon />Delete track</button>
     </div>
   );
 }
 
-/** The status card: one place, always the same height. footer: the picked track's code under it. */
+/** Track details and build status. footer: the picked track's code under it. */
 export function StatusCard(props: Parameters<typeof shownOf>[0] & {footer: ReactNode}) {
   const {badge, time, body} = shownOf(props);
   return (

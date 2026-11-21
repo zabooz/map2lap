@@ -10,17 +10,22 @@
 .stack > [hidden] { display: flex !important; visibility: hidden; }
 .block { display: flex; flex-direction: column; gap: 14px; }
 
-/* The lap's return row stays visible within the space allotted to the pins. */
-.stopList { max-height: 126px; display: flex; flex-direction: column; gap: 6px; }
-.stops { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+/* The first five pin rows fit without scrolling; the lap's return row sits below them. */
+.stopList { display: flex; flex-direction: column; gap: 6px; }
+.stops { --stop-height: 38px; --stop-gap: 6px; min-height: 0; overflow-y: auto; display: flex;
+         flex-direction: column; gap: var(--stop-gap); max-height: calc(5 * var(--stop-height) + 4 * var(--stop-gap)); }
 .stop { flex: none; display: flex; gap: 6px; }
-.stop input { flex: 1; min-width: 0; }
+.stop input { flex: 1; min-width: 0; height: var(--stop-height); }
 .stop .tag { flex: none; align-self: center; width: 22px; height: 22px; border-radius: 50%; display: grid;
              place-items: center; font-size: 11px; font-weight: 700; background: var(--line); color: var(--muted); }
 .stop .tag.start { background: #26a654; color: #fff; }       /* (the colours of the START / FINISH banners) */
 .stop .tag.finish { background: #e0243a; color: #fff; }
 .stop .tag svg { display: block; }
 .lap { align-items: center; min-height: 22px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.stop .x { flex: none; width: 38px; height: 38px; border: 1px solid var(--line); border-radius: 9px;
+.stopActions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px;
+               margin-top: 5px; padding-top: 8px; border-top: 1px solid var(--line); }
+.closeCircuit:not(:disabled) { background: var(--accent); color: var(--accent-ink); }
+.closeCircuit:not(:disabled):hover { background: var(--accent-soft); color: var(--accent); }
+.stop .x { flex: none; width: 38px; height: var(--stop-height); border: 1px solid var(--line); border-radius: 9px;
            background: var(--raised); color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; }
 .stop .x:hover { color: var(--accent); border-color: var(--accent); }

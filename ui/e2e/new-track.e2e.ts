@@ -72,13 +72,12 @@ test("the corridor's slider shows on the card", async ({page}) => {
   await expect(card(page)).toContainText("±200 m");
 });
 
-test("a stop by search: one result is taken, several to choose by arrows, none is said", async ({page}) => {
+test("an existing stop can move by search, with several matches or none", async ({page}) => {
   await page.goto("/");
   await clickMap(page, 0.3, 0.3);
   await clickMap(page, 0.6, 0.6);
   await expect(card(page)).toContainText("1.00 km");
-  await expect(button(page, "+ Add a stop")).toHaveCount(0);
-  const field = page.getByRole("textbox", {name: "Next stop", exact: true});
+  const field = page.getByRole("textbox", {name: "Finish", exact: true});
   await field.fill("Nowhere");
   await field.press("Enter");
   const drop = page.getByTestId("search-drop");
@@ -90,19 +89,16 @@ test("a stop by search: one result is taken, several to choose by arrows, none i
   await expect(drop.getByRole("button")).toHaveCount(2);
   await field.press("ArrowDown");
   await field.press("Enter");
-  await expect(card(page)).toContainText("2.00 km");
-  await expect(page.getByLabel("Finish")).toHaveValue("Springfield, Massachusetts, United States");
-  await expect(page.getByLabel("Stop 1")).toBeVisible();
+  await expect(field).toHaveValue("Springfield, Massachusetts, United States");
+  await expect(pins(page)).toHaveCount(2);
 });
 
-test("the next-stop search never adds an empty pin, and map clicks append points directly", async ({page}) => {
+test("after two pins, map clicks add stops without an extra search field", async ({page}) => {
   await page.goto("/");
   await clickMap(page, 0.3, 0.3);
   await clickMap(page, 0.6, 0.6);
-  await page.getByRole("textbox", {name: "Next stop", exact: true}).focus();
+  await expect(page.getByRole("textbox", {name: "Next stop", exact: true})).toHaveCount(0);
   await expect(pins(page)).toHaveCount(2);
-  await page.getByLabel("Track name").click();
-  await expect(page.getByRole("textbox", {name: "Next stop", exact: true})).toHaveValue("");
   await expect(page.getByLabel("Stop 1")).toBeHidden();
   await clickMap(page, .7, .5);
   await expect(pins(page)).toHaveCount(3);
@@ -182,6 +178,11 @@ test("Circuit closes a lap through its numbered pins and builds it", async ({pag
   await page.addInitScript(() => localStorage.setItem("map2lap.view", JSON.stringify({c: [48.5, 11], z: 16})));
   await page.goto("/");
   await button(page, "Circuit").click();
+  const close = button(page, "Close circuit");
+  const previews: {kind?: string}[] = [];
+  page.on("request", request => {
+    if (new URL(request.url()).pathname === "/api/route") previews.push(request.postDataJSON());
+  });
   await page.getByLabel("Track name").fill("Testtown Circuit");
   await expect(page.getByPlaceholder("Next pin: search or click the map")).toBeVisible();
   const width = page.getByLabel("Corridor each side");
@@ -190,12 +191,25 @@ test("Circuit closes a lap through its numbered pins and builds it", async ({pag
   await expect(page.getByText("Click to set pins in driving order · drag to move · right-click to remove")).toBeVisible();
   await clickMap(page, .3, .3);
   await expect(card(page)).toContainText("Now click the next pin.");
+  await expect(close).toBeDisabled();
   await clickMap(page, .62, .33);
+  await expect(page.getByPlaceholder("Next pin: search or click the map")).toHaveCount(0);
   await clickMap(page, .46, .65);
   await expect(pins(page).locator("span")).toHaveText(["S", "2", "3"]);
   await expect(page.getByLabel("Finish", {exact: true})).toBeHidden();
-  await expect(page.getByText("Back to S · Lap 3.0 km", {exact: true})).toBeVisible();
+  await expect(card(page)).toContainText("2.00 km");
+  await expect(button(page, "Build track")).toBeDisabled();
+  await expect(page.getByTestId("lap-arrow")).toHaveCount(0);
+  expect(previews.length).toBeGreaterThan(0);
+  expect(previews.every(preview => preview.kind === undefined)).toBe(true);
   const line = page.locator(".leaflet-overlay-pane path").last();
+  await expect(line).toBeVisible();
+  const [openStart, ...openLegs] = (await line.getAttribute("d"))!.split("L");
+  expect(openLegs).toHaveLength(2);
+  expect(openLegs.at(-1)).not.toBe(openStart.slice(1));
+  const [closed] = await Promise.all([page.waitForRequest("**/api/route"), close.click()]);
+  expect(closed.postDataJSON()).toMatchObject({kind: "circuit"});
+  await expect(page.getByText("Back to S · Lap 3.0 km", {exact: true})).toBeVisible();
   await expect(line).toBeVisible();
   const [start, ...legs] = (await line.getAttribute("d"))!.split("L");
   expect(legs).toHaveLength(3);
@@ -255,7 +269,7 @@ test("Circuit fits a pasted lap and a saved lap across the antimeridian", async 
   const {code} = await (await page.request.post("/api/code", {data: {make: {kind: "circuit", title, points, width: 100}}})).json();
   const field = page.getByRole("textbox", {name: "Track code"});
   await field.fill(code);
-  const routed = page.waitForRequest("**/api/route");
+  const routed = page.waitForRequest(request => new URL(request.url()).pathname === "/api/route" && request.postDataJSON().kind === "circuit");
   await field.press("Enter");
   const sent = (await routed).postDataJSON();
   expect(sent.kind).toBe("circuit");
@@ -301,18 +315,28 @@ test("Circuit shows a lap refusal in the status card", async ({page}) => {
   let release!: () => void;
   const ready = new Promise<void>(resolve => { release = resolve; });
   await page.route("**/api/route", async route => {
+    if (route.request().postDataJSON().kind !== "circuit") return route.continue();
     await ready;
     await route.fulfill({status: 400, json: {error}});
   });
   await button(page, "Circuit").click();
   await clickMap(page, .3, .3);
   await clickMap(page, .6, .6);
+  await expect(card(page)).toContainText("1.00 km");
+  const line = page.locator(".leaflet-overlay-pane path").last();
+  await expect(line).toBeVisible();
+  const open = await line.getAttribute("d");
   try {
+    await button(page, "Close circuit").click();
     await expect(page.getByText("Back to S", {exact: true})).toBeVisible();
     await expect(button(page, "Build track")).toBeDisabled();
   } finally {
     release();
   }
   await expect(card(page)).toContainText(`Circuit: ${error}`);
+  await expect(line).toHaveAttribute("d", open!);
   await expect(button(page, "Build track")).toBeDisabled();
+  await clickMap(page, .68, .35);
+  await expect(card(page)).toContainText("2.00 km");
+  await expect(button(page, "Close circuit")).toBeEnabled();
 });

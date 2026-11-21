@@ -27,13 +27,13 @@ function CopyButton({text}: {text: string}) {
 
 /** A track code to copy. onPaste: a code typed or pasted into it (none: read only); a half-typed one gives way to code
     when the field is left. */
-export function CodeField({code, onPaste}: {code: string; onPaste?: (text: string) => void}) {
+export function CodeField({code, onPaste, id}: {code: string; onPaste?: (text: string) => void; id?: string}) {
   const [typed, setTyped] = useState<string | null>(null);
   const pasting = useRef(false);
 
   return (
     <div className={styles.wrap}>
-      <input type="text" spellCheck={false} autoComplete="off" aria-label="Track code"
+      <input id={id} type="text" spellCheck={false} autoComplete="off" aria-label="Track code"
              placeholder={onPaste ? "Paste a track code" : undefined} readOnly={!onPaste} value={typed ?? code}
              onPaste={() => { pasting.current = true; }}
              onChange={e => {
