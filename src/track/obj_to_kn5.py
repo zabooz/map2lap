@@ -381,24 +381,30 @@ def _closed_lap(route_xy):
     return xy, np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
 
 
-def _lap_crossings(xy, a, b):
-    """Crossing vertex and edge indices on the ENU lap without its closing copy. Pure."""
+def _path_crossings(xy, a, b, *, closed=True):
+    """Crossing vertex and edge indices on the ENU path, without a repeated closing vertex. Pure."""
     line = np.subtract(b, a)
     span = line @ line
-    if len(xy) < 3 or span == 0:
+    if len(xy) < (3 if closed else 2) or span == 0:
         return (), ()
     rel = xy - a
     side = rel[:, 0] * line[1] - rel[:, 1] * line[0]
     along = rel @ line
     next_side, next_along = np.roll(side, -1), np.roll(along, -1)
     collinear = (side == 0) & (next_side == 0)
+    if not closed:
+        collinear[-1] = False   # there is no edge back to the start of an open route
     if np.any(collinear & (np.maximum(along, next_along) >= 0) & (np.minimum(along, next_along) <= span)):
         return (), ()
     # Count each visit at a vertex once. A touch that comes back to the same side cannot be a timing crossing.
     vertices = (side == 0) & (along >= 0) & (along <= span)
+    if not closed and (vertices[0] or vertices[-1]):
+        return (), ()
     if np.any(vertices & (np.roll(side, 1) * next_side >= 0)):
         return (), ()
     through = side * next_side < 0
+    if not closed:
+        through[-1] = False
     t = side[through] / (side[through] - next_side[through])
     crossing = along[through] + t * (next_along[through] - along[through])
     return np.flatnonzero(vertices), np.flatnonzero(through)[(crossing >= 0) & (crossing <= span)]
@@ -406,12 +412,12 @@ def _lap_crossings(xy, a, b):
 
 def crosses_once(route_xy, a, b):
     """Whether ENU segment a–b crosses the closed ENU lap exactly once. Pure."""
-    vertices, edges = _lap_crossings(_lap_vertices(route_xy), a, b)
+    vertices, edges = _path_crossings(_lap_vertices(route_xy), a, b)
     return len(vertices) + len(edges) == 1
 
 
-def _line_crosses_at(xy, s, metre, centre, left, right):
-    """Whether the ENU timing segment crosses only the intended metre's part of the closed lap. Pure."""
+def _line_crosses_at(xy, s, metre, centre, left, right, *, closed=True):
+    """Whether the ENU timing segment crosses only the intended metre's part of the path. Pure."""
     n = len(xy) - 1
     incident = (np.searchsorted(s, metre, side="left") - 1) % n, np.searchsorted(s, metre, side="right") - 1
     normal = np.array([-(left[1] + right[1]), left[0] + right[0]])
@@ -421,7 +427,7 @@ def _line_crosses_at(xy, s, metre, centre, left, right):
         return False
     # Check the whole timing segment at the precision of the matrices written by kn5.node_bytes.
     a, b = np.array([centre + left, centre - right], dtype=np.float32).astype(float)
-    vertices, edges = _lap_crossings(xy[:-1], a, b)
+    vertices, edges = _path_crossings(xy[:-1] if closed else xy, a, b, closed=closed)
     if len(vertices) + len(edges) != 1:
         return False
     if len(edges):
@@ -436,7 +442,7 @@ CIRCUIT_SEARCH_M = 300.0
 CIRCUIT_STEP_M = 2.0
 # Leave road ahead of the line and behind the grid window, matching the direction lookahead in route_slots.
 CIRCUIT_MARGIN_M = 5.0
-SECTOR_LENGTH_M = 1250.0
+SECTOR_COUNT = 3             # place timing lines at one third and two thirds of the timed distance
 
 
 def _overlaps_twice(twice, first, span, length):
@@ -485,7 +491,7 @@ def circuit_empties(objs, anchor, log=print):
         if not all(len(levels_at(sample)) == 1 for sample in d + sample_at):
             continue
         centre = np.array([x, levels_at(d)[0] + START_LIFT, -y])
-        line = _circuit_line(nearby_roads, xy, s, metre, centre, fwd, gantry=True)
+        line = _timing_line(nearby_roads, xy, s, metre, centre, fwd, gantry=True)
         if line is None:
             continue
         slots = route_slots(objs, loop_xy, SLOTS, SLOT_GAP, log, front_m=length + metre - STAGE_START_GAP_M)
@@ -559,8 +565,8 @@ def _containing_span(intervals):
     return next(((lo, hi) for lo, hi in merged if lo <= 0 <= hi and lo < hi), None)
 
 
-def _circuit_line(nearby_roads, xy, s, metre, centre, forward, gantry=False):
-    """A road-wide timing segment with a single lap crossing and, at start/finish, room for its posts. Pure."""
+def _timing_line(nearby_roads, xy, s, metre, centre, forward, gantry=False, *, closed=True):
+    """A road-wide timing segment with a single path crossing and, at start/finish, room for its posts. Pure."""
     from scenery import gates
 
     across = np.cross([0.0, 1.0, 0.0], forward)
@@ -575,7 +581,7 @@ def _circuit_line(nearby_roads, xy, s, metre, centre, forward, gantry=False):
         if span is None:
             return None
         lo, hi = span
-        if not _line_crosses_at(xy, s, metre, centre[[0, 2]] * [1, -1], hi * enu_side, -lo * enu_side):
+        if not _line_crosses_at(xy, s, metre, centre[[0, 2]] * [1, -1], hi * enu_side, -lo * enu_side, closed=closed):
             return None
         needed = math.hypot(max(-lo, hi) + post_reach, half_post)
         if needed <= reach:
@@ -624,47 +630,58 @@ def _sector_sites(length, count, check):
     return search(1, spacing)
 
 
-def circuit_splits(objs, anchor, line_m, junctions=None):
-    """Additional AC_TIME nodes and their metres from pin 1, ordered from the actual start/finish. Pure."""
-    xy, s = _closed_lap(anchor["route"])
-    length = s[-1]
-    # With only AC_TIME_0, AC can record the drive from the grid to the first crossing as a lap.
-    count = max(2, int(length // SECTOR_LENGTH_M) + 1)
-    twice = anchor["timing"]["twice"]
-    loop_xy = np.concatenate((xy, xy[1:], xy[1:]))
-    loop_s = np.r_[s, length + s[1:], 2 * length + s[1:]]
+def _checked_splits(objs, xy, s, start, length, *, closed, twice=(), junctions=None):
+    """Native sector markers and path metres for a timed span with a safe road crossing at each split. Pure."""
+    total = s[-1]
+    sample_xy, sample_s = xy, s
+    if closed:
+        sample_xy = np.concatenate((xy, xy[1:], xy[1:]))
+        sample_s = np.r_[s, total + s[1:], 2 * total + s[1:]]
     nearby_roads = _road_near(objs)
     areas, branches = junctions or (np.empty((0, 3)), np.empty((0, 6)))
     memo = {}
 
     def build_line(metre):
-        if _overlaps_twice(twice, metre - CIRCUIT_MARGIN_M, 2 * CIRCUIT_MARGIN_M, length):
+        if twice and _overlaps_twice(twice, metre - CIRCUIT_MARGIN_M, 2 * CIRCUIT_MARGIN_M, total):
             return None
-        x, y, forward = _along(loop_xy, loop_s, length + metre)
+        x, y, forward = _along(sample_xy, sample_s, total + metre if closed else metre)
         if np.any(np.sum((areas[:, :2] - (x, -y)) ** 2, axis=1) < areas[:, 2]):
             return None
         levels = road_levels(nearby_roads(x, -y, 0), x, -y)
         if len(levels) != 1:
             return None
         centre = np.array([x, levels[0] + START_LIFT, -y])
-        line = _circuit_line(nearby_roads, xy, s, metre, centre, forward)
+        line = _timing_line(nearby_roads, xy, s, metre, centre, forward, closed=closed)
         if line is None or _crosses_junction_arms(branches, *line):
             return None
         return *line, forward
 
+    def path_metre(offset):
+        return (start + offset) % total if closed else start + offset
+
     def check(offset):
         if offset not in memo:
-            memo[offset] = build_line((line_m + offset) % length)
+            memo[offset] = build_line(path_metre(offset))
         return memo[offset]
 
-    placed = _sector_sites(length, count, check)
+    placed = _sector_sites(length, SECTOR_COUNT, check)
     if placed is None:
-        raise RuntimeError("No place for the circuit's sector lines: use stretches driven once, away from junctions and bridges")
+        return None
     nodes, metres = [], []
     for k, (offset, (left, right, forward)) in enumerate(placed, 1):
-        metres.append(float((line_m + offset) % length))
+        metres.append(float(path_metre(offset)))
         nodes.extend((empty(f"AC_TIME_{k}_L", left, forward), empty(f"AC_TIME_{k}_R", right, forward)))
     return nodes, metres
+
+
+def circuit_splits(objs, anchor, line_m, junctions=None):
+    """Additional AC_TIME nodes and their metres from pin 1, ordered from the actual start/finish. Pure."""
+    xy, s = _closed_lap(anchor["route"])
+    placed = _checked_splits(objs, xy, s, line_m, s[-1], closed=True,
+                             twice=anchor["timing"]["twice"], junctions=junctions)
+    if placed is None:
+        raise RuntimeError("No place for the circuit's sector lines: use stretches driven once, away from junctions and bridges")
+    return placed
 
 
 def _mapped_junctions(parts):
@@ -726,10 +743,11 @@ def _crosses_junction_arms(branches, left, right):
 
 
 def timing_points(route, timing):
-    """(x, z) in AC of the start and finish line (for the road objects start_empties needs)."""
+    """(x, z) in AC of the estimated start, finish and two split lines."""
     xy = np.asarray(route, float)
     s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
-    return [(x, -y) for x, y, _ in (_along(xy, s, timing[k]) for k in ("start_m", "finish_m"))]
+    return [(x, -y) for x, y, _ in (_along(xy, s, metre)
+                                  for metre in np.linspace(timing["start_m"], timing["finish_m"], SECTOR_COUNT + 1))]
 
 
 def _stage_grid(route, timing):
@@ -805,8 +823,8 @@ def ab_gates(objs, route, timing, log=print):
     return nodes
 
 
-def _start_distance(route, gates, near_m):
-    """Route metre crossing the native start plane, nearest its requested near_m. Pure."""
+def _gate_distance(route, gates, near_m, kind):
+    """Route metre crossing the supplied native gate plane nearest its requested near_m. Pure."""
     xy = np.asarray(route, float)
     delta = np.diff(xy, axis=0)
     seg = np.linalg.norm(delta, axis=1)
@@ -818,12 +836,35 @@ def _start_distance(route, gates, near_m):
     t = np.divide((centre - xy[:-1]) @ normal, den, out=np.full(len(seg), np.nan), where=den > 0)
     hits = np.flatnonzero((t >= 0) & (t <= 1))
     if not len(hits):
-        raise RuntimeError("The start gate does not cross the route in its driving direction")
+        raise RuntimeError(f"The {kind} gate does not cross the route in its driving direction")
     at = s[hits] + t[hits] * seg[hits]
     return float(at[np.argmin(np.abs(at - near_m))])
 
 
-def start_empties(objs, anchor, log=print):
+def route_splits(objs, anchor, gates, junctions=None):
+    """Two split lines for an open Route, and their route metres, or None if they cannot be placed safely. Pure."""
+    route, timing = anchor["route"], anchor["timing"]
+    if timing.get("approach"):
+        xy, _, origin = _stage_grid(route, timing)
+    else:
+        xy, origin = np.asarray(route, float), 0.0
+    xy = xy[np.r_[True, (np.diff(xy, axis=0) != 0).any(axis=1)]]
+    s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
+    try:
+        start = _gate_distance(xy, gates[:2], origin + timing["start_m"], "start")
+        finish = _gate_distance(xy, gates[2:], origin + timing["finish_m"], "finish")
+    except RuntimeError:
+        return None
+    if finish <= start:
+        return None
+    placed = _checked_splits(objs, xy, s, start, finish - start, closed=False, junctions=junctions)
+    if placed is None:
+        return None
+    nodes, metres = placed
+    return nodes, [metre - origin for metre in metres]
+
+
+def start_empties(objs, anchor, log=print, junctions=None):
     """Grid, pits and hotlap just before a route's native timing start, else at its first road. Without a route,
     use the asphalt nearest the anchor. Point-to-point routes keep AC_AB_START/FINISH, others AC_TIME_0."""
     if (anchor or {}).get("kind") == "circuit":
@@ -842,7 +883,7 @@ def start_empties(objs, anchor, log=print):
             else:
                 slots = stage_start(objs, route, timing, log)[3]
         else:
-            front_m = _start_distance(route, gates, timing["start_m"]) - STAGE_START_GAP_M if gates else None
+            front_m = _gate_distance(route, gates[:2], timing["start_m"], "start") - STAGE_START_GAP_M if gates else None
             slots = route_slots(objs, route, SLOTS, SLOT_GAP, log, front_m=front_m)
         if gates and any(p is None for p, _ in slots):
             raise RuntimeError("No road for all grid slots before the start line")
@@ -857,6 +898,11 @@ def start_empties(objs, anchor, log=print):
             nodes.append(empty("AC_HOTLAP_START_0", base, fwd))
             if gates:
                 nodes += gates
+                splits = route_splits(objs, anchor, gates, junctions)
+                if splits is None:
+                    log("No safe place for both Route sector lines: start and finish timing only")
+                else:
+                    nodes += splits[0]
             else:
                 nodes.append(empty("AC_TIME_0_L", base + fwd * 20 + side * 6, fwd))
                 nodes.append(empty("AC_TIME_0_R", base + fwd * 20 - side * 6, fwd))
@@ -1045,7 +1091,8 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
     root = kn5.Node(1, "map2lap", 1, matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
     try:
         if not circuit:
-            empties, base = start_empties(objs, anchor, log)
+            junctions = _mapped_junctions(parts) if route and (anchor or {}).get("timing") else None
+            empties, base = start_empties(objs, anchor, log, junctions)
         root.children += empties
         if prepare_output is not None:
             kn5_path = prepare_output()

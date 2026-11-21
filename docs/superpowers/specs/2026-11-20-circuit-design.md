@@ -15,9 +15,9 @@ the exact test steps and the expected behaviour; then wait for feedback.
 1. **Build and drive a circuit.** "Circuit" in the generator, a closed lap in the preview with its length, the build
    using the same routing, a clear message when no drivable lap exists, and one checked start/finish line so a full
    lap is timed.
-2. **Equal timing sectors by lap length.** Start/finish (`AC_TIME_0`) at the first pin; the lap is split into
-   n = ⌊L / 1.25 km⌋ + 1 equal sectors measured from the actual start/finish line (no split below 1.25 km), with lines
-   `AC_TIME_1` … `AC_TIME_n-1` across the driving direction on the right carriageway, at overpasses too.
+2. **Three timing sectors.** Place `AC_TIME_1` and `AC_TIME_2` at one third and two thirds of the distance from the
+   actual start/finish of a Circuit or between the actual start and finish gates of a Route. Each line crosses its own
+   carriageway in the driving direction, including near overpasses.
 3. **Session per drive** in the Play dialog: Practice or Race, with a lap count for Race.
 
 ## Non-goals
@@ -29,7 +29,7 @@ the exact test steps and the expected behaviour; then wait for feedback.
 
 ## Anti-goals
 
-- Route and Area change behaviour. Their flow stays as it is, including Route's implicit loop when the last pin lies
+- Changes to how Route and Area are selected or routed, including Route's implicit loop when the last pin lies
   within `LOOP_M` of the first (`generator.py`).
 - The lap count stored in the track, `anchor.json`, My tracks or the track code.
 - A sector or start/finish line that a lap crosses twice, or that sits on the wrong level at an overpass.
@@ -107,21 +107,9 @@ Edges, not nodes: an **edge** is a pair of consecutive OSM nodes of the lap (leg
 - **Start/finish** at the first pin, with the checkered band and gantry of `scenery/gates.py`, the banner reading
   "START · FINISH". The grid stands behind the line (the lap's end leads into it, so road is always there).
 - If the first pin lies on a twice-driven stretch, start/finish moves to the nearest once-driven stretch, forward.
-- **Sector count (decided by the user):** n = max(2, ⌊L / 1.25 km⌋ + 1) for lap length L measured from the actual
-  start/finish line. Short circuits also get an invisible split: with start/finish alone, AC can store the short
-  drive from the grid to the line as a full lap. From 1.25 km on, every additional full 1.25 km adds a sector
-  up to AC's limit.
-
-  | Lap | Sectors | Lines at |
-  |---|---|---|
-  | 1.0 km | 2 | 0.5 km |
-  | 1.25 km | 2 | 0.625 km |
-  | 2.0 km | 2 | 1.0 km |
-  | 2.5 km | 3 | 0.83, 1.67 km |
-  | 6.0 km | 5 | 1.2, 2.4, 3.6, 4.8 km |
-  | 20.8 km | 17 | every 1.22 km |
-
-- AC with CSP recognized 401 numbered lines, enough for Map2Lap's 500 km route limit. The stock HUD may show fewer splits.
+- **Sector count (decided by the user):** three at every distance. A Circuit measures the thirds from its placed
+  start/finish line. A Route measures them between its placed start and finish gates. The splits also prevent AC from
+  counting the drive from the Circuit grid to the line as a full lap.
 - Split lines are invisible. On a twice-driven stretch or inside a junction they move to the nearest once-driven place.
 - **All lines are placed together:** moved lines keep their order around the lap and a minimum distance from each
   other and from start/finish (the builder's number, with its reason).
@@ -184,8 +172,8 @@ Edges, not nodes: an **edge** is a pair of consecutive OSM nodes of the lap (leg
   also on a figure eight with an overpass. Once Circuit is on the page the user can draw their own.
 - **Moving a sector line:** to the nearest once-driven place in either direction, so the sectors stay as equal as the
   road allows. Start/finish moves forward only (the grid needs the road behind it).
-- **Shortest lap:** even below 1.25 km, a lap has one invisible split so AC times full laps. A lap too short to
-  fit start/finish, its grid and a split is refused with a clear message.
+- **Short tracks:** the same two invisible splits apply. A Circuit that cannot fit start/finish, its grid and both
+  splits is refused with a clear message. A Route keeps its overall timing if safe split placement fails.
 - **Play from the Editor:** the lap count shows there too when the track is a circuit; the dialog learns the kind from
   the track's saved info.
 

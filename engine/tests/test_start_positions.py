@@ -27,6 +27,34 @@ def positions(nodes):
 
 
 class StartPositionsTest(unittest.TestCase):
+    def test_route_sector_lines_divide_the_checked_start_to_finish_distance(self):
+        route = [[0, 0], [400, 0]]
+        timing = {"start_m": 100, "finish_m": 350, "gates": {
+            "start": {"pos": [130, 16.5, 0], "fwd": [1, 0, 0], "left": 6, "right": 4},
+            "finish": {"pos": [340, 27, 0], "fwd": [1, 0, 0], "left": 6, "right": 4}}}
+        nodes, _ = obj_to_kn5.start_empties(road(), {"route": route, "timing": timing})
+        p = positions(nodes)
+        for k, x in ((1, 200), (2, 270)):
+            self.assertAlmostEqual(p[f"AC_TIME_{k}_L"][0], x)
+            self.assertAlmostEqual(p[f"AC_TIME_{k}_R"][0], x)
+
+    def test_route_sector_line_moves_away_from_a_second_crossing(self):
+        route = [[50, 60], [250, 60], [250, 66.75], [200, 66.75], [200, 100]]
+        timing = {"start_m": 30, "finish_m": 280}
+        objs = {"1ROAD_stage": strip(50, 73), "1ROAD_finish": ("road",
+                np.array([[195, 4, -60], [205, 4, -60], [205, 4, -115], [195, 4, -115]], float),
+                np.zeros((4, 2)), np.array([[0, 1, 2], [0, 2, 3]]))}
+        gates = obj_to_kn5.ab_gates(objs, route, timing)
+        nodes, metres = obj_to_kn5.route_splits(objs, {"route": route, "timing": timing}, gates)
+        self.assertEqual(len(nodes), 4)
+        self.assertNotAlmostEqual(metres[1], 30 + 2 * (280 - 30) / 3)
+        vertices = np.asarray(route)
+        p = positions(nodes)
+        for k, metre in enumerate(metres, 1):
+            a, b = (p[f"AC_TIME_{k}_{side}"][[0, 2]] * [1, -1] for side in "LR")
+            hits = obj_to_kn5._path_crossings(vertices, a, b, closed=False)
+            self.assertEqual(sum(map(len, hits)), 1, metre)
+
     def test_grid_pits_and_hotlap_are_just_before_native_start(self):
         anchor = {"route": [[0, 0], [400, 0]], "timing": {"start_m": 100, "finish_m": 350}}
         nodes, base = obj_to_kn5.start_empties(road(), anchor)
@@ -218,13 +246,16 @@ class CircuitStartTest(unittest.TestCase):
             obj_to_kn5.convert(str(obj), str(out), str(anchor), log=lambda _: None)
             timing = json.loads(anchor.read_text(encoding="utf-8"))["timing"]
             self.assertEqual(timing["line_m"], 80.0)
-            self.assertEqual(timing["sector_m"], [705.0])
+            np.testing.assert_allclose(timing["sector_m"], 80 + np.arange(1, 3) * 1250 / 3)
             children = kn5.read(out)["root"].children
             p = positions(n for n in children if n.cls == 1)
             np.testing.assert_allclose((p["AC_TIME_0_L"] + p["AC_TIME_0_R"]) / 2,
                                        [230, 21.5 + obj_to_kn5.START_LIFT, -50], atol=1e-5)
-            np.testing.assert_allclose((p["AC_TIME_1_L"] + p["AC_TIME_1_R"]) / 2,
-                                       [70, 13.5 + obj_to_kn5.START_LIFT, -375], atol=1e-5)
+            route, distances = obj_to_kn5._closed_lap(layout["route"])
+            for k, metre in enumerate(timing["sector_m"], 1):
+                x, y = (np.interp(metre, distances, column) for column in route.T)
+                split = (p[f"AC_TIME_{k}_L"] + p[f"AC_TIME_{k}_R"]) / 2
+                np.testing.assert_allclose(split, [x, 10 + .05 * x + obj_to_kn5.START_LIFT, -y], atol=2e-5)
             self.assertTrue(any(n.name.startswith("nocol_gate_band_circuit") for n in children))
             self.assertEqual(sum(n.name.startswith("nocol_gate_banner") for n in children), 1)
             band = next(n for n in children if n.name.startswith("nocol_gate_band_circuit"))
@@ -255,33 +286,32 @@ def mapped_junctions(roads):
 
 
 class CircuitSectorsTest(unittest.TestCase):
-    def test_short_lap_gets_at_least_one_split_to_time_a_full_lap(self):
+    def test_short_lap_gets_three_sectors(self):
         split_nodes, metres = obj_to_kn5.circuit_splits(circuit_roads(), circuit(), 0.0)
-        self.assertEqual(metres, [600.0])
-        self.assertEqual(set(positions(split_nodes)), {"AC_TIME_1_L", "AC_TIME_1_R"})
+        self.assertEqual(metres, [400.0, 800.0])
+        self.assertEqual(set(positions(split_nodes)), {"AC_TIME_1_L", "AC_TIME_1_R", "AC_TIME_2_L", "AC_TIME_2_R"})
 
-    def test_twenty_kilometre_lap_gets_seventeen_sectors(self):
+    def test_twenty_kilometre_lap_gets_three_sectors(self):
         length = 20_800
         anchor = long_circuit(depth=10_100, line_m=80.0)
         split_nodes, metres = obj_to_kn5.circuit_splits(circuit_roads(anchor), anchor, 80.0)
-        np.testing.assert_allclose(metres, 80.0 + np.arange(1, 17) * length / 17)
-        self.assertEqual(len(split_nodes), 32)
-        self.assertIn("AC_TIME_16_R", positions(split_nodes))
+        np.testing.assert_allclose(metres, 80.0 + np.arange(1, 3) * length / 3)
+        self.assertEqual(len(split_nodes), 4)
 
     def test_split_moves_to_nearest_once_driven_stretch(self):
         anchor = long_circuit(twice=[[611.0, 631.0]])
-        _, metres = obj_to_kn5.circuit_splits(circuit_roads(anchor), anchor, 0.0)
-        self.assertEqual(metres, [637.0])
+        _, metres = obj_to_kn5.circuit_splits(circuit_roads(anchor), anchor, 1250 / 6)
+        self.assertAlmostEqual(metres[0], 637.0)
 
     def test_split_moves_off_an_overpass_to_the_lower_road(self):
         objs = circuit_roads(long_circuit())
         _, _, uv, faces = next(iter(objs.values()))
         deck = np.array([[140, 24, -365], [162, 25, -365], [162, 25, -385], [140, 24, -385]])
         objs["1ROAD_deck_bridge"] = "road", deck, uv, faces
-        split_nodes, metres = obj_to_kn5.circuit_splits(objs, long_circuit(), 0.0)
+        split_nodes, metres = obj_to_kn5.circuit_splits(objs, long_circuit(), 1250 / 6)
         p = positions(split_nodes)
         x, y, z = (p["AC_TIME_1_L"] + p["AC_TIME_1_R"]) / 2
-        self.assertNotEqual(metres, [625.0])
+        self.assertNotAlmostEqual(metres[0], 625.0)
         self.assertEqual(z, -375.0)
         self.assertAlmostEqual(y, 10 + .05 * x + obj_to_kn5.START_LIFT)
 
@@ -289,10 +319,10 @@ class CircuitSectorsTest(unittest.TestCase):
         objs = {"1ROAD_south": strip(47, 53), "1ROAD_north": strip(53.75, 59.75)}
         anchor = circuit()
         anchor["route"] = [[350, 50], [700, 50], [700, 56.75], [0, 56.75], [0, 50], [350, 50]]
-        nodes, metres = obj_to_kn5.circuit_splits(objs, anchor, 0.0)
-        self.assertEqual(metres, [706.75])
+        nodes, metres = obj_to_kn5.circuit_splits(objs, anchor, 1413.5 / 6)
+        self.assertAlmostEqual(metres[0], 706.75)
         p = positions(nodes)
-        lo, hi = sorted(-point[2] for point in p.values())
+        lo, hi = sorted(-p[f"AC_TIME_1_{side}"][2] for side in "LR")
         self.assertLessEqual(lo, 53.75)
         self.assertGreater(lo, 53)
         self.assertGreaterEqual(hi, 59.75)
@@ -308,14 +338,14 @@ class CircuitSectorsTest(unittest.TestCase):
     def test_mapped_t_junction_moves_a_split_off_its_mouth(self):
         anchor = long_circuit()
         junctions = mapped_junctions([[[100, -375], [150, -375], [200, -375]], [[150, -375], [150, -400]]])
-        _, metres = obj_to_kn5.circuit_splits(circuit_roads(anchor), anchor, 0.0, junctions)
-        self.assertEqual(metres, [631.0])
+        _, metres = obj_to_kn5.circuit_splits(circuit_roads(anchor), anchor, 1250 / 6, junctions)
+        self.assertAlmostEqual(metres[0], 631.0)
 
     def test_split_moves_beyond_the_paved_mouth_of_an_acute_junction(self):
         anchor = long_circuit()
         junctions = mapped_junctions([[[100, -375], [144, -375], [220, -375]],
                                       [[144, -375], [220, -392]]])
-        _, metres = obj_to_kn5.circuit_splits(circuit_roads(anchor), anchor, 0.0, junctions)
+        _, metres = obj_to_kn5.circuit_splits(circuit_roads(anchor), anchor, 1250 / 6, junctions)
         self.assertGreater(metres[0], 636.0)
 
     def test_figure_eight_uses_the_selected_road_at_a_split(self):
@@ -327,7 +357,7 @@ class CircuitSectorsTest(unittest.TestCase):
         crossing = a + fraction * (b - a)
         _, lengths = obj_to_kn5._closed_lap(anchor["route"])
         under = float(fraction * lengths[1])
-        line_m = (under - lengths[-1] / 2) % lengths[-1]
+        line_m = (under - lengths[-1] / 3) % lengths[-1]
         along = (d - c) / np.linalg.norm(d - c)
         across = np.array([-along[1], along[0]])
         enu = np.array([crossing + u * along + v * across for u, v in [(-12, -4), (12, -4), (12, 4), (-12, 4)]])

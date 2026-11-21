@@ -171,16 +171,19 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   timing plane, with the other slots 8 m apart behind it along the route, including at bends. New builds place
   the gate at pin 1 if the road approaching that pin holds the grid. Otherwise they search forward for the first
   drivable position with room for the grid. If the builder cannot place both gates, the build log explains why.
-- Play offers Practice and a one-run Race with start lights for timed Routes. Practice measures between the gates.
+- Play offers Practice and a one-run Race with start lights for timed Routes. Native A–B Practice reports the total
+  gate-to-gate time. Race also reports the sector times from the shared road model.
   Race measures one continuous run from the lights going out to the finish gate. On first Race, Map2Lap gives AC separate
   timing models which share the installed track's road model. AC's `personalbest.ini` keeps the times by car and layout.
 - Circuit starts with the same grid spacing before its `AC_TIME_0_L/R` line. The converter checks the grid and line on
   a single road level over a once-driven stretch, including the approach from the end of the lap. The timing segment
   must cross the lap exactly once. The search runs up to 300 m forward from pin 1, and a placement refusal leaves an
   existing installation intact.
-- The Circuit start/finish band and gantry use that checked line. Invisible `AC_TIME_n_L/R` split lines start from
-  equal offsets along the lap and move to safe, ordered crossings on one road level. Even a short lap gets a split:
-  AC can register the drive from the grid to start/finish as the first lap when it has only one timing gate.
+- Routes and Circuits target three sectors, with invisible `AC_TIME_1_L/R` and `AC_TIME_2_L/R` at one third and
+  two thirds of the timed distance. A Route uses its placed start and finish gates. A Circuit measures from its actual
+  start/finish line; the split lines also prevent AC from counting the drive from the grid as a full lap.
+- The converter keeps split lines ordered and moves them to safe crossings of the driven road on one level. If it
+  cannot place both on a Route, it logs the problem and keeps start-to-finish timing. A Circuit build requires both.
 - BeamNG/Torque winds triangles clockwise → flip them (`shape_parts`), else houses turn black.
 - `.cdae`: read only the **finest level of detail** per object (buildings have two; both on top of each other flicker).
 - Set material values yourself (ksEditor's defaults ksSpecular 1 / ksAmbient 0: white ground, black shadows).

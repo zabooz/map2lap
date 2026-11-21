@@ -76,7 +76,7 @@ def prepare(model):
                 os.replace(prepared / source.name, target)
         gates = {name: points[name if embedded else ALIASES[name]] for name in GATES}
         _timing_model(prepared / PRACTICE_MODEL, gates)
-        # AC starts a Race at the lights. Its single finish marker closes the full run from green.
+        # AC starts a Race at the lights. The layout supplies the finish; the shared model supplies any splits.
         finish = {f"AC_TIME_0_{edge}": gates[f"AC_AB_FINISH_{edge}"] for edge in ("L", "R")}
         _timing_model(prepared / RACE_MODEL, finish)
         for name, config in configs.items():
