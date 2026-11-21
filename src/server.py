@@ -28,7 +28,7 @@ from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from app import buildoptions, circuitlap, named, personalbest
+from app import buildoptions, circuitlap, drivername, named, personalbest
 
 if __name__ == "__main__":      # (before the engine loads: the python.exe left waiting stays small)
     named.restart_as("server")
@@ -479,15 +479,21 @@ def play(name, clock=None, weather_options=None, car=None, *, laps=None, hotlap=
     if ini is None or not ini.has_option("RACE", "MODEL"):
         return 409, {"error": "Drive once in Assetto Corsa first, so Map2Lap knows your car"}
     _previous_best(ac, race_file, ini)
+    player = next((section for section in ini.sections() if section.upper() == "CAR_0"), "CAR_0")
     model = play_car()[0] if car is None else (last_car() if car == "" else car)
     if model and model != ini.get("RACE", "MODEL"):        # (the car set, its first skin)
         skins = os.path.join(ac, "content", "cars", model, "skins")
         skin = next(iter(sorted(d for d in os.listdir(skins) if os.path.isdir(os.path.join(skins, d)))), "")
         for k, v in (("MODEL", model), ("MODEL_CONFIG", ""), ("SKIN", skin)):
             ini.set("RACE", k, v)
-        if ini.has_section("CAR_0"):
+        if ini.has_section(player):
             for k, v in (("MODEL", "-"), ("MODEL_CONFIG", ""), ("SKIN", skin), ("SETUP", "")):
-                ini.set("CAR_0", k, v)
+                ini.set(player, k, v)
+    if not ini.has_section(player):
+        ini[player] = {"MODEL": "-", "MODEL_CONFIG": "", "SKIN": ini.get("RACE", "SKIN", fallback=""), "SETUP": ""}
+    driver_keys = [key for key in ini[player] if key.casefold() == "driver_name"]
+    if not any(ini[player][key].strip() for key in driver_keys):
+        ini[player][driver_keys[-1] if driver_keys else "DRIVER_NAME"] = drivername.get(os.path.dirname(os.path.dirname(race_file)))
     ini.set("RACE", "TRACK", name)
     ini.set("RACE", "CONFIG_TRACK", route_layout)
     ini.set("RACE", "CARS", "1")

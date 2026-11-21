@@ -29,13 +29,12 @@ def _models(mesh, timing):
                      for i, name in enumerate((mesh, timing)))
 
 
-def _timing_model(path, points, race):
-    """Write just the four native timing markers for the selected layout."""
+def _timing_model(path, points):
+    """Write a KN5 with the layout's native timing markers."""
     identity = (1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
     root = kn5.Node(1, "timing", 1, matrix=identity)
     for name, matrix in points.items():
-        marker = f"AC_TIME_{1 if '_START_' in name else 0}_{name[-1]}" if race else name
-        root.children.append(kn5.Node(1, marker, 1, matrix=matrix))
+        root.children.append(kn5.Node(1, name, 1, matrix=matrix))
     kn5.write(path, [], [], root)
 
 
@@ -67,7 +66,6 @@ def prepare(model):
     embedded = all(name in points for name in GATES)
     if not has_gates(points):
         raise ValueError("This Route is missing its start or finish timing markers")
-    ready = not embedded and all((folder / name).is_file() for name in (*configs, PRACTICE_MODEL, RACE_MODEL))
     with tempfile.TemporaryDirectory(prefix=".route_timing_", dir=folder) as directory:
         prepared = Path(directory)
         for source in LAYOUT_DATA:
@@ -76,11 +74,11 @@ def prepare(model):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(folder / source, prepared / source.name)
                 os.replace(prepared / source.name, target)
-        if ready:
-            return
         gates = {name: points[name if embedded else ALIASES[name]] for name in GATES}
-        _timing_model(prepared / PRACTICE_MODEL, gates, race=False)
-        _timing_model(prepared / RACE_MODEL, gates, race=True)
+        _timing_model(prepared / PRACTICE_MODEL, gates)
+        # AC starts a Race at the lights. Its single finish marker closes the full run from green.
+        finish = {f"AC_TIME_0_{edge}": gates[f"AC_AB_FINISH_{edge}"] for edge in ("L", "R")}
+        _timing_model(prepared / RACE_MODEL, finish)
         for name, config in configs.items():
             (prepared / name).write_text(config, encoding="utf-8")
         if embedded:

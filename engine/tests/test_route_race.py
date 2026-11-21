@@ -35,7 +35,7 @@ class RouteRaceTest(unittest.TestCase):
             self.assertNotIn(f"AC_AB_START_{edge}", track)
             self.assertEqual(original[f"AC_AB_START_{edge}"], practice[f"AC_AB_START_{edge}"])
             self.assertEqual(original[f"AC_AB_FINISH_{edge}"], practice[f"AC_AB_FINISH_{edge}"])
-            self.assertEqual(original[f"AC_AB_START_{edge}"], race[f"AC_TIME_1_{edge}"])
+            self.assertNotIn(f"AC_TIME_1_{edge}", race)
             self.assertEqual(original[f"AC_AB_FINISH_{edge}"], race[f"AC_TIME_0_{edge}"])
         self.assertEqual(track["AC_START_0"], original["AC_START_0"])
         self.assertEqual(objectlist.state_of(self.model), state)
@@ -45,9 +45,17 @@ class RouteRaceTest(unittest.TestCase):
         for config, timing in ((route_race.DEFAULT, route_race.PRACTICE_MODEL), (route_race.RACE, route_race.RACE_MODEL)):
             self.assertEqual(["FILE=one.kn5", f"FILE={timing}"],
                              [line for line in (self.root / config).read_text().splitlines() if line.startswith("FILE=")])
+
+    def test_replaces_an_existing_race_timing_model_without_rewriting_the_road(self):
+        route_race.prepare(self.model)
         ino = self.model.stat().st_ino
+        path = self.root / route_race.RACE_MODEL
+        old = empty("timing", (0, 0, 0), (0, 0, 1))
+        old.children.append(empty("AC_TIME_1_L", (0, 0, 0), (0, 0, 1)))
+        kn5.write(path, [], [], old)
         route_race.prepare(self.model)
         self.assertEqual(ino, self.model.stat().st_ino)
+        self.assertNotIn("AC_TIME_1_L", kn5.scan(path)["points"])
 
     def test_existing_custom_model_layout_is_preserved(self):
         default = self.root / route_race.DEFAULT

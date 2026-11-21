@@ -172,7 +172,7 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   the gate at pin 1 if the road approaching that pin holds the grid. Otherwise they search forward for the first
   drivable position with room for the grid. If the builder cannot place both gates, the build log explains why.
 - Play offers Practice and a one-run Race with start lights for timed Routes. Practice measures between the gates.
-  Race starts timing when the lights go out and ends at the finish gate. On first Race, Map2Lap gives AC separate
+  Race measures one continuous run from the lights going out to the finish gate. On first Race, Map2Lap gives AC separate
   timing models which share the installed track's road model. AC's `personalbest.ini` keeps the times by car and layout.
 - Circuit starts with the same grid spacing before its `AC_TIME_0_L/R` line. The converter checks the grid and line on
   a single road level over a once-driven stretch, including the approach from the end of the lap. The timing segment

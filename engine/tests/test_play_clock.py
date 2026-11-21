@@ -2,6 +2,7 @@
 import configparser
 from io import BytesIO
 from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -76,6 +77,48 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.assertEqual((200, True), self.started(10, None, "selected"))
         self.assertEqual("selected", self.ini().get("RACE", "MODEL"))
         self.assertEqual("first", self.ini().get("RACE", "SKIN"))
+
+    def test_preserves_an_existing_driver_name(self):
+        self.race.write_text(RACE + "\n[CAR_0]\nDriver_Name=Existing Driver\nNATIONALITY=AUT\n")
+        self.assertEqual((200, True), self.started())
+        self.assertEqual({"Driver_Name": "Existing Driver", "NATIONALITY": "AUT"}, dict(self.ini()["CAR_0"]))
+
+    def test_uses_the_existing_ac_profile_when_the_session_name_is_blank(self):
+        self.race = Path(self.tmp.name, "Assetto Corsa/cfg/race.ini")
+        self.race.parent.mkdir(parents=True)
+        self.race.write_text(RACE + "\n[CAR_0]\nDRIVER_NAME=\n")
+        profile = self.race.parent.parent / "launcherdata/Local Storage/file__0.localstorage"
+        profile.parent.mkdir(parents=True)
+        db = sqlite3.connect(profile)
+        with db:
+            db.execute("create table ItemTable (key text primary key, value blob)")
+            db.executemany("insert into ItemTable values (?, ?)", [(f"player.{key}", value.encode("utf-16-le"))
+                           for key, value in (("nameFirst", "Ada"), ("nameLast", "Straße"), ("nameNick", "Racer"))])
+        db.close()
+        original = profile.read_bytes()
+        self.assertEqual((200, True), self.started())
+        self.assertEqual("Ada Straße", self.ini().get("CAR_0", "DRIVER_NAME"))
+        self.assertEqual(original, profile.read_bytes())
+        self.assertEqual([profile], list(profile.parent.iterdir()))
+
+    def test_uses_only_the_active_steam_display_name_when_the_session_has_no_player(self):
+        steam = Path(self.tmp.name, "Steam")
+        users = steam / "config/loginusers.vdf"
+        users.parent.mkdir(parents=True)
+        original = ('"users"\n{\n    "76561197960265738"\n    { "PersonaName" "Other player" "MostRecent" "1" }\n'
+                    '    "76561197960265747"\n    { "AccountName" "private_login" "PersonaName" "Stage Racer" }\n}\n')
+        users.write_text(original, encoding="utf-8")
+        with mock.patch.object(system, "steam_roots", return_value=[str(steam)]), \
+             mock.patch.object(system, "steam_user", return_value=19):
+            self.assertEqual((200, True), self.started())
+        self.assertEqual("Stage Racer", self.ini().get("CAR_0", "DRIVER_NAME"))
+        self.assertEqual("-", self.ini().get("CAR_0", "MODEL"))
+        self.assertEqual(original, users.read_text(encoding="utf-8"))
+
+    def test_has_a_display_name_without_a_profile_or_active_steam_user(self):
+        with mock.patch.object(system, "steam_user", return_value=0):
+            self.assertEqual((200, True), self.started())
+        self.assertEqual("Player", self.ini().get("CAR_0", "DRIVER_NAME"))
 
     def test_uninstalled_car_cannot_start(self):
         self.assertEqual((400, False), self.started(10, None, "missing"))
