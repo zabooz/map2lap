@@ -1,6 +1,7 @@
-import {useEffect, useMemo, useState} from "react";
-import {BRAKE_COLOUR, EDGE_COLOUR, SPEED_COLOURS, laneSpeedRange, type AiLineAnswer, type AiLineHover} from "../scene/aiLine";
-import {fetchJson} from "../scene/requests";
+import {useEffect, useRef, useState} from "react";
+import {BRAKE_COLOUR, EDGE_COLOUR, SPEED_COLOURS} from "../scene/aiLine";
+import {fetchAiLine, type AiLineHover, type InstalledAiLine} from "../scene/aiLineData";
+import {MeshFetchError} from "../scene/requests";
 import type {TrackView} from "../scene/view";
 import type {Place} from "../types";
 import type {ToolController} from "./toolHost";
@@ -35,35 +36,53 @@ function Legend({slow, fast}: {slow: number; fast: number}) {
   </span>;
 }
 
-/** Load the installed spline when taken up and after the current track is written. Options and hover stay over the view. */
-export function useAiLine({name, view, enabled, savedAt, unsaved}: {
-  name: string; view: TrackView; enabled: boolean; savedAt: number | null; unsaved: boolean;
+type AiLineAnswer = Awaited<ReturnType<typeof fetchAiLine>> | {status: "error"; message: string};
+
+/** Fetch on the first use, when retrying an unavailable line, and after a Save. Visibility does not affect a transfer. */
+export function useAiLine({name, view, enabled, writes, unsaved}: {
+  name: string; view: TrackView; enabled: boolean; writes: number; unsaved: boolean;
 }): ToolController {
-  const [loaded, setLoaded] = useState<{savedAt: number | null; answer: AiLineAnswer} | null>(null);
-  const [hovered, setHovered] = useState<{savedAt: number | null; hover: AiLineHover} | null>(null);
+  const known = useRef<InstalledAiLine | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [loaded, setLoaded] = useState<{attempt: number; writes: number; answer: AiLineAnswer} | null>(null);
+  const [hovered, setHovered] = useState<{lane: InstalledAiLine; hover: AiLineHover} | null>(null);
   useEffect(() => {
-    if (!enabled) return;
+    if (!attempt) return;
     const request = new AbortController(), {signal} = request;
     async function read() {
-      const answer = await fetchJson<AiLineAnswer>(`/api/editor/${encodeURIComponent(name)}/ai-line`, signal)
-        .catch((): AiLineAnswer => ({status: "invalid", message: "The AI line could not be loaded."}));
-      if (signal.aborted) return;
-      if (answer.status === "ready") view.setAiLine(answer, hover => setHovered(hover && {savedAt, hover}));
-      setLoaded({savedAt, answer});
+      try {
+        const answer = await fetchAiLine(name, known.current, signal);
+        if (signal.aborted) return;
+        known.current = answer.status === "ready" ? answer : null;
+        view.setAiLine(known.current);
+        setLoaded({attempt, writes, answer});
+      } catch (error) {
+        if (signal.aborted) return;
+        const message = error instanceof MeshFetchError && error.status === 409 ? error.message : "The AI line could not be loaded.";
+        setLoaded({attempt, writes, answer: {status: "error", message}});
+      }
     }
     void read();
-    return () => { request.abort(); view.setAiLine(null); };
-  }, [name, view, enabled, savedAt]);
+    return () => request.abort();
+  }, [name, view, attempt, writes]);
+  useEffect(() => () => view.setAiLine(null), [view]);
 
-  const answer = loaded?.savedAt === savedAt ? loaded.answer : null;
-  const hover = hovered?.savedAt === savedAt ? hovered.hover : null;
-  const speeds = useMemo(() => answer?.status === "ready" ? laneSpeedRange(answer.points) : null, [answer]);
+  const answer = loaded?.writes === writes && loaded.attempt === attempt ? loaded.answer : null;
+  const lane = answer?.status === "ready" ? answer : null;
+  const hover = hovered?.lane === lane ? hovered.hover : null;
+  useEffect(() => {
+    if (!enabled || !lane) return;
+    view.showAiLine(hover => setHovered(hover && {lane, hover}));
+    return () => view.showAiLine(null);
+  }, [view, enabled, lane]);
+
   return {
-    clear: () => { setLoaded(null); setHovered(null); },
+    activate: () => { if (!attempt || (answer && !lane)) setAttempt(value => value + 1); },
+    clear: () => setHovered(null),
     options: <>
       <ToolOptions id="edit-ai-line-set" title="AI line" note={unsaved ? "Line from the last build or save" : undefined}
-        actions={speeds ? <Legend {...speeds} />
-          : <span role="status">{answer && "message" in answer ? answer.message : "Loading the installed AI line …"}</span>} />
+        actions={lane ? <Legend {...lane.speeds} />
+          : <span role="status">{answer?.message ?? "Loading the installed AI line …"}</span>} />
       {hover && <PointDetails hover={hover} />}
     </>,
   };

@@ -59,7 +59,7 @@ EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=
 COPIES_PATH = re.compile(r"/api/editor/([^/]+)/copies")
 GLOW_PATH = re.compile(r"/api/editor/([^/]+)/glow/(glow_(?:fac|shp|off)_[0-2]\.png)")
 SURFACE_PATH = re.compile(r"/api/editor/([^/]+)/surface")
-AI_LINE_PATH = re.compile(r"/api/editor/([^/]+)/ai-line")
+AI_LINE_PATH = re.compile(r"/api/editor/([^/]+)/ai-line(?:\?r=([\w-]+))?")
 SURFACE_PREPARE_PATH = re.compile(r"/api/editor/([^/]+)/surface/prepare")
 EDITS_PATH = re.compile(r"/api/editor/([^/]+)/edits")
 SAVE_PATH = re.compile(r"/api/editor/([^/]+)/save")
@@ -916,7 +916,7 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
         if editor:
             self._editor(editor)
         elif (ai_line := AI_LINE_PATH.fullmatch(self.path)):
-            self._ai_line(ai_line[1])
+            self._ai_line(*ai_line.groups())
         elif (inspection := re.fullmatch(r"/api/editor/([^/]+)/(inspect|thumbnail|appearance|statistics)", urlsplit(self.path).path)):
             self._inspect(inspection[1], inspection[2])
         elif (surface := SURFACE_PATH.fullmatch(urlsplit(self.path).path)):

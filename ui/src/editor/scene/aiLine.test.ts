@@ -11,7 +11,7 @@ test("speed colours reach the ends of the legend and a constant speed has a defi
 });
 
 test("the lane sides use separate horizontal widths and follow a bank", () => {
-  expect(laneEdges({position: [10, 4, 30], forward: [1, 0.1, 0], normal: [0, 1, 0.25], left: 2, right: 4}))
+  expect(laneEdges([10, 4, 30], [1, 0], [0, 1, 0.25], 2, 4))
     .toEqual([[10, 4.5, 28], [10, 3, 34]]);
 });
 
@@ -27,15 +27,15 @@ test("the speed band joins both side limits and closes only on a circuit", () =>
 
 test("braking paints both margins of the outgoing segment and leaves its centre clear", () => {
   const edges: [Place, Place][] = [[[0, 0, 0], [0, 0, 6.25]], [[10, 0, 0], [10, 0, 6.25]], [[20, 0, 0], [20, 0, 12.5]]];
-  const samples = [{brake: 0}, {brake: 0.5}, {brake: 1}];
-  const open = brakeStripes(edges, samples, false);
+  const brake = Float32Array.of(0, 0.5, 1);
+  const open = brakeStripes(edges, brake, false);
   expect(open).toEqual([
     10, 0, 0, 10, 0, 0.5, 20, 0, 0,
     10, 0, 0.5, 20, 0, 1, 20, 0, 0,
     10, 0, 6.25, 10, 0, 5.75, 20, 0, 12.5,
     10, 0, 5.75, 20, 0, 11.5, 20, 0, 12.5,
   ]);
-  const circuit = brakeStripes(edges, samples, true);
+  const circuit = brakeStripes(edges, brake, true);
   expect(circuit).toHaveLength(open.length * 2);
   expect(circuit.slice(open.length, open.length + 9)).toEqual([20, 0, 0, 20, 0, 1, 0, 0, 0]);
 });
@@ -43,8 +43,8 @@ test("braking paints both margins of the outgoing segment and leaves its centre 
 test("braking crossbars span the inner edges, keep their spacing across samples and mark short zones", () => {
   const xs = [0, 1, 5.45, 8, 9, 9.4];
   const edges = xs.map((x): [Place, Place] => [[x, 0, 0], [x, 0, 10]]);
-  const samples = xs.map((x, i) => ({position: [x, 0, 5] as Place, brake: [1, 1, 1, 0, 1, 1][i]}));
-  const bars = brakeCrossbars(edges, samples, false);
+  const locations = xs.map((x): Place => [x, 0, 5]);
+  const bars = brakeCrossbars(edges, locations, [1, 1, 1, 0, 1, 1], false);
   expect(bars.slice(0, 9)).toEqual([0.35, 0, 0.8, 0.35, 0, 9.2, 0.65, 0, 0.8]);
   const spans = Array.from({length: bars.length / 18}, (_, i) => [bars[18 * i], bars[18 * i + 6]].map(n => Number(n.toFixed(2))));
   expect(spans).toEqual([[0.35, 0.65], [5.35, 5.45], [5.45, 5.65], [9.05, 9.35]]);

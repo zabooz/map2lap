@@ -40,9 +40,16 @@ hook handles its own view marks but does not register another global click, pick
 
 ## AI line
 
-AI line (L) fills the installed driving line's side limits with a translucent speed band, marks braking with pink side stripes and crossbars, and shows the route metre and all point data when hovering over the band.
-It reads `GET /api/editor/<track>/ai-line` from the `ai/fast_lane.ai` of the last Build or Save and refreshes after Save, so an unsaved draft can differ from the displayed line.
-Future edits can use route-metre ranges in the draft, following Bank road's `tools/editRanges.ts`, for `fastlane.regenerate` to apply on Save.
+AI line (L) shows the installed `ai/fast_lane.ai` as a translucent speed band with pink braking marks and shows the route metre
+and point data on hover. The Editor keeps the geometry while the tool is off and checks for a new revision after Save, so an unsaved
+draft can differ from the displayed line. Future edits can use route-metre ranges in the draft, following Bank road's
+`tools/editRanges.ts`, for `fastlane.regenerate` to apply on Save.
+
+`GET /api/editor/<track>/ai-line` returns the status as JSON (`status`, `message`, `closed`, `revision`, `count`). With
+`?r=<revision>` it returns cacheable `application/octet-stream` or HTTP 409 when the installed revision changed. The binary
+contract is 23 consecutive columns of `count` little-endian values each, 92 bytes per sample including all columns. Each column
+is Float32 except `id` (Int32). In order they are `x, y, z, distance, id, speed, gas, brake, lat_g, radius, left, right,
+camber, direction, normal_x, normal_y, normal_z, segment_length, forward_x, forward_y, forward_z, tag, grade`.
 
 ## Selection and Inspector
 

@@ -4,31 +4,7 @@ import {LineSegments2} from "three/addons/lines/LineSegments2.js";
 import {LineSegmentsGeometry} from "three/addons/lines/LineSegmentsGeometry.js";
 import type {Place} from "../types";
 import {speedUpRays} from "./geometry";
-
-/** One sample from the installed-line endpoint, in AC coordinates and units. */
-export interface AiLinePoint {
-  position: Place;
-  distance: number;
-  id: number;
-  speed: number;
-  gas: number;
-  brake: number;
-  lat_g: number;
-  radius: number;
-  left: number;
-  right: number;
-  camber: number;
-  direction: number;
-  normal: Place;
-  segment_length: number;
-  forward: Place;
-  tag: number;
-  grade: number;
-}
-
-export interface InstalledAiLine {status: "ready"; closed: boolean; revision: string; points: AiLinePoint[]}
-export type AiLineAnswer = InstalledAiLine | {status: "missing" | "invalid"; message: string};
-export interface AiLineHover {point: AiLinePoint; metre: number | null}
+import type {InstalledAiLine} from "./aiLineData";
 
 export const SPEED_COLOURS = ["#ffd35c", "#4ee697", "#39bdff"] as const;
 export const BRAKE_COLOUR = "#ff5d98", EDGE_COLOUR = "#eef8ff";
@@ -47,15 +23,8 @@ export function laneSpeedColour(speed: number, slow: number, fast: number) {
   return SPEED_STOPS[i].clone().lerp(SPEED_STOPS[i + 1], t - i);
 }
 
-export function laneSpeedRange(points: AiLinePoint[]) {
-  let slow = Infinity, fast = -Infinity;
-  for (const {speed} of points) { slow = Math.min(slow, speed); fast = Math.max(fast, speed); }
-  return {slow, fast};
-}
-
 /** The stored widths are horizontal distances along up × forward. The road normal gives each side's height. Pure. */
-export function laneEdges({position: [x, y, z], forward: [fx, , fz], normal: [nx, ny, nz], left, right}:
-  Pick<AiLinePoint, "position" | "forward" | "normal" | "left" | "right">): [Place, Place] {
+export function laneEdges([x, y, z]: Place, [fx, fz]: [number, number], [nx, ny, nz]: Place, left: number, right: number): [Place, Place] {
   const length = Math.hypot(fx, fz);
   if (!length) return [[x, y, z], [x, y, z]];
   const edge = (width: number): Place => {
@@ -87,8 +56,6 @@ export function pickLanePoint(positions: Place[], hits: LaneHit[], maxDistance =
   return sample;
 }
 
-const lifted = ([x, y, z]: Place): Place => [x, y + LIFT_M, z];
-
 /** A strip between the left and right edges, with each sample's colour across its width. Pure. */
 export function laneBand(edges: [Place, Place][], colours: number[][], closed: boolean) {
   const indices: number[] = [], positions: number[] = [], gradient: number[] = [];
@@ -108,10 +75,10 @@ const between = ([x, y, z]: Place, [otherX, otherY, otherZ]: Place, t: number): 
 const inset = (edge: Place, opposite: Place) => between(edge, opposite, BRAKE_STRIPE_FRACTION);
 
 /** Two edge strips on each segment with braking. The sample's brake applies to the next leg (fastlane._speed). Pure. */
-export function brakeStripes(edges: [Place, Place][], samples: Pick<AiLinePoint, "brake">[], closed: boolean) {
+export function brakeStripes(edges: [Place, Place][], brake: ArrayLike<number>, closed: boolean) {
   const positions: number[] = [];
   for (let i = 0; i < edges.length - (closed ? 0 : 1); i++) {
-    if (samples[i].brake <= 0) continue;
+    if (brake[i] <= 0) continue;
     const j = (i + 1) % edges.length;
     for (const side of [0, 1] as const) {
       const a = edges[i][side], b = edges[j][side];
@@ -123,15 +90,15 @@ export function brakeStripes(edges: [Place, Place][], samples: Pick<AiLinePoint,
 }
 
 /** Crossbars between the inner edges of the side stripes, measured along the driving line. Pure. */
-export function brakeCrossbars(edges: [Place, Place][], samples: Pick<AiLinePoint, "position" | "brake">[], closed: boolean) {
+export function brakeCrossbars(edges: [Place, Place][], locations: Place[], brake: Float32Array | number[], closed: boolean) {
   const positions: number[] = [];
   // Start outside a braking zone when possible, so a circuit's lap seam does not restart the spacing.
-  const first = closed ? Math.max(0, samples.findIndex(sample => sample.brake <= 0)) : 0;
+  const first = closed ? Math.max(0, brake.findIndex(value => value <= 0)) : 0;
   let nextBar: number | null = null;
-  for (let step = 0; step < samples.length - (closed ? 0 : 1); step++) {
-    const i = (first + step) % samples.length, j = (i + 1) % samples.length;
-    if (samples[i].brake <= 0) { nextBar = null; continue; }
-    const [x, y, z] = samples[i].position, [nextX, nextY, nextZ] = samples[j].position;
+  for (let step = 0; step < locations.length - (closed ? 0 : 1); step++) {
+    const i = (first + step) % locations.length, j = (i + 1) % locations.length;
+    if (brake[i] <= 0) { nextBar = null; continue; }
+    const [x, y, z] = locations[i], [nextX, nextY, nextZ] = locations[j];
     const length = Math.hypot(nextX - x, nextY - y, nextZ - z);
     if (!length) continue;
     const section = (t: number) => {
@@ -168,10 +135,17 @@ export class AiLineDraw {
   private centre: LineSegments2 | null = null;
   private locations: Place[] = [];
   private ray = new THREE.Raycaster();
+  private shown = false;
 
   constructor(private scene: THREE.Scene) {
     this.ray.firstHitOnly = true;
     this.ray.params.Line2 = {threshold: 2 * HOVER_PX - LINE_PX};
+  }
+
+  /** Keep the prepared overlay and its picking index when the tool is laid down. */
+  show(shown: boolean) {
+    this.shown = shown;
+    for (const mark of this.marks) mark.visible = shown;
   }
 
   set(lane: InstalledAiLine | null) {
@@ -186,16 +160,14 @@ export class AiLineDraw {
     this.locations = [];
     if (!lane) return;
 
-    const {points, closed} = lane, {slow, fast} = laneSpeedRange(points);
-    this.locations = points.map(p => lifted(p.position));
-    const edges = points.map((p): [Place, Place] => {
-      const [left, right] = laneEdges(p);
-      return [lifted(left), lifted(right)];
-    });
-    const colours = points.map(p => laneSpeedColour(p.speed, slow, fast).toArray());
+    const {count, closed, speeds: {slow, fast}} = lane;
+    this.locations = Array.from({length: count}, (_, i): Place => [lane.x[i], lane.y[i] + LIFT_M, lane.z[i]]);
+    const edges = this.locations.map((p, i) => laneEdges(p, [lane.forwardX[i], lane.forwardZ[i]],
+      [lane.normalX[i], lane.normalY[i], lane.normalZ[i]], lane.left[i], lane.right[i]));
+    const colours = Array.from(lane.speed, speed => laneSpeedColour(speed, slow, fast).toArray());
     const centre: number[] = [], gradient: number[] = [], sides: number[] = [];
-    for (let i = 0; i < points.length - (closed ? 0 : 1); i++) {
-      const j = (i + 1) % points.length;
+    for (let i = 0; i < count - (closed ? 0 : 1); i++) {
+      const j = (i + 1) % count;
       centre.push(...this.locations[i], ...this.locations[j]);
       gradient.push(...colours[i], ...colours[j]);
       sides.push(...edges[i][0], ...edges[j][0], ...edges[i][1], ...edges[j][1]);
@@ -206,7 +178,7 @@ export class AiLineDraw {
     speedUpRays(this.band);     // The strip's two faces per segment keep their order for hover.
     this.centre = lines(centre, "#ffffff", LINE_PX, 8, gradient);
     this.marks = [this.band, lines(sides, EDGE_COLOUR, 1, 10), this.centre];
-    const stripes = brakeStripes(edges, points, closed).concat(brakeCrossbars(edges, points, closed));
+    const stripes = brakeStripes(edges, lane.brake, closed).concat(brakeCrossbars(edges, this.locations, lane.brake, closed));
     if (stripes.length) {
       const geometry = new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(stripes, 3));
       const braking = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color: BRAKE_COLOUR, transparent: true,
@@ -214,11 +186,12 @@ export class AiLineDraw {
       braking.renderOrder = 9;
       this.marks.push(braking);
     }
+    this.show(this.shown);
     this.scene.add(...this.marks);
   }
 
   pick(mouse: THREE.Vector2, camera: THREE.PerspectiveCamera, maxDistance = Infinity) {
-    if (!this.band || !this.centre) return null;
+    if (!this.shown || !this.band || !this.centre) return null;
     this.ray.setFromCamera(mouse, camera);
     const [hit] = this.ray.intersectObject(this.band, false);
     if (hit?.faceIndex != null && hit.distance <= maxDistance) {

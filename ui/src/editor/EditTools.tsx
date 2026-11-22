@@ -114,7 +114,11 @@ export function EditTools({name, title, timedMode, visible, taken, view, scene, 
   // (Copy, Insert and Groups register their wheel from their own components, which stay mounted with the Library)
   const placingWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
   const setPlacingWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { placingWheel.current = wheel; }, []);
-  const saving = useSave({name, timedMode, edits, state, view, onSaved});
+  const [aiLineWrites, setAiLineWrites] = useState(0);
+  const saving = useSave({name, timedMode, edits, state, view, onSaved: savedName => {
+    if (savedName === name) setAiLineWrites(writes => writes + 1);
+    onSaved(savedName);
+  }});
   const painting = usePaint(name, edits, view);
   const walls = useWalls(name, edits);
   const wallIds = (tool === "select" || tool === "move") && editable ? view.objects.wallIds((picked?.all ?? []).map(p => p.id)) : [];
@@ -141,7 +145,7 @@ export function EditTools({name, title, timedMode, visible, taken, view, scene, 
   const band = useBand({name, view, edits, enabled: working("smooth"), revision: state.keptRevision, onNote: setNote});
   const separation = useSeparation({name, view, edits, enabled: working("separate"), revision: state.keptRevision, onNote: setNote});
   const banking = useBank({name, view, edits, enabled: working("bank"), revision: state.keptRevision, heights: state.heights, onNote: setNote});
-  const aiLine = useAiLine({name, view, enabled: tool === "ai-line", savedAt: state.recipe?.at ?? null,
+  const aiLine = useAiLine({name, view, enabled: tool === "ai-line", writes: aiLineWrites,
     unsaved: unsavedAiDraft});
   const kerbs = useKerbs({name, view, edits, kerbs: state.kerbs, enabled: working("kerb"),
     highlightId: tool === "select" ? picked?.kerbId ?? null : null, onNote: setNote, onDelete: () => remove()});

@@ -12,7 +12,8 @@ import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, fitSphere, makeGeome
 import {screenPoint, LEFT_BUTTON, CLICK_PX} from "./pointer";
 import {Marquee, selectionVolume, type SelectionRectangle} from "./marquee";
 import {RoadMarkers, type RangeDrawing} from "./roadMarkers";
-import {AiLineDraw, type AiLineHover, type InstalledAiLine} from "./aiLine";
+import {AiLineDraw} from "./aiLine";
+import {aiLinePoint, type AiLineHover, type InstalledAiLine} from "./aiLineData";
 import {KerbHighlight} from "./kerbHighlight";
 import {GeometryPreview} from "./geometryPreview";
 import * as THREE from "three";
@@ -116,7 +117,9 @@ export class TrackView {
   private camera = new THREE.PerspectiveCamera(55, 1, 0.5, VIEW_M);
   private roadMarkers = new RoadMarkers(this.scene, this.camera, (x, z) => this.groundAt(x, z), () => { this.dirty = true; });
   private aiLineDraw = new AiLineDraw(this.scene);
-  private aiLine: {lane: InstalledAiLine; onPoint: (hover: AiLineHover | null) => void; sample: number | null} | null = null;
+  private aiLine: InstalledAiLine | null = null;
+  private aiLineSample: number | null = null;
+  private onAiLinePoint: ((hover: AiLineHover | null) => void) | null = null;
   private kerbHighlight = new KerbHighlight(this.scene, () => { this.dirty = true; });
   private navigation = new Navigation(this.camera, (origin, direction) => this.groundAlong(origin, direction), () => this.moved());
   private resizing: ResizeObserver;
@@ -272,7 +275,8 @@ export class TrackView {
     this.sun.dispose();
     this.lampCones.dispose();
     this.roadMarkers.dispose();
-    this.aiLineDraw.set(null);
+    this.showAiLine(null);
+    this.setAiLine(null);
     this.kerbHighlight.dispose();
     this.resizing.disconnect();
     this.renderer.setAnimationLoop(null);
@@ -438,6 +442,7 @@ export class TrackView {
     this.loading.abort();
     this.loading = new AbortController();
     const {signal} = this.loading;
+    if (name !== this.trackName) this.setAiLine(null);
     this.clear();
     this.redraw.begin(mine);
     this.trackName = name;
@@ -1075,7 +1080,7 @@ export class TrackView {
       if (at) this.marking(at.x, at.z);
     }
     const mouse = this.mouse, hit = timed("map2lap.hover", () => this.pointing.hit(mouse));
-    if (this.aiLine) {
+    if (this.onAiLinePoint) {
       // The pointer may sit a few pixels beside the lifted line, especially at a shallow view angle.
       this.showAiLinePoint(this.aiLineDraw.pick(mouse, this.camera, hit && hit.distance + 0.5));
     }
@@ -1113,20 +1118,30 @@ export class TrackView {
 
   drawBand(line: Place[] | null, width: number) { this.roadMarkers.drawBand(line, width); }
 
-  /** Show the installed line above its own road level and report the sample hovered on the band. */
-  setAiLine(lane: InstalledAiLine | null, onPoint: (hover: AiLineHover | null) => void = () => {}) {
-    this.aiLine = lane && {lane, onPoint, sample: null};
+  /** Prepare the installed revision of the AI line, retaining its geometry while that revision holds. */
+  setAiLine(lane: InstalledAiLine | null) {
+    if (this.aiLine?.revision === lane?.revision && this.aiLine?.closed === lane?.closed) return;
+    this.aiLine = lane;
+    this.aiLineSample = null;
     this.aiLineDraw.set(lane);
     this.hoverDue = true;
     this.dirty = true;
   }
 
+  /** Show the prepared line and report hovered samples while onPoint is set. */
+  showAiLine(onPoint: ((hover: AiLineHover | null) => void) | null) {
+    this.onAiLinePoint = onPoint;
+    this.aiLineSample = null;
+    this.aiLineDraw.show(onPoint !== null);
+    this.hoverDue = true;
+    this.dirty = true;
+  }
+
   private showAiLinePoint(sample: number | null) {
-    const line = this.aiLine;
-    if (!line || sample === line.sample) return;
-    line.sample = sample;
-    const point = sample == null ? null : line.lane.points[sample];
-    line.onPoint(point && {point, metre: routeMetre(this.data?.route ?? [], point.position[0], point.position[2])?.metre ?? null});
+    if (!this.aiLine || !this.onAiLinePoint || sample === this.aiLineSample) return;
+    this.aiLineSample = sample;
+    const point = sample == null ? null : aiLinePoint(this.aiLine, sample);
+    this.onAiLinePoint(point && {point, metre: routeMetre(this.data?.route ?? [], point.position[0], point.position[2])?.metre ?? null});
   }
   highlightKerb(id: string | null) { this.kerbHighlight.set(id, this.meshes); }
   /** The retained texture preview of one generated kerb, when its draft mesh is indexed. Pure. */

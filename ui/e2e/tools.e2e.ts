@@ -58,6 +58,13 @@ test("Road has Smooth road, Bend road, Bank road, Racing kerb and Stitch road, w
 });
 
 test("L shows the installed AI line", async ({page, backend}) => {
+  let statusReads = 0, binaryReads = 0;
+  page.on("request", request => {
+    const url = new URL(request.url());
+    if (url.pathname !== "/api/editor/alpha/ai-line") return;
+    if (url.searchParams.has("r")) binaryReads++;
+    else statusReads++;
+  });
   await openEditor(page);
   const c = await keysOnView(page);
   await page.keyboard.press("l");
@@ -81,10 +88,18 @@ test("L shows the installed AI line", async ({page, backend}) => {
   await expect(point).toContainText("Route metre");
   await page.mouse.click(c.x + 30, c.y + 10);
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
+  expect([statusReads, binaryReads]).toEqual([2, 1]);
+  await page.keyboard.press("l");
+  await expect(bar).toHaveCount(0);
+  await page.keyboard.press("l");
+  await expect(bar).toContainText("Braking");
+  await expect(point).toContainText("Route metre");
+  expect([statusReads, binaryReads]).toEqual([2, 1]);
 
   await saveTrack(page);    // The fixture has no timing gates, so Save removes the old line without generating another.
   await expect(bar).toContainText("No AI line is installed");
   await expect(bar).not.toContainText("Line from the last build or save");
+  expect([statusReads, binaryReads]).toEqual([3, 1]);
   await page.keyboard.press("Escape");
   await expect(bar).toHaveCount(0);
   await expect(point).toHaveCount(0);

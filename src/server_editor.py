@@ -1,6 +1,7 @@
 """Editor data HTTP endpoints; Handler supplies response, request and same-page helpers."""
 import json
 import os
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -10,28 +11,64 @@ from app import mytracks, settings, trackedits, trackinspect, trackview
 from track import fastlane
 
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
+LANE_CHANGED = "The installed AI line changed. Reopen the tool to load its current revision."
+LANE_DETAILS = ("speed", "gas", "brake", "lat_g", "radius", "left", "right", "camber", "direction",
+                "normal", "length", "forward", "tag", "grade")
 
 
-def _lane_data(directory):
-    """Read the installed AI line in directory and identify the file revision that was read."""
+def _lane_revision(stat):
+    """Revision of the installed line at stat for version 1 of the Editor protocol. Pure."""
+    return "v1-" + "-".join(f"{n:x}" for n in (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_dev, stat.st_ino))
+
+
+def _encode_lane(points, detail):
+    """Encode point and detail records as the 23 little-endian columns in docs/editor-tools.md. Pure."""
+    count = len(points)
+    data = np.empty((23, count), dtype="<f4")
+    data[:3], data[3] = points["pos"].T, points["length"]
+    data.view("<i4")[4] = points["id"]
+    index = 5
+    for field in LANE_DETAILS:
+        columns = detail[field].reshape(count, -1).T
+        data[index:index + len(columns)] = columns
+        index += len(columns)
+    return data.tobytes()
+
+
+@lru_cache(maxsize=2)
+def _lane_snapshot(path, revision):
+    """Read and encode the file once per recent revision so the status and data requests share it."""
+    points, detail, _ = fastlane.read_lane(path)
+    if _lane_revision(path.stat()) != revision:
+        raise trackview.Unreadable(LANE_CHANGED)
+    if not all(np.isfinite(records[field]).all() for records in (points, detail) for field in records.dtype.names):
+        raise ValueError("The installed AI line contains invalid numbers.")
+    return len(points), _encode_lane(points, detail)
+
+
+def _lane_data(directory, revision=None):
+    """Return the installed line's status, or its bytes if revision still matches the file in directory."""
     path = directory / fastlane.FILE
     try:
-        before = path.stat()
-        points, detail, _ = fastlane.read_lane(path)
-        after = path.stat()
-    except FileNotFoundError:
-        return {"status": "missing", "message": "No AI line is installed for this track."}
-    except (OSError, ValueError):
-        return {"status": "invalid", "message": "The installed AI line could not be read."}
-    if (before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns):
-        return {"status": "invalid", "message": "The AI line changed while loading. Reopen the tool to try again."}
-    if not all(np.isfinite(records[field]).all() for records in (points, detail) for field in records.dtype.names):
-        return {"status": "invalid", "message": "The installed AI line contains invalid numbers."}
-
-    columns = {"position": points["pos"], "distance": points["length"], "id": points["id"]}
-    columns.update(("segment_length" if field == "length" else field, detail[field]) for field in detail.dtype.names)
-    return {"status": "ready", "closed": mytracks.is_circuit(directory), "revision": str(after.st_mtime_ns),
-            "points": [dict(zip(columns, row)) for row in zip(*(column.tolist() for column in columns.values()))]}
+        current = _lane_revision(path.stat())
+        if revision is not None and revision != current:
+            raise trackview.Unreadable(LANE_CHANGED)
+        count, data = _lane_snapshot(path, current)
+        closed = mytracks.is_circuit(directory) if revision is None else None
+        if _lane_revision(path.stat()) != current:
+            raise trackview.Unreadable(LANE_CHANGED)
+        if revision is not None:
+            return data
+        return {"status": "ready", "message": None, "closed": closed, "revision": current, "count": count}
+    except (OSError, ValueError, trackview.Unreadable) as error:
+        if revision is not None:
+            raise trackview.Unreadable(LANE_CHANGED) from error
+        if isinstance(error, FileNotFoundError):
+            status, message = "missing", "No AI line is installed for this track."
+        else:
+            status = "invalid"
+            message = "The installed AI line could not be read." if isinstance(error, OSError) else str(error)
+        return {"status": status, "message": message, "closed": None, "revision": None, "count": 0}
 
 
 class EditorHandlers:
@@ -68,13 +105,21 @@ class EditorHandlers:
         except ConnectionError:             # (the page asked for another track meanwhile)
             pass
 
-    def _ai_line(self, name):
+    def _ai_line(self, name, revision=None):
         """The spline accompanying the installed KN5 of track name, independent of its source and draft."""
         try:
             model = trackview.kn5_path(settings.ac_path(), generator.slug(name))
+            data = _lane_data(Path(model).parent, revision)
         except trackview.NotOurs:
+            if revision is not None:
+                return self._send(409, {"error": LANE_CHANGED})
             return self._send(404, {"error": "This track has no track file (build it again)"})
-        self._send(200, _lane_data(Path(model).parent), headers={"Cache-Control": "no-store"})
+        except trackview.Unreadable:
+            return self._send(409, {"error": LANE_CHANGED})
+        if revision is None:
+            self._send(200, data, headers={"Cache-Control": "no-store"})
+        else:
+            self._send(200, data, "application/octet-stream", headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
     def _edits_answer(self, work):
         """The answer of work() on a track's edits: 200 with its result, or what went wrong."""
