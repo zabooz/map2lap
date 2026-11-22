@@ -115,6 +115,29 @@ class Base(unittest.TestCase):
 
 
 class FilterTest(Base):
+    def test_save_replaces_a_stale_ai_line_using_the_staged_model(self):
+        lane = os.path.join(self.root, "ai", "fast_lane.ai")
+        with open(lane, "wb") as f:
+            f.write(b"old AI")
+
+        def regenerate(model, *, circuit, log):
+            staged = os.path.join(os.path.dirname(model), "ai", "fast_lane.ai")
+            self.assertTrue(os.path.isfile(model))
+            self.assertFalse(circuit)
+            self.assertFalse(os.path.exists(staged))
+            with open(staged, "wb") as f:
+                f.write(b"new AI")
+            log("AI line: 123 points in 0.50 s")
+            return True
+
+        with mock.patch("track.fastlane.regenerate", side_effect=regenerate):
+            result = self.copy()
+        self.assertEqual(["AI line: 123 points in 0.50 s"], result["log"])
+        with open(lane, "rb") as f:
+            self.assertEqual(b"old AI", f.read())
+        with open(os.path.join(os.path.dirname(self.own("t_mod")), "ai", "fast_lane.ai"), "rb") as f:
+            self.assertEqual(b"new AI", f.read())
+
     def test_a_car_goes_front_and_back_and_nothing_else(self):
         self.edits(["t_0_0#1"])
         self.copy()

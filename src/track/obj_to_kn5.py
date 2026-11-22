@@ -688,12 +688,13 @@ def circuit_splits(objs, anchor, line_m, junctions=None):
 
 
 def _mapped_junctions(parts, log=print):
-    """Read junction centres and branch polylines from available tile facts in AC x/z coordinates."""
-    from junctions import NODE_TOL
+    """Read mapped junction centres and branches next to OBJ parts."""
+    return _junction_geometry(mapped_road_lines(map(editorinfo.side_file, parts), log))
 
-    arms, widths = {}, {}
-    for part in parts:
-        path = editorinfo.side_file(part)
+
+def mapped_road_lines(paths, log):
+    """Yield road centrelines and widths from tile fact ZIP paths, in AC X/Z coordinates."""
+    for path in paths:
         try:
             with ZipFile(path) as archive:
                 features = json.loads(archive.read("tile.json"))["features"]
@@ -711,20 +712,28 @@ def _mapped_junctions(parts, log=print):
                     continue
                 width = float(spec["width"])
                 geometries = [np.asarray(line, dtype=float) for line in feature["geometry"]]
-                if not math.isfinite(width) or any(line.size and (line.ndim != 2 or line.shape[1] != 2
+                if not math.isfinite(width) or width <= 0 or any(line.size and (line.ndim != 2 or line.shape[1] != 2
                                                                   or not np.isfinite(line).all()) for line in geometries):
                     raise ValueError("invalid road width or coordinates")
             except (AttributeError, KeyError, OverflowError, TypeError, ValueError) as error:
                 log(f"Skipping junction feature {index} in {os.path.basename(path)}: {error}")
                 continue
-            for geometry in geometries:
-                nodes = np.rint(geometry / NODE_TOL).astype(int)
-                for first, second in zip(map(tuple, nodes), map(tuple, nodes[1:])):
-                    if first == second:
-                        continue
-                    for node, arm in ((first, second), (second, first)):
-                        arms.setdefault(node, set()).add(arm)
-                        widths[node] = max(widths.get(node, 0.0), width)
+            yield from ((geometry, width) for geometry in geometries if len(geometry) >= 2)
+
+
+def _junction_geometry(roads):
+    """Return junction centres and branch polylines from mapped road centrelines and widths. Pure."""
+    from junctions import NODE_TOL
+
+    arms, widths = {}, {}
+    for geometry, width in roads:
+        nodes = np.rint(geometry / NODE_TOL).astype(int)
+        for first, second in zip(map(tuple, nodes), map(tuple, nodes[1:])):
+            if first == second:
+                continue
+            for node, arm in ((first, second), (second, first)):
+                arms.setdefault(node, set()).add(arm)
+                widths[node] = max(widths.get(node, 0.0), width)
     junctions = [node for node, connected in arms.items() if len(connected) >= 3]
     areas, branches = [], []
     for index, centre in enumerate(junctions):

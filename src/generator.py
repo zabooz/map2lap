@@ -16,7 +16,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import as_completed
+from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 
@@ -24,7 +26,7 @@ from track import build_tiles     # (first: sets the asphalt mesh switches and t
 from app import buildoptions, circuitlap, debugapp, mapcache, mytracks, settings, system, trackcode, version
 from app.paths import ROOT
 from scenery import farview, gates
-from track import make_obj, make_track_folder, obj_to_kn5, objectlist, parallel, route_race
+from track import fastlane, make_obj, make_track_folder, obj_to_kn5, objectlist, parallel, route_race
 
 blockworker = build_tiles.blockworker
 roadsmod = build_tiles.roadsmod
@@ -48,6 +50,33 @@ LOOP_M = 100.0
 # Progress phases (build(progress=...), shown by the generator page): route, road tiles, terrain/trees/houses
 # (make_obj), distant view (farview), kn5, tidying up (map data cache, temporary data)
 PHASES = ("route", "tiles", "scenery", "distant", "kn5", "clean")
+
+
+@dataclass(frozen=True)
+class SavedCircuit:
+    """The installed lap in its original ENU frame."""
+    anchor: tuple[float, float]
+    xy: np.ndarray
+
+
+def _saved_circuit(name):
+    """Read the full installed Circuit line and its twice-driven spans for a rebuild."""
+    folder = Path(make_track_folder.AC) / "content" / "tracks" / slug(name)
+    try:
+        with (folder / fastlane.ROUTE).open(encoding="utf-8") as stream:
+            header, lat, lon = stream.readline().split()
+            xz = np.loadtxt(stream, ndmin=2)
+        anchor = float(lat), float(lon)
+    except FileNotFoundError:
+        return None, None    # An old track without a saved line can still be routed from its pins.
+    except ValueError as error:
+        raise RuntimeError(f"Invalid saved Circuit line for {name}") from error
+    if (header != "anchor" or not np.isfinite(anchor).all() or not np.isfinite(xz).all() or
+            xz.shape[1] != 2 or len(xz) < 4 or not np.array_equal(xz[0], xz[-1])):
+        raise RuntimeError(f"Invalid saved Circuit line for {name}")
+    info = mytracks.load(folder)
+    timing = (info or {}).get("timing") or {}
+    return SavedCircuit(anchor, xz * [1.0, -1.0]), {"twice": timing.get("twice", [])}
 
 
 def data_versions():
@@ -367,7 +396,7 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     """The whole chain up to the track folder; returns a dict with paths and figures.
     progress(phase, done, total): progress for the generator page (phases: PHASES).
     line: (route [(lat, lon), ...], index of the end pin in it) instead of OSRM's: an earlier build's route as it was,
-    the run-off behind the end pin included (tools/from_debug.py).
+    the run-off behind the end pin included (tools/from_debug.py), or a SavedCircuit in its original ENU frame.
     kind="circuit": route a closed lap. With line, circuit_timing holds the saved start/finish metre and twice-driven spans.
     clean: delete the temporary data afterwards (clean_up); the page does that while "Keep build files" is off.
     cache_gb: trim the map data cache to this limit afterwards (mapcache.trim; 0: none, None: don't tidy).
@@ -417,7 +446,16 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
     else:
         progress("route", 0, 0)
         lap = None
-        if line is None:
+        saved = line if isinstance(line, SavedCircuit) else None
+        if saved is not None:
+            log("Using saved Circuit line")
+            lat0, lon0 = saved.anchor
+            xy = saved.xy
+            lead = np.empty((0, 2))
+            la, lo, _ = geodesy.EnuFrame(lat0, lon0).enu_to_geodetic(xy[:, 0], xy[:, 1], 0)
+            pts = np.column_stack((la, lo)).tolist()
+            length = float(np.linalg.norm(np.diff(xy, axis=0), axis=1).sum())
+        elif line is None:
             if circuit:
                 log("Calculating circuit (OSRM) ...")
                 lap = circuit_route(points)
@@ -447,18 +485,18 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
         else:
             ext = extend(pts)
             approach = extend(pts[::-1], obj_to_kn5.STAGE_GRID_M, incoming=True)[::-1]
-        allp = pts + ext + approach
-        lats, lons = np.array([p[0] for p in allp]), np.array([p[1] for p in allp])
-        # A lap can cross the antimeridian on a single road. Its centre follows the continuous line.
-        centre_lons = np.unwrap(lons, period=360.0) if circuit else lons
-        lat0, lon0 = (lats.min() + lats.max()) / 2, (centre_lons.min() + centre_lons.max()) / 2
-        if circuit and not -180.0 <= lon0 < 180.0:
-            lon0 = wrap_lon(lon0)
-        frame = geodesy.EnuFrame(lat0, lon0)
-        e, n, _ = frame.geodetic_to_enu(lats, lons, np.zeros_like(lats))
-        xy = np.c_[np.asarray(e, float), np.asarray(n, float)]
-        lead = xy[len(pts) + len(ext):]
-        xy = xy[:len(pts) + len(ext)]
+        if saved is None:
+            lats, lons = np.asarray(pts + ext + approach, float).T
+            # A lap can cross the antimeridian on a single road. Its centre follows the continuous line.
+            centre_lons = np.unwrap(lons, period=360.0) if circuit else lons
+            lat0, lon0 = (lats.min() + lats.max()) / 2, (centre_lons.min() + centre_lons.max()) / 2
+            if circuit and not -180.0 <= lon0 < 180.0:
+                lon0 = wrap_lon(lon0)
+            frame = geodesy.EnuFrame(lat0, lon0)
+            e, n, _ = frame.geodetic_to_enu(lats, lons, np.zeros_like(lats))
+            xy = np.c_[np.asarray(e, float), np.asarray(n, float)]
+            lead = xy[len(pts) + len(ext):]
+            xy = xy[:len(pts) + len(ext)]
         tiles = corridor_tiles(np.concatenate((lead, xy)), width)
         label = "Circuit, lap" if circuit else "Route"
         log(f"{label} {length / 1000:.2f} km, corridor ±{width:.0f} m: {len(tiles)} tiles")
@@ -589,6 +627,8 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
             debugapp.sync(make_track_folder.AC, True)
         model = os.path.join(root, name + ".kn5")
         route_race.remove_generated_files(model)
+        if not area:
+            (Path(root) / fastlane.FILE).unlink(missing_ok=True)
         for old in glob.glob(os.path.join(root, "*.kn5")):
             os.remove(old)
         log("Writing kn5 ...")              # (our own writer instead of Blender + ksEditor, see obj_to_kn5.py)
@@ -600,6 +640,8 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
     progress("kn5", 0, 0)
     kn5_path = obj_to_kn5.convert(obj_path, None, anchor_path, log=log, parts=kn5_parts, prepare_output=prepare_output)
     root = os.path.dirname(kn5_path)
+    if not area:
+        fastlane.regenerate(kn5_path, circuit=circuit, log=log)
     # the settings into the track folder: "My tracks" on the generator page rebuilds with them (mytracks)
     info = {"version": version.VERSION, "track_version": version.TRACK_VERSION, "title": title,
             "points": [list(p) for p in points], "width": None if area else width,
@@ -633,12 +675,15 @@ def main():
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--area", type=float, nargs=4, metavar=("S", "W", "N", "E"), help="area instead of a route")
     mode.add_argument("--circuit", action="store_true", help="close the lap from the last pin back to the first")
+    ap.add_argument("--circuit-source", help="reuse this installed Circuit's full saved line for Rebuild")
     ap.add_argument("--clean", action="store_true", help="delete the temporary data afterwards")
     ap.add_argument("--result", action="store_true", help="a line RESULT <json> at the end (for server.py)")
     ap.add_argument("--cores", type=float, default=100.0, help="%% of the logical cores (at most all but one)")
     ap.add_argument("--cache-gb", type=float, help="size limit of the map data cache (default: settings.json)")
     ap.add_argument("points", nargs="*", help="lat,lon ... (at least two; none with --area)")
     a = ap.parse_args()
+    if a.circuit_source and not a.circuit:
+        ap.error("--circuit-source requires --circuit")
     system.trust_windows_certificates()
     pts = [tuple(map(float, p.split(","))) for p in a.points]
     parallel.SHARE = a.cores / 100.0
@@ -646,7 +691,8 @@ def main():
     if a.result:                # (for server.py: one line PROGRESS <json> per step, not into the log)
         def progress(phase, done, total):
             print("PROGRESS " + json.dumps({"phase": phase, "done": done, "total": total}), flush=True)
-    res = build(pts, a.width, a.name, a.title, clean=a.clean, area=a.area, progress=progress,
+    line, timing = _saved_circuit(a.circuit_source) if a.circuit_source else (None, None)
+    res = build(pts, a.width, a.name, a.title, clean=a.clean, area=a.area, progress=progress, line=line, circuit_timing=timing,
                 cache_gb=settings.load()["cache_gb"] if a.cache_gb is None else a.cache_gb,
                 kind="circuit" if a.circuit else "route")
     if a.result:

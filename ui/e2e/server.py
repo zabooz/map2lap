@@ -414,7 +414,7 @@ def stand_ins():
 
 
 def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, ground_quality="sd",
-                *, kind="route"):
+                *, kind="route", circuit_source=None):
     """As server.start_build, but the build is a few steps of waiting: its progress, its log, the track at the end."""
     if not settings.is_ac(settings.ac_path()):
         return 400, {"error": "Assetto Corsa folder not found: set it in Settings"}

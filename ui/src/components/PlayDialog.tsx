@@ -35,15 +35,17 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
     return () => element.close();
   }, []);
   useEffect(() => {
-    if (!timedMode) return;
+    if (!timedMode || saving) return;
     let alive = true;
     void get<{max_opponents: number}>(`/api/play/options?name=${encodeURIComponent(name)}`).then(result => {
       if (!alive) return;
-      if (typeof result?.max_opponents !== "number") setGridError(true);
-      else setMaxOpponents(result.max_opponents);
+      const limit = result?.max_opponents;
+      setGridError(typeof limit !== "number");
+      setMaxOpponents(limit ?? null);
+      setAi(value => ({...value, opponents: Math.min(value.opponents, limit ?? 0)}));
     });
     return () => { alive = false; };
-  }, [name, timedMode]);
+  }, [name, timedMode, saving]);
   useEffect(() => {
     let alive = true;
     Promise.all([get<Cars>("/api/cars"), get<{car: string | null}>("/api/settings")]).then(([available, settings]) => {

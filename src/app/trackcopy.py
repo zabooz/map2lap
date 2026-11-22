@@ -16,7 +16,7 @@ import numpy as np
 
 from app import (cardensity, mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackkerbs, trackpaint, trackstitch, trackplace, tracksource, tracksurfaces,
                  tracktrees, trackvariation, trackview, trackwalls, weather, treespacing)
-from track import editorinfo, groundmaterial, kn5, objectlist, route_race
+from track import editorinfo, fastlane, groundmaterial, kn5, objectlist, route_race
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
 ROOM_FACTOR = 1.1               # the disk must hold the kn5 once more, and a little: the rest of a track's folder is small
@@ -209,6 +209,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
     """The track written as edits say, from its source, its id (None: none yet, one is copied now), its object list objects and
     TreeFX section trees (None for none). What save returns."""
     manual_edits = edits
+    log = []
     edits = cardensity.effective(treespacing.effective(edits))
     folder = os.path.dirname(own)
     path = tracksource.kn5_of(source) if source else own
@@ -252,6 +253,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         source = tracksource.make(ac, name, own, source_objects, trees)
         path = tracksource.kn5_of(source)
     info, new = mytracks.load(folder), copy_to or name
+    kind = mytracks._kind(info)
     title = title or info["title"]
     temporary, target = (os.path.join(os.path.dirname(folder), prefix + new) for prefix in (TEMPORARY, ""))
     if copy_to and os.path.exists(target):
@@ -278,7 +280,10 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
             if source_scan["meshes"][i]["name"].startswith("nocol_"):
                 going[i] = going.get(i, np.zeros_like(mask)) | mask
     try:
-        _copy_folder(folder, temporary, {name + ".kn5", name + '.uv2', objectlist.FILE, str(trackpaint.BUNDLE)})
+        skip = {name + ".kn5", name + '.uv2', objectlist.FILE, str(trackpaint.BUNDLE)}
+        if kind != "area":
+            skip.add(str(fastlane.FILE))
+        _copy_folder(folder, temporary, skip)
         new_kn5 = os.path.join(temporary, new + ".kn5")
         materials, images, change, added, native_config, drop_textures, native_files = trackdetail.saved(ac, name, edits["base"], textures.values(), scan, change, path, added)
         if scan.get("wall_images"):
@@ -334,6 +339,8 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         _ui_title(temporary, title)
         staged_old = os.path.join(temporary, name + ".kn5")
         route_race.update_copy(staged_old, new_kn5, source_scan["points"])
+        if kind != "area":
+            fastlane.regenerate(new_kn5, circuit=kind == "circuit", log=log.append)
         # (a build started or a tab saved meanwhile: the triangles counted are no more the ones to go)
         if objectlist.state_of(path) != edits["base"] or trackedits.load(ac, name)["revision"] != edits["revision"]:
             raise Refused("The track or its changes changed meanwhile: nothing was saved")
@@ -357,7 +364,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
                 step()
             except OSError:         # (the copy is whole, so it is saved: a draft left only shows as changes not saved)
                 pass
-    return {"name": new, "title": title, "left_out": _counted(seen, objects)}
+    return {"name": new, "title": title, "left_out": _counted(seen, objects), "log": log}
 
 
 def _counted(seen, objects):

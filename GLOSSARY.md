@@ -404,6 +404,9 @@ The version of how built tracks look and drive (`TRACK_VERSION`); separate from 
 **kn5**:
 Assetto Corsa's model file of a track; Map2Lap writes it with its own writer.
 
+**AI line**:
+AC's `ai/fast_lane.ai` gives opponents a driving path. Map2Lap samples it on the finished track's collision road.
+
 **Surface prefix**:
 The start of an object's name that decides its physics in AC: `1ROAD_`, `1GRAVEL_`, `1GRASS_`, `1KERB_`, `1WALL_`,
 `nocol_` (no collision).

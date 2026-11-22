@@ -122,10 +122,15 @@ class CircuitBuildTest(unittest.TestCase):
         self.anchor.write_text(json.dumps(anchor), encoding="utf-8")
         (self.installed / "data").mkdir(parents=True)
 
+        lane = self.installed / "ai/fast_lane.ai"
+        lane.parent.mkdir()
+        lane.write_bytes(b"old AI")
+
         def convert(_obj, kn5, anchor_path, prepare_output=None, **kwargs):
             """Write a stand-in KN5 and the converter's placed timing metres."""
             if prepare_output is not None:
                 kn5 = prepare_output(False)
+            self.assertFalse(lane.exists(), "the old AI line must go before replacing the KN5")
             path = Path(anchor_path)
             saved = json.loads(path.read_text(encoding="utf-8"))
             saved["timing"].update(line_m=SAVED_TIMING["line_m"], sector_m=[241.0])
@@ -137,9 +142,12 @@ class CircuitBuildTest(unittest.TestCase):
               mock.patch.object(generator, "where", return_value=("", "")),
               mock.patch.object(generator.settings, "load", return_value={"debug_app": False}),
               mock.patch.object(generator.make_track_folder, "make", return_value=str(self.installed)) as make,
-              mock.patch.object(generator.obj_to_kn5, "convert", side_effect=convert)):
+              mock.patch.object(generator.obj_to_kn5, "convert", side_effect=convert),
+              mock.patch("track.fastlane.regenerate") as regenerate):
             result = generator._finish("test", "Test", self.work, anchor, np.asarray(anchor["route"]), COORDS, [], (0, 0, 0),
                                        0, lambda msg: None, lambda *progress: None, False, None)
+        self.assertEqual(regenerate.call_args.args, (result["kn5"],))
+        self.assertTrue(regenerate.call_args.kwargs["circuit"])
         self.assertEqual("circuit", result["kind"])
         self.assertFalse(make.call_args.kwargs["point_to_point"])
         self.assertTrue(make.call_args.kwargs["extra_description"].startswith("Circuit, lap "))
@@ -206,6 +214,28 @@ class CircuitBuildTest(unittest.TestCase):
         mytracks.save(self.installed, {"title": "Test", "points": PINS, "width": 120, "kind": "circuit"})
         args = self.post_build("/api/rebuild", {"name": "test"})
         self.assertIn("--circuit", args[:args.index("--")])
+        self.assertEqual("test", args[args.index("--circuit-source") + 1])
+
+    def test_build_as_copy_reads_the_original_circuit(self):
+        (self.installed / "data").mkdir(parents=True)
+        mytracks.save(self.installed, {"title": "Test", "points": PINS, "width": 120, "kind": "circuit"})
+        args = self.post_build("/api/rebuild", {"name": "test", "copy": True})
+        self.assertEqual("test_2", args[args.index("--name") + 1])
+        self.assertEqual("test", args[args.index("--circuit-source") + 1])
+
+    def test_rebuild_uses_the_full_installed_lap_without_routing_and_rechecks_the_grid(self):
+        (self.installed / "data").mkdir(parents=True)
+        mytracks.save(self.installed, {"title": "Test", "points": PINS, "kind": "circuit", "timing": SAVED_TIMING,
+                                      "line": COORDS[:2]})  # The line in metadata is only the map preview.
+        (self.installed / "data/map2lap_route.txt").write_text(
+            "anchor 46.65 14.62\n0 0\n100 0\n100 -100\n0 0\n", encoding="utf-8")
+        with (mock.patch.object(generator.make_track_folder, "AC", str(self.root)),
+              mock.patch.object(generator, "circuit_route", side_effect=AssertionError("Rebuild called OSRM"))):
+            saved, timing = generator._saved_circuit("test")
+            anchor, _ = self.build_anchor(line=saved, circuit_timing=timing)
+        self.assertEqual((46.65, 14.62), (anchor["lat"], anchor["lon"]))
+        self.assertEqual([[0, 0], [100, 0], [100, 100], [0, 0]], anchor["route"])
+        self.assertEqual({"start_m": 0.0, "twice": [[10.0, 50.0]]}, anchor["timing"])
 
     def test_listing_keeps_circuit_distinct_from_route(self):
         for name, extra in (("route", {"track_version": "old"}), ("test", {"kind": "circuit"}),

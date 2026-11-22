@@ -2,6 +2,7 @@
 // (in its place or as a new track); Play saves first.
 import {useCallback, useState} from "react";
 import {post} from "../../api";
+import {toasts} from "../../components/toastStore";
 import {usePlay} from "../../hooks/usePlay";
 import type {TimedMode} from "../../types";
 import {isCurrent, type EditState, type TrackEdits} from "./edits";
@@ -40,12 +41,20 @@ export function useSave({name, timedMode, edits, state, view, onSaved}: {
       setSaving({busy: false, text: "Not saved: the changes could not be kept. Nothing was written."});
       return null;
     }
-    const r = await post<{name: string; title: string}>(`/api/editor/${encodeURIComponent(name)}/save`,
+    const r = await post<{name: string; title: string; log?: string[]}>(`/api/editor/${encodeURIComponent(name)}/save`,
                                                        {copy: copyTitle !== null, title: copyTitle, revision});
     edits.hold(false);
     if (r.error || !r.name) {
       setSaving({busy: false, text: `Not saved: ${r.error ?? "no answer"}`});
       return null;
+    }
+    const warning = r.log?.find(line => line.startsWith("AI line skipped: "));
+    const notice = "save-ai-line";
+    if (warning) {
+      toasts.post({id: notice, tone: "warning", title: "Track saved without an AI line",
+        message: warning.slice("AI line skipped: ".length), onDismiss: () => toasts.remove(notice)});
+    } else {
+      toasts.remove(notice);
     }
     setSaving({busy: false, text: null});       // (a copy: the Editor shows it now, its name in the track field)
     if (copyTitle !== null) edits.handOver(r.name);

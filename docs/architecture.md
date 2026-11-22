@@ -102,7 +102,8 @@ Original (0 m) to 20 m in 0.5 m steps. The data reader still accepts saved spaci
 tracks and codes mean Original. The generator page captures the choices
 when starting each build and passes an isolated child environment. They are saved in the anchor and track settings;
 Rebuild, Build as copy and track codes retain them. Route rebuilds and copies also accept a changed corridor width,
-falling back to the track's saved width when none is supplied. Choices beyond the legacy defaults use `M2L2-`
+falling back to the track's saved width when none is supplied. Circuit rebuilds and copies reuse the installed lap
+from `data/map2lap_route.txt` and place the timing lines and grid on the rebuilt road. Choices beyond the legacy defaults use `M2L2-`
 codes so older applications refuse them rather than silently ignoring them; HD uses `M2L3-`. SD with 2 m terrain, cars on and Original trees retains `M2L1-`.
 
 `BNE_GROUND_QUALITY=hd` samples all terrain colour layers at 4096 px per tile instead of SD's 2048 px:

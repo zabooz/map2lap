@@ -267,6 +267,12 @@ def manifest(kn5):
         return None
 
 
+def archives(kn5):
+    """Paths to the available map-fact tiles bound to this finished KN5."""
+    data = manifest(kn5)
+    return [os.path.join(_folder(kn5), key + ".zip") for key in data["tiles"]] if data else []
+
+
 def _publish(kn5, files):
     folder = _folder(kn5)
     os.makedirs(os.path.dirname(folder), exist_ok=True)

@@ -230,7 +230,7 @@ def saved_in_editor(name):
 
 
 def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, ground_quality="sd",
-                kind="route"):
+                kind="route", *, circuit_source=None):
     """Start a build (new and rebuild); returns (HTTP code, response)."""
     if not settings.is_ac(settings.ac_path()):
         return 400, {"error": "Assetto Corsa folder not found: set it in Settings"}
@@ -249,6 +249,8 @@ def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=
     else:                           # ("--": a point like -33.9,151.2 is not an option)
         if kind == "circuit":
             args.append("--circuit")
+            if circuit_source:
+                args += ["--circuit-source", circuit_source]
         args += ["--width", str(float(width or 100)), "--", *(f"{la},{lo}" for la, lo in points)]
     if clean:
         args.insert(0, "--clean")
@@ -1185,9 +1187,9 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                 if info is None:
                     return self._send(404, {"error": "No saved build settings for this track"})
                 title = info["title"]
+                mode = {"kind": "circuit", "circuit_source": name} if info.get("kind") == "circuit" else {}
                 if body.get("copy"):
                     name, title = mytracks.copy_name(settings.ac_path(), name, title)
-                mode = {"kind": "circuit"} if info.get("kind") == "circuit" else {}
                 self._send(*start_build(name, title, [tuple(p) for p in info["points"]], body.get("width", info.get("width")),
                                         info.get("area"), body.get("terrain_cell_m", info.get("terrain_cell_m", 2)),
                                         body.get("parked_cars", info.get("parked_cars", True)),

@@ -160,6 +160,20 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - BeamNG.Earth: a local ENU frame around the anchor (x east, y north, z up). Anchor = middle of the route or area.
 - OBJ and kn5: Y up, `(x, z_enu, -y_enu)`. kn5 stores UV v negated (like ksEditor).
 
+## AI line
+
+Build, Rebuild and Editor Save regenerate `ai/fast_lane.ai` from the finished KN5's collision road and
+`data/map2lap_route.txt`. Tangent arcs round corners where the car's width fits on the same level of the built road.
+The grid and timing lines hold their original positions. Curvature measured along the rounded line sets radius and speed.
+`1ROAD_` includes Editor Stitch and `1GRAVEL_` includes gravel road. Raised `1KERB_` surfaces sit outside the width
+measurements. Matched road centrelines and widths limit broad collision strips. Across a mapped intersection or a local
+width bulge, widths interpolate along the route and stay within the collision road.
+
+An A–B Route has an open line behind the last grid slot through the finish. If the road starts at the rear slot, the line
+starts there. A Circuit begins at its timing line and closes without a repeated endpoint. When the path cannot be sampled
+on the road, the log gives the reason and, for a surface failure, the route metre. The track is still saved. Play offers
+opponents when an AI line is available.
+
 ## Traps
 
 - `WALL` stays undefined in `surfaces.ini`: defined, every wall turns into ground and you drive through it (Kunos:
