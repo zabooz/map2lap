@@ -50,13 +50,17 @@ export const RANGE_COLOURS = {core: "#ff9f43", picked: "#ffd166", transition: "#
 
 export interface RangeDrawing {before: Place[]; core: Place[]; after: Place[]; width: number; picked: boolean; fits: boolean}
 
-/** Each range's three parts as band lines (bandLines) with their colour. Pure. */
+/** The core and both transitions of each range, with their outlines, surface fills and colours. Pure. */
 export function rangeSegments(ranges: RangeDrawing[]) {
-  return ranges.flatMap(r => [
-    {lines: r.core.length > 1 ? bandLines(r.core, r.width) : [], fill: [] as number[], colour: r.picked ? RANGE_COLOURS.picked : RANGE_COLOURS.core},
-    ...[r.before, r.after].map(part => ({lines: part.length > 1 ? bandLines(part, r.width) : [],
-                                         fill: part.length > 1 ? bandFill(part, r.width) : [],
-                                         colour: r.fits ? RANGE_COLOURS.transition : RANGE_COLOURS.misfit}))]);
+  return ranges.flatMap(({core, before, after, width, picked, fits}) => {
+    const transition = fits ? RANGE_COLOURS.transition : RANGE_COLOURS.misfit;
+    return [
+      {line: core, colour: picked ? RANGE_COLOURS.picked : RANGE_COLOURS.core},
+      {line: before, colour: transition},
+      {line: after, colour: transition},
+    ].filter(({line}) => line.length > 1)
+     .map(({line, colour}) => ({lines: bandLines(line, width), fill: bandFill(line, width), colour}));
+  });
 }
 
 /** A band's edge points along line, width in m, a little over the road: left(k) and right(k) as [x, y, z]. Pure. */
@@ -196,15 +200,15 @@ export class RoadMarkers {
       old.geometry.dispose();
       (old.material as THREE.Material).dispose();
     }
-    // (the transitions as a see-through surface under their outline: where the road tilts toward the banking)
-    this.ranges = rangeSegments(ranges).filter(s => s.lines.length).flatMap(({lines, fill, colour}) => {
+    this.ranges = rangeSegments(ranges).flatMap(({lines, fill, colour}) => {
       const outline = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(lines, 3)),
-                                             new THREE.LineBasicMaterial({color: colour, depthTest: false}));
-      const made: (THREE.LineSegments | THREE.Mesh)[] = [outline];
-      if (fill.length) made.push(new THREE.Mesh(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(fill, 3)),
-        new THREE.MeshBasicMaterial({color: colour, transparent: true, opacity: 0.35, depthTest: false, side: THREE.DoubleSide})));
+                                             new THREE.LineBasicMaterial({color: colour, transparent: true, depthTest: false, depthWrite: false}));
+      const surface = new THREE.Mesh(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(fill, 3)),
+        new THREE.MeshBasicMaterial({color: colour, transparent: true, opacity: 0.35, depthTest: false, depthWrite: false, side: THREE.DoubleSide}));
+      const made = [surface, outline];
+      surface.renderOrder = 8;
+      outline.renderOrder = 9;
       for (const object of made) {
-        object.renderOrder = 9;
         object.frustumCulled = false;
         this.scene.add(object);
       }

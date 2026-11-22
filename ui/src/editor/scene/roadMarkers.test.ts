@@ -66,10 +66,14 @@ test("Bank road's arrows: a chevron along A->B, an up arrow on the high edge and
   expect(bankArrowLines([[0, 0, 0], [40, 0, 0]], 4, 0).some((v, i) => i % 3 === 1 && v > 1)).toBe(false);   // (level: no edge arrows)
 });
 
-test("a range's fully banked stretch is drawn in the tool's colour, its transitions purple, red where they do not fit", () => {
+test("the entire banking is filled, with separate colours for the core, transitions and misfits", () => {
   const parts = {before: [[0, 0, 0], [10, 0, 0]] as Place[], core: [[10, 0, 0], [30, 0, 0]] as Place[], after: [[30, 0, 0], [40, 0, 0]] as Place[]};
-  const colours = (picked: boolean, fits: boolean) => rangeSegments([{...parts, width: 8, picked, fits}]).map(s => s.colour);
-  expect(colours(false, true)).toEqual([RANGE_COLOURS.core, RANGE_COLOURS.transition, RANGE_COLOURS.transition]);
-  expect(colours(true, false)).toEqual([RANGE_COLOURS.picked, RANGE_COLOURS.misfit, RANGE_COLOURS.misfit]);
-  expect(rangeSegments([{...parts, width: 8, picked: false, fits: true}])[0].lines.length).toBeGreaterThan(0);
+  const saved = rangeSegments([{...parts, width: 8, picked: false, fits: true}]);
+  const selected = rangeSegments([{...parts, width: 8, picked: true, fits: false}]);
+  expect(saved.map(s => s.colour)).toEqual([RANGE_COLOURS.core, RANGE_COLOURS.transition, RANGE_COLOURS.transition]);
+  expect(selected.map(s => s.colour)).toEqual([RANGE_COLOURS.picked, RANGE_COLOURS.misfit, RANGE_COLOURS.misfit]);
+  for (const part of [...saved, ...selected]) {
+    expect(part.lines.length).toBeGreaterThan(0);
+    expect(part.fill).toHaveLength(18); // Two triangles span the road for each one-segment part.
+  }
 });
