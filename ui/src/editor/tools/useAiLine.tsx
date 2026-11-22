@@ -31,7 +31,7 @@ function Legend({slow, fast}: {slow: number; fast: number}) {
     {slow === fast ? <span><i style={{background: SPEED_COLOURS[1]}} />{speed(fast)}</span>
       : <span>{value(slow * 3.6, 1)} <i className={styles.ramp} style={{background: `linear-gradient(to right, ${SPEED_COLOURS.join(", ")})`}} /> {speed(fast)}</span>}
     <span><i style={{background: EDGE_COLOUR}} /> Side limits</span>
-    <span><i style={{background: BRAKE_COLOUR}} /> Braking</span>
+    <span><i className={styles.brakes} style={{color: BRAKE_COLOUR}} /> Braking</span>
   </span>;
 }
 

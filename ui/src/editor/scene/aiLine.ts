@@ -36,6 +36,7 @@ const SPEED_STOPS = SPEED_COLOURS.map(hex => new THREE.Color(hex));
 const LIFT_M = 0.3;                 // As with Bank road, clear the road surface and its paint.
 const LINE_PX = 2;
 const HOVER_PX = 8;                 // Pointer can be a few pixels off the thin centre line.
+const BRAKE_STRIPE_FRACTION = 0.08; // Leave the middle of the band for the speed colour, even on narrow roads.
 
 /** The slow-to-fast colour over this line's speed range, in its native m/s. Pure. */
 export function laneSpeedColour(speed: number, slow: number, fast: number) {
@@ -100,6 +101,26 @@ export function laneBand(edges: [Place, Place][], colours: number[][], closed: b
     .setAttribute("color", new THREE.Float32BufferAttribute(gradient, 3));
 }
 
+/** Two edge strips on each segment with braking. The sample's brake applies to the next leg (fastlane._speed). Pure. */
+export function brakeStripes(edges: [Place, Place][], samples: Pick<AiLinePoint, "brake">[], closed: boolean) {
+  const positions: number[] = [];
+  const inset = ([x, y, z]: Place, [otherX, otherY, otherZ]: Place): Place => [
+    x + (otherX - x) * BRAKE_STRIPE_FRACTION,
+    y + (otherY - y) * BRAKE_STRIPE_FRACTION,
+    z + (otherZ - z) * BRAKE_STRIPE_FRACTION,
+  ];
+  for (let i = 0; i < edges.length - (closed ? 0 : 1); i++) {
+    if (samples[i].brake <= 0) continue;
+    const j = (i + 1) % edges.length;
+    for (const side of [0, 1] as const) {
+      const a = edges[i][side], b = edges[j][side];
+      const innerA = inset(a, edges[i][1 - side]), innerB = inset(b, edges[j][1 - side]);
+      positions.push(...a, ...innerA, ...b, ...innerA, ...innerB, ...b);
+    }
+  }
+  return positions;
+}
+
 function lines(positions: number[], colour: string, width: number, renderOrder: number, colours?: number[]) {
   const geometry = new LineSegmentsGeometry().setPositions(positions);
   if (colours) geometry.setColors(colours);
@@ -109,7 +130,7 @@ function lines(positions: number[], colour: string, width: number, renderOrder: 
   return draw;
 }
 
-/** Speed band on the installed road level, with a thin centre line and pink braking marks. */
+/** Speed band on the installed road level, with a thin centre line and pink braking stripes at the edges. */
 export class AiLineDraw {
   private marks: (LineSegments2 | THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>)[] = [];
   private band: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | null = null;
@@ -141,22 +162,27 @@ export class AiLineDraw {
       return [lifted(left), lifted(right)];
     });
     const colours = points.map(p => laneSpeedColour(p.speed, slow, fast).toArray());
-    const centre: number[] = [], gradient: number[] = [], sides: number[] = [], brakes: number[] = [];
+    const centre: number[] = [], gradient: number[] = [], sides: number[] = [];
     for (let i = 0; i < points.length - (closed ? 0 : 1); i++) {
       const j = (i + 1) % points.length;
       centre.push(...this.locations[i], ...this.locations[j]);
       gradient.push(...colours[i], ...colours[j]);
       sides.push(...edges[i][0], ...edges[j][0], ...edges[i][1], ...edges[j][1]);
-      // The recorded brake is for travel from this sample to the next one (fastlane._speed).
-      if (points[i].brake > 0) brakes.push(...this.locations[i], ...this.locations[j]);
     }
     this.band = new THREE.Mesh(laneBand(edges, colours, closed), new THREE.MeshBasicMaterial({vertexColors: true,
       transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, toneMapped: false}));
     this.band.renderOrder = 7;
     speedUpRays(this.band);     // The strip's two faces per segment keep their order for hover.
     this.centre = lines(centre, "#ffffff", LINE_PX, 10, gradient);
-    this.marks = [this.band, lines(sides, EDGE_COLOUR, 1, 8), this.centre];
-    if (brakes.length) this.marks.push(lines(brakes, BRAKE_COLOUR, 8, 9));
+    this.marks = [this.band, lines(sides, EDGE_COLOUR, 1, 9), this.centre];
+    const stripes = brakeStripes(edges, points, closed);
+    if (stripes.length) {
+      const geometry = new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(stripes, 3));
+      const braking = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color: BRAKE_COLOUR, transparent: true,
+        opacity: 0.95, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, toneMapped: false}));
+      braking.renderOrder = 8;
+      this.marks.push(braking);
+    }
     this.scene.add(...this.marks);
   }
 
