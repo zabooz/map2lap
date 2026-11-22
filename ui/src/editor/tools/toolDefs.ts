@@ -67,7 +67,7 @@ export const TOOL_DEFS: ToolDef[] = [
       ["Ctrl+Z", "undo the stitch"]]},
   {tool: "ai-line", group: "ai", id: "edit-ai-line", label: "AI line", key: "L", selection: "none", free: true,
     hint: "Show the installed AI line, its speed, side limits and braking zones (L)",
-    help: [["L", "show or hide the installed AI line"], ["Hover over the line", "show the route metre and point data"]]},
+    help: [["L", "show or hide the installed AI line"], ["Hover over the band", "show the route metre and point data"]]},
   {tool: "elevation", group: "terrain", id: "edit-elevation", label: "Elevation", key: "H", selection: "single",
     hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)",
     help: [["Click", "raise by its height; hold and move for more"], ["Shift", "lower instead"], ["Ctrl + wheel", "radius"], ["Alt + wheel", "height of a click"],

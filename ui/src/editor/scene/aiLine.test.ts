@@ -1,6 +1,7 @@
 import {expect, test} from "bun:test";
 import {Vector3} from "three";
-import {laneEdges, laneSpeedColour, pickLanePoint, SPEED_COLOURS} from "./aiLine";
+import type {Place} from "../types";
+import {laneBand, laneEdges, laneSpeedColour, pickLanePoint, SPEED_COLOURS} from "./aiLine";
 
 test("speed colours reach the ends of the legend and a constant speed has a defined colour", () => {
   expect(laneSpeedColour(3, 5, 25).getHexString()).toBe(SPEED_COLOURS[0].slice(1));
@@ -12,6 +13,16 @@ test("speed colours reach the ends of the legend and a constant speed has a defi
 test("the lane sides use separate horizontal widths and follow a bank", () => {
   expect(laneEdges({position: [10, 4, 30], forward: [1, 0.1, 0], normal: [0, 1, 0.25], left: 2, right: 4}))
     .toEqual([[10, 4.5, 28], [10, 3, 34]]);
+});
+
+test("the speed band joins both side limits and closes only on a circuit", () => {
+  const edges: [Place, Place][] = [[[0, 1, -2], [0, 0, 4]], [[5, 2, -1], [5, 1, 3]], [[7, 3, -1], [7, 1, 2]]];
+  const colours = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  const strip = laneBand(edges, colours, false);
+  expect(Array.from(strip.getAttribute("position").array)).toEqual(edges.flat(2));
+  expect(Array.from(strip.getAttribute("color").array)).toEqual(colours.flatMap(c => [...c, ...c]));
+  expect(Array.from(strip.index!.array)).toEqual([0, 1, 2, 1, 3, 2, 2, 3, 4, 3, 5, 4]);
+  expect(Array.from(laneBand(edges, colours, true).index!.array).slice(-6)).toEqual([4, 5, 0, 5, 1, 0]);
 });
 
 test("hover chooses the closest visible segment and its nearer endpoint, including the circuit seam", () => {

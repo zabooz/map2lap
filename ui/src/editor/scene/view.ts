@@ -1113,7 +1113,7 @@ export class TrackView {
 
   drawBand(line: Place[] | null, width: number) { this.roadMarkers.drawBand(line, width); }
 
-  /** Show the installed line above its own road level and report the sample hovered on its centre line. */
+  /** Show the installed line above its own road level and report the sample hovered on the band. */
   setAiLine(lane: InstalledAiLine | null, onPoint: (hover: AiLineHover | null) => void = () => {}) {
     this.aiLine = lane && {lane, onPoint, sample: null};
     this.aiLineDraw.set(lane);

@@ -75,7 +75,11 @@ test("L shows the installed AI line", async ({page, backend}) => {
   const point = page.getByRole("region", {name: "AI line point"});
   await expect(point).toContainText("Route metre");
   await expect(point).toContainText("km/h");
-  await page.mouse.click(c.x, c.y + 10);
+  await page.mouse.move(c.x + 100, c.y + 10);
+  await expect(point).toHaveCount(0);
+  await page.mouse.move(c.x + 30, c.y + 10);    // Over the band, outside the centre line's 8 px hover radius.
+  await expect(point).toContainText("Route metre");
+  await page.mouse.click(c.x + 30, c.y + 10);
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
 
   await saveTrack(page);    // The fixture has no timing gates, so Save removes the old line without generating another.
