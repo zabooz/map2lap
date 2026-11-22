@@ -61,7 +61,7 @@ export function useAiLine({name, view, enabled, savedAt, unsaved}: {
   return {
     clear: () => { setLoaded(null); setHovered(null); },
     options: <>
-      <ToolOptions id="edit-ai-line-set" title="AI line" note={unsaved ? "Linie vom letzten Build/Save" : undefined}
+      <ToolOptions id="edit-ai-line-set" title="AI line" note={unsaved ? "Line from the last build or save" : undefined}
         actions={speeds ? <Legend {...speeds} />
           : <span role="status">{answer && "message" in answer ? answer.message : "Loading the installed AI line …"}</span>} />
       {hover && <PointDetails hover={hover} />}

@@ -37,6 +37,8 @@ const LIFT_M = 0.3;                 // As with Bank road, clear the road surface
 const LINE_PX = 2;
 const HOVER_PX = 8;                 // Pointer can be a few pixels off the thin centre line.
 const BRAKE_STRIPE_FRACTION = 0.08; // Leave the middle of the band for the speed colour, even on narrow roads.
+const BRAKE_BAR_SPACING_M = 5;      // Leave a stretch of visible speed colour between crossbars.
+const BRAKE_BAR_HALF_M = 0.15;      // A painted-width stripe visible in the Editor's usual road view.
 
 /** The slow-to-fast colour over this line's speed range, in its native m/s. Pure. */
 export function laneSpeedColour(speed: number, slow: number, fast: number) {
@@ -101,14 +103,13 @@ export function laneBand(edges: [Place, Place][], colours: number[][], closed: b
     .setAttribute("color", new THREE.Float32BufferAttribute(gradient, 3));
 }
 
+const between = ([x, y, z]: Place, [otherX, otherY, otherZ]: Place, t: number): Place =>
+  [x + (otherX - x) * t, y + (otherY - y) * t, z + (otherZ - z) * t];
+const inset = (edge: Place, opposite: Place) => between(edge, opposite, BRAKE_STRIPE_FRACTION);
+
 /** Two edge strips on each segment with braking. The sample's brake applies to the next leg (fastlane._speed). Pure. */
 export function brakeStripes(edges: [Place, Place][], samples: Pick<AiLinePoint, "brake">[], closed: boolean) {
   const positions: number[] = [];
-  const inset = ([x, y, z]: Place, [otherX, otherY, otherZ]: Place): Place => [
-    x + (otherX - x) * BRAKE_STRIPE_FRACTION,
-    y + (otherY - y) * BRAKE_STRIPE_FRACTION,
-    z + (otherZ - z) * BRAKE_STRIPE_FRACTION,
-  ];
   for (let i = 0; i < edges.length - (closed ? 0 : 1); i++) {
     if (samples[i].brake <= 0) continue;
     const j = (i + 1) % edges.length;
@@ -117,6 +118,36 @@ export function brakeStripes(edges: [Place, Place][], samples: Pick<AiLinePoint,
       const innerA = inset(a, edges[i][1 - side]), innerB = inset(b, edges[j][1 - side]);
       positions.push(...a, ...innerA, ...b, ...innerA, ...innerB, ...b);
     }
+  }
+  return positions;
+}
+
+/** Crossbars between the inner edges of the side stripes, measured along the driving line. Pure. */
+export function brakeCrossbars(edges: [Place, Place][], samples: Pick<AiLinePoint, "position" | "brake">[], closed: boolean) {
+  const positions: number[] = [];
+  // Start outside a braking zone when possible, so a circuit's lap seam does not restart the spacing.
+  const first = closed ? Math.max(0, samples.findIndex(sample => sample.brake <= 0)) : 0;
+  let nextBar: number | null = null;
+  for (let step = 0; step < samples.length - (closed ? 0 : 1); step++) {
+    const i = (first + step) % samples.length, j = (i + 1) % samples.length;
+    if (samples[i].brake <= 0) { nextBar = null; continue; }
+    const [x, y, z] = samples[i].position, [nextX, nextY, nextZ] = samples[j].position;
+    const length = Math.hypot(nextX - x, nextY - y, nextZ - z);
+    if (!length) continue;
+    const section = (t: number) => {
+      const left = between(edges[i][0], edges[j][0], t), right = between(edges[i][1], edges[j][1], t);
+      return [inset(left, right), inset(right, left)] as const;
+    };
+    // Put the first bar inside even a one-segment braking zone. Carry a bar across segment boundaries.
+    let centre: number = nextBar ?? Math.min(length, BRAKE_BAR_SPACING_M) / 2;
+    while (centre - BRAKE_BAR_HALF_M < length) {
+      const [left, right] = section(Math.max(0, centre - BRAKE_BAR_HALF_M) / length);
+      const [nextLeft, nextRight] = section(Math.min(length, centre + BRAKE_BAR_HALF_M) / length);
+      positions.push(...left, ...right, ...nextLeft, ...right, ...nextRight, ...nextLeft);
+      if (centre + BRAKE_BAR_HALF_M > length) break;
+      centre += BRAKE_BAR_SPACING_M;
+    }
+    nextBar = centre - length;
   }
   return positions;
 }
@@ -130,7 +161,7 @@ function lines(positions: number[], colour: string, width: number, renderOrder: 
   return draw;
 }
 
-/** Speed band on the installed road level, with a thin centre line and pink braking stripes at the edges. */
+/** Speed band on the installed road level, with a thin centre line and pink braking stripes and crossbars. */
 export class AiLineDraw {
   private marks: (LineSegments2 | THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>)[] = [];
   private band: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | null = null;
@@ -173,14 +204,14 @@ export class AiLineDraw {
       transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, toneMapped: false}));
     this.band.renderOrder = 7;
     speedUpRays(this.band);     // The strip's two faces per segment keep their order for hover.
-    this.centre = lines(centre, "#ffffff", LINE_PX, 10, gradient);
-    this.marks = [this.band, lines(sides, EDGE_COLOUR, 1, 9), this.centre];
-    const stripes = brakeStripes(edges, points, closed);
+    this.centre = lines(centre, "#ffffff", LINE_PX, 8, gradient);
+    this.marks = [this.band, lines(sides, EDGE_COLOUR, 1, 10), this.centre];
+    const stripes = brakeStripes(edges, points, closed).concat(brakeCrossbars(edges, points, closed));
     if (stripes.length) {
       const geometry = new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(stripes, 3));
       const braking = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color: BRAKE_COLOUR, transparent: true,
         opacity: 0.95, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, toneMapped: false}));
-      braking.renderOrder = 8;
+      braking.renderOrder = 9;
       this.marks.push(braking);
     }
     this.scene.add(...this.marks);

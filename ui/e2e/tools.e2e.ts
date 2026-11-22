@@ -70,7 +70,7 @@ test("L shows the installed AI line", async ({page, backend}) => {
   await backend.post("/__test/ai-line", {name: "alpha"});
   await page.keyboard.press("l");
   await expect(bar).toContainText("Braking");
-  await expect(bar).toContainText("Linie vom letzten Build/Save");
+  await expect(bar).toContainText("Line from the last build or save");
   await page.mouse.move(c.x, c.y + 10);
   const point = page.getByRole("region", {name: "AI line point"});
   await expect(point).toContainText("Route metre");
@@ -84,7 +84,7 @@ test("L shows the installed AI line", async ({page, backend}) => {
 
   await saveTrack(page);    // The fixture has no timing gates, so Save removes the old line without generating another.
   await expect(bar).toContainText("No AI line is installed");
-  await expect(bar).not.toContainText("Linie vom letzten Build/Save");
+  await expect(bar).not.toContainText("Line from the last build or save");
   await page.keyboard.press("Escape");
   await expect(bar).toHaveCount(0);
   await expect(point).toHaveCount(0);
