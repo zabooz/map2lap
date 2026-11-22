@@ -1,8 +1,8 @@
 // The Editor's tools defined once: id, name, sidebar group, key, tooltip, help, and how each takes a left pick. ToolPanel, Help, the
 // keyboard and the tool host (useToolHost) read only this. What a tool does stays in its own hook. Pure.
 
-export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "separate" | "bank" | "kerb" | "stitch" | "model" | "group";
-export type ToolGroup = "general" | "road" | "terrain" | "objects";
+export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "separate" | "bank" | "kerb" | "stitch" | "ai-line" | "model" | "group";
+export type ToolGroup = "general" | "road" | "ai" | "terrain" | "objects";
 
 /** What a click's pick means while the tool is on (useSelection). select: the pinned selection of objects, ground surfaces and
     connected sections (railway bridge, sidewalk, guardrail), Ctrl or Add adds and removes, Shift or Select all takes a whole sort;
@@ -65,6 +65,9 @@ export const TOOL_DEFS: ToolDef[] = [
     help: [["N", "turn Stitch road on or off"], ["Click twice", "A and B on the same road: ground, deck or tunnel floor"],
       ["Shift + wheel", "width by 0.1 m"], ["Auto width", "the ground road's width at A and B"], ["Apply", "replace the surface between A and B"],
       ["Ctrl+Z", "undo the stitch"]]},
+  {tool: "ai-line", group: "ai", id: "edit-ai-line", label: "AI line", key: "L", selection: "none", free: true,
+    hint: "Show the installed AI line, its speed, side limits and braking zones (L)",
+    help: [["L", "show or hide the installed AI line"], ["Hover over the line", "show the route metre and point data"]]},
   {tool: "elevation", group: "terrain", id: "edit-elevation", label: "Elevation", key: "H", selection: "single",
     hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)",
     help: [["Click", "raise by its height; hold and move for more"], ["Shift", "lower instead"], ["Ctrl + wheel", "radius"], ["Alt + wheel", "height of a click"],

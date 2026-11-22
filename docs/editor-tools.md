@@ -38,6 +38,12 @@ hook handles its own view marks but does not register another global click, pick
   new step. Copy, Insert and Groups keep their own flows for ghosts and rejections. Texture paint waits for its textures
   inside the turn.
 
+## AI line
+
+AI line (L) overlays the installed driving line with speed colours, side limits and braking marks, and shows the route metre and all point data on hover.
+It reads `GET /api/editor/<track>/ai-line` from the `ai/fast_lane.ai` of the last Build or Save and refreshes after Save, so an unsaved draft can differ from the displayed line.
+Future edits can use route-metre ranges in the draft, following Bank road's `tools/editRanges.ts`, for `fastlane.regenerate` to apply on Save.
+
 ## Selection and Inspector
 
 The Inspector has Selection, Properties and Details tabs. Selection stays pinned while Under pointer follows the mouse.

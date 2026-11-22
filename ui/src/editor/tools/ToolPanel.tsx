@@ -64,6 +64,7 @@ export function ToolPanel({state, edits, view, tool, onTool, onModels}: {state: 
         {buttons("general")}
       </Section>
       <Section title="Road">{buttons("road")}</Section>
+      <Section title="AI">{buttons("ai")}</Section>
       <Section title="Terrain">{buttons("terrain")}</Section>
       <Section title="Objects">{buttons("objects")}</Section>
       <Help tool={shownTool} />

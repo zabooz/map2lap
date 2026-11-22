@@ -1,7 +1,7 @@
 import {expect, test} from "bun:test";
 import {globalKey, TOOL_DEFS, TOOLS, toolDef, toolOfKey, type Tool} from "./toolDefs";
 
-const ALL: Tool[] = ["select", "delete", "camera", "move", "copy", "elevation", "smooth", "separate", "bank", "kerb", "stitch", "model", "group"];
+const ALL: Tool[] = ["select", "delete", "camera", "move", "copy", "elevation", "smooth", "separate", "bank", "kerb", "stitch", "ai-line", "model", "group"];
 
 test("each tool has one definition with its name, help and selection rule; keys are unique", () => {
   expect(TOOL_DEFS.map(t => t.tool).sort()).toEqual([...ALL].sort());
@@ -19,19 +19,21 @@ test("the panel lists the keyed tools by group; Groups comes from the Library an
   expect(toolDef("group").key).toBeNull();
   expect(toolDef("model").library).toBe(true);
   expect(TOOLS.filter(t => t.group === "road").map(t => t.tool)).toEqual(["smooth", "separate", "bank", "kerb", "stitch"]);
+  expect(toolDef("ai-line").group).toBe("ai");
 });
 
-test("Select and Road camera change nothing; Camera and Transform add with Ctrl; Delete deletes its pick; road tools take no left pick", () => {
-  expect(TOOL_DEFS.filter(t => t.free).map(t => t.tool).sort()).toEqual(["camera", "select"]);
+test("Select, Road camera and AI line change nothing; Camera and Transform add with Ctrl; Delete deletes its pick; road tools take no left pick", () => {
+  expect(TOOL_DEFS.filter(t => t.free).map(t => t.tool).sort()).toEqual(["ai-line", "camera", "select"]);
   expect(TOOL_DEFS.filter(t => t.selection === "select").map(t => t.tool)).toEqual(["select"]);
   expect(TOOL_DEFS.filter(t => t.selection === "multi").map(t => t.tool).sort()).toEqual(["camera", "move"]);
   expect(TOOL_DEFS.filter(t => t.selection === "delete").map(t => t.tool)).toEqual(["delete"]);
-  expect(TOOL_DEFS.filter(t => t.selection === "none").map(t => t.tool).sort()).toEqual(["bank", "kerb", "separate", "smooth", "stitch"]);
+  expect(TOOL_DEFS.filter(t => t.selection === "none").map(t => t.tool).sort()).toEqual(["ai-line", "bank", "kerb", "separate", "smooth", "stitch"]);
 });
 
 test("a key names its tool without Ctrl; Groups is never keyed", () => {
   expect(toolOfKey("b")?.tool).toBe("kerb");
   expect(toolOfKey("B")?.tool).toBe("kerb");
+  expect(toolOfKey("L")?.tool).toBe("ai-line");
   expect(toolOfKey("library")).toBeUndefined();
   expect(toolOfKey("q")).toBeUndefined();
 });

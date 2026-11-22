@@ -216,6 +216,7 @@ const KEYS: {title: string; rows: [string, string][]}[] = [
     ["R", "Smooth road: mark a road region, add points for branches, then raise strength from 0%; changes apply automatically"],
     ["H", "Elevation: on and off"],
   ]},
+  {title: "AI", rows: [["L", "AI line: show the installed line, side limits and braking zones"]]},
   {title: "Tool options", rows: [
     ["Shift", "First tool option; Elevation: reverse direction"],
     ["Shift+Wheel", "Smooth road: strength; Road camera: route; Move/Copy: turn"],

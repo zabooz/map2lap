@@ -34,7 +34,7 @@ export interface ToolController {
 
 export type ToolControllers = Partial<Record<Tool, ToolController>>;
 
-/** Whether tool works now: one that changes the track only while it can be edited, Select and Road camera always. Pure. */
+/** Whether tool works now: read-only tools work even when the track cannot be edited. Pure. */
 export const usable = (tool: Tool, editable: boolean) => editable || !!toolDef(tool).free;
 
 /** The selection rule in force: the tool's, or a plain pick while it can't work. Pure. */
@@ -88,7 +88,9 @@ export function useToolHost({view, tool, setTool, editable, picked, deletable, c
   }, [view]);
 
   const takesWheel = wheelTaken(tool, editable, controllers);
+  const takesLeftClicks = rule !== "none" || !!active?.click;
   useEffect(() => { view.setWheelTaken(takesWheel); }, [view, takesWheel]);
+  useEffect(() => { view.setLeftClicks(takesLeftClicks); }, [view, takesLeftClicks]);
   useEffect(() => { view.setCursorTool(on ? tool : "select"); }, [view, tool, on]);
   useEffect(() => { view.selection.setAdding((rule === "select" || rule === "multi") && editable); }, [view, rule, editable]);
 

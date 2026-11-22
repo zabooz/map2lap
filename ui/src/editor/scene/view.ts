@@ -12,6 +12,7 @@ import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, fitSphere, makeGeome
 import {screenPoint, LEFT_BUTTON, CLICK_PX} from "./pointer";
 import {Marquee, selectionVolume, type SelectionRectangle} from "./marquee";
 import {RoadMarkers, type RangeDrawing} from "./roadMarkers";
+import {AiLineDraw, type AiLineHover, type InstalledAiLine} from "./aiLine";
 import {KerbHighlight} from "./kerbHighlight";
 import {GeometryPreview} from "./geometryPreview";
 import * as THREE from "three";
@@ -41,7 +42,7 @@ import {PlacementGhost} from "./ghost";
 import {ObjectMover} from "./mover";
 import {Pointing} from "./pointing";
 import {Selection, ROAD} from "./selection";
-import {COPIES, fits, nearestLast, objectIndex} from "./inspect";
+import {COPIES, fits, nearestLast, objectIndex, routeMetre} from "./inspect";
 import {DEFAULT_WEATHER, effectiveSeason, weatherAppearance, type WeatherOptions} from "./weather";
 import {WeatherPreview} from "./weatherPreview";
 import {LoadingDraw} from "./loadingDraw";
@@ -114,6 +115,8 @@ export class TrackView {
   private geometryPreview = new GeometryPreview(i => this.byNumber.get(i), () => { this.dirty = true; });
   private camera = new THREE.PerspectiveCamera(55, 1, 0.5, VIEW_M);
   private roadMarkers = new RoadMarkers(this.scene, this.camera, (x, z) => this.groundAt(x, z), () => { this.dirty = true; });
+  private aiLineDraw = new AiLineDraw(this.scene);
+  private aiLine: {lane: InstalledAiLine; onPoint: (hover: AiLineHover | null) => void; sample: number | null} | null = null;
   private kerbHighlight = new KerbHighlight(this.scene, () => { this.dirty = true; });
   private navigation = new Navigation(this.camera, (origin, direction) => this.groundAlong(origin, direction), () => this.moved());
   private resizing: ResizeObserver;
@@ -161,6 +164,7 @@ export class TrackView {
   private wheelTaken = false;           // Ctrl and Alt with the wheel are the tool's
   private marking: ((x: number, z: number) => void) | null = null;
   private onClicked: (picked: Picked | null) => void = () => {};
+  private leftClicks = true;
   private cursorTool: Tool = "select";  // (the tool the pointer speaks for, and what it last pointed at)
   private pointed: Pointed | null = null;
 
@@ -268,6 +272,7 @@ export class TrackView {
     this.sun.dispose();
     this.lampCones.dispose();
     this.roadMarkers.dispose();
+    this.aiLineDraw.set(null);
     this.kerbHighlight.dispose();
     this.resizing.disconnect();
     this.renderer.setAnimationLoop(null);
@@ -600,6 +605,7 @@ export class TrackView {
       this.mouse = null;
       this.hoverDue = false;
       this.onHover(null);
+      this.showAiLinePoint(null);
     });
   }
 
@@ -643,6 +649,9 @@ export class TrackView {
   setClicked(onClicked: (picked: Picked | null) => void) {
     this.onClicked = onClicked;
   }
+
+  /** A left click has a selection rule or a tool action. Right-click menus are independent. */
+  setLeftClicks(on: boolean) { this.leftClicks = on; }
 
   /** While a band is being marked: marking gets where the mouse is on the road, as often as the hover box would. */
   setMarking(marking: ((x: number, z: number) => void) | null) {
@@ -1011,6 +1020,7 @@ export class TrackView {
       const pin = from?.button === 2 && e.button === 2 ? this.roadMarkers.pinAt(e, el) : -1;
       if (pin >= 0) this.roadMarkers.onPinTaken(pin);
       else if (from && e.button === from.button) {
+        if (e.button === LEFT_BUTTON && !this.leftClicks) { from = null; return; }
         if (e.button === LEFT_BUTTON && this.ghost.placing) {
           this.mouse = screenPoint(e, el);
           this.ghost.place();
@@ -1065,6 +1075,10 @@ export class TrackView {
       if (at) this.marking(at.x, at.z);
     }
     const mouse = this.mouse, hit = timed("map2lap.hover", () => this.pointing.hit(mouse));
+    if (this.aiLine) {
+      // The pointer may sit a few pixels beside the lifted line, especially at a shallow view angle.
+      this.showAiLinePoint(this.aiLineDraw.pick(mouse, this.camera, hit && hit.distance + 0.5));
+    }
     const hovered = hit ? this.pointing.describe(hit) : null;
     const taking = this.cursorTool === "move" || this.cursorTool === "copy";
     this.pointed = hit && hovered ? {object: !!hovered.id, road: ROAD.test(hit.object.name),
@@ -1098,6 +1112,22 @@ export class TrackView {
   stopRide() { this.navigation.stopRide(); }
 
   drawBand(line: Place[] | null, width: number) { this.roadMarkers.drawBand(line, width); }
+
+  /** Show the installed line above its own road level and report the sample hovered on its centre line. */
+  setAiLine(lane: InstalledAiLine | null, onPoint: (hover: AiLineHover | null) => void = () => {}) {
+    this.aiLine = lane && {lane, onPoint, sample: null};
+    this.aiLineDraw.set(lane);
+    this.hoverDue = true;
+    this.dirty = true;
+  }
+
+  private showAiLinePoint(sample: number | null) {
+    const line = this.aiLine;
+    if (!line || sample === line.sample) return;
+    line.sample = sample;
+    const point = sample == null ? null : line.lane.points[sample];
+    line.onPoint(point && {point, metre: routeMetre(this.data?.route ?? [], point.position[0], point.position[2])?.metre ?? null});
+  }
   highlightKerb(id: string | null) { this.kerbHighlight.set(id, this.meshes); }
   /** The retained texture preview of one generated kerb, when its draft mesh is indexed. Pure. */
   kerbAppearance(id: string) {

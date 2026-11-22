@@ -30,7 +30,7 @@ import roadmesh  # noqa: E402
 import server  # noqa: E402
 from app import circuitlap, mapcache, materiallibrary, objectlibrary, mytracks, settings, system, trackcode, updater, version  # noqa: E402
 from scenery import cars, treefx  # noqa: E402
-from track import buildscenery, editorinfo, kn5, make_track_folder, objectlist, obj_to_kn5, surfaceindex  # noqa: E402
+from track import buildscenery, editorinfo, fastlane, kn5, make_track_folder, objectlist, obj_to_kn5, surfaceindex  # noqa: E402
 from track.textures import dds_mipmaps  # noqa: E402
 
 # Test an isolated UI build without replacing the live generator page's bundles.
@@ -507,6 +507,16 @@ class Handler(server.Handler):
                        tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"), walls=body.get("walls", False),
                        tree_model=body.get('tree_model', 'spruce'), terrain_cell_m=body.get('terrain_cell_m', 2),
                        parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'), structure=body.get('structure'), roof_material=body.get('roof_material'), ground_quality=body.get('ground_quality', 'sd'))
+        elif self.path == "/__test/ai-line":
+            lane = Path(AC, "content", "tracks", body["name"], fastlane.FILE)
+            points = np.zeros(3, dtype=fastlane.POINT)
+            points["pos"] = [(128, 0, 0), (128, 0, -80), (128, 0, -255)]
+            points["length"], points["id"] = [0, 80, 255], [0, 1, 2]
+            detail = np.zeros(len(points), dtype=fastlane.DETAIL)
+            detail["speed"], detail["brake"] = [10, 20, 15], [0, .5, 0]
+            detail["left"], detail["right"] = 3, 5
+            detail["forward"], detail["normal"] = (0, 0, -1), (0, 1, 0)
+            fastlane._write_lane(lane, points, detail)
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:

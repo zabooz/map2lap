@@ -59,6 +59,7 @@ EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=
 COPIES_PATH = re.compile(r"/api/editor/([^/]+)/copies")
 GLOW_PATH = re.compile(r"/api/editor/([^/]+)/glow/(glow_(?:fac|shp|off)_[0-2]\.png)")
 SURFACE_PATH = re.compile(r"/api/editor/([^/]+)/surface")
+AI_LINE_PATH = re.compile(r"/api/editor/([^/]+)/ai-line")
 SURFACE_PREPARE_PATH = re.compile(r"/api/editor/([^/]+)/surface/prepare")
 EDITS_PATH = re.compile(r"/api/editor/([^/]+)/edits")
 SAVE_PATH = re.compile(r"/api/editor/([^/]+)/save")
@@ -358,12 +359,6 @@ def valid_clock(clock):
     return isinstance(clock, (int, float)) and not isinstance(clock, bool) and 0 <= clock < 24     # (NaN compares false)
 
 
-def _is_circuit(track_dir):
-    """Read the track directory's metadata to identify an installed Circuit."""
-    info = mytracks.load(track_dir)
-    return isinstance(info, dict) and info.get("kind") == "circuit" and not info.get("area")
-
-
 @lru_cache(maxsize=128)
 def _timing_points_present(path, revision):
     """Read gate names of this installed KN5 revision. Edits and rebuilds have their own revision."""
@@ -463,7 +458,7 @@ def _previous_best(ac, race_file, ini, resume=False):
             ini.get("REMOTE", "ACTIVE", fallback="0") != "0" or session not in ("1", "3", "4")):
         return
     directory = os.path.join(ac, "content", "tracks", track)
-    if not _is_circuit(directory):
+    if not mytracks.is_circuit(directory):
         if session == "3" and ini.get("SESSION_0", "LAPS", fallback="") != "1":
             return
         if not _has_ab_timing(os.path.join(directory, track + ".kn5")):
@@ -570,7 +565,7 @@ def play(name, clock=None, weather_options=None, car=None, *, session=None, laps
     track_file = os.path.join(track_dir, name + ".kn5")
     if not os.path.exists(track_file):
         return 404, {"error": "This track has no track file (build it again)"}
-    circuit = _is_circuit(track_dir)
+    circuit = mytracks.is_circuit(track_dir)
     timed_route = not circuit and _has_ab_timing(track_file)
     if session is None:
         session = "practice" if laps is None else "race"
@@ -920,6 +915,8 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
         editor, edits = EDITOR_PATH.fullmatch(self.path), EDITS_PATH.fullmatch(self.path)
         if editor:
             self._editor(editor)
+        elif (ai_line := AI_LINE_PATH.fullmatch(self.path)):
+            self._ai_line(ai_line[1])
         elif (inspection := re.fullmatch(r"/api/editor/([^/]+)/(inspect|thumbnail|appearance|statistics)", urlsplit(self.path).path)):
             self._inspect(inspection[1], inspection[2])
         elif (surface := SURFACE_PATH.fullmatch(urlsplit(self.path).path)):

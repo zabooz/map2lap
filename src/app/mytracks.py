@@ -61,6 +61,12 @@ def load(track_dir):
     return info
 
 
+def is_circuit(track_dir):
+    """Whether the installed track directory describes a Circuit."""
+    info = load(track_dir)
+    return isinstance(info, dict) and _kind(info) == "circuit"
+
+
 def _from_work(track_dir):
     name = os.path.basename(track_dir)
     try:

@@ -1,7 +1,7 @@
 // The Editor's tools: the sidebar's groups, one tool at a time, the bar's keys, picking more than one, Smooth road, Camera.
 import type {Page} from "@playwright/test";
 import {centre, expect, openEditor, openSettings, scene, test, type Backend} from "./fixtures";
-import {AWAY, NEAR_TREE, findCar, findTree, heights, picture, saved, stored} from "./edit-helpers";
+import {AWAY, NEAR_TREE, deleteTree, findCar, findTree, heights, picture, saveTrack, saved, stored} from "./edit-helpers";
 
 const CAMERA_BAR = "#edit-camera-set";
 
@@ -55,6 +55,35 @@ test("Road has Smooth road, Bend road, Bank road, Racing kerb and Stitch road, w
   await expect(road.locator("button").last()).toHaveAttribute("id", "edit-stitch");
   await expect(terrain.locator("button")).toHaveCount(1);
   await expect(terrain.locator("button")).toHaveAttribute("id", "edit-elevation");
+});
+
+test("L shows the installed AI line", async ({page, backend}) => {
+  await openEditor(page);
+  const c = await keysOnView(page);
+  await page.keyboard.press("l");
+  const ai = page.getByRole("heading", {name: "AI", exact: true}).locator("..");
+  await expect(ai.getByRole("button", {name: "AI line"})).toHaveAttribute("aria-pressed", "true");
+  const bar = page.locator("#edit-ai-line-set");
+  await expect(bar).toContainText("No AI line is installed");
+  await page.keyboard.press("Escape");
+  await deleteTree(page);
+  await backend.post("/__test/ai-line", {name: "alpha"});
+  await page.keyboard.press("l");
+  await expect(bar).toContainText("Braking");
+  await expect(bar).toContainText("Linie vom letzten Build/Save");
+  await page.mouse.move(c.x, c.y + 10);
+  const point = page.getByRole("region", {name: "AI line point"});
+  await expect(point).toContainText("Route metre");
+  await expect(point).toContainText("km/h");
+  await page.mouse.click(c.x, c.y + 10);
+  await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
+
+  await saveTrack(page);    // The fixture has no timing gates, so Save removes the old line without generating another.
+  await expect(bar).toContainText("No AI line is installed");
+  await expect(bar).not.toContainText("Linie vom letzten Build/Save");
+  await page.keyboard.press("Escape");
+  await expect(bar).toHaveCount(0);
+  await expect(point).toHaveCount(0);
 });
 
 test("each tool has its key, one is on at a time, Esc goes back to Select from each, from a number and a button of it too", async ({page}) => {

@@ -6,7 +6,7 @@ import {useStitch} from "./tools/useStitch";
 import {ToolToasts} from "./tools/ToolToasts";
 import {useCamera} from "./tools/Camera";
 import {CopyTool} from "./tools/Copy";
-import {TrackEdits, type EditState} from "./state/edits";
+import {hasUnsavedChanges, TrackEdits, type EditState} from "./state/edits";
 import {EditNotes} from "./inspector/EditNotes";
 import {useElevation} from "./tools/Elevation";
 import {useDelete} from "./tools/Delete";
@@ -26,6 +26,7 @@ import {useToolHost, type ToolControllers} from "./tools/toolHost";
 import {useBand} from "./tools/useBand";
 import {useSeparation} from "./tools/useSeparation";
 import {useBank} from "./tools/useBank";
+import {useAiLine} from "./tools/useAiLine";
 import {useSave} from "./state/useSave";
 import type {MenuAt, WheelKeys} from "./types";
 import type {TrackView} from "./scene/view";
@@ -95,6 +96,7 @@ export function EditTools({name, title, timedMode, visible, taken, view, scene, 
   const [groupBusy, setGroupBusy] = useState(false);
   const [replaceTargets, setReplaceTargets] = useState<string[]>([]);
   const editable = edits.canEdit();
+  const unsavedAiDraft = useMemo(() => tool === "ai-line" && hasUnsavedChanges(state), [tool, state]);
   /** Whether t is the tool on and the track can be changed now. */
   const working = (t: Tool) => tool === t && editable;
   const selection = useSelection({name, view, edits, editable, kerbs: state.kerbs, onKerbRemoved: () => kerbs.setSelected(null), onNote: setNote});
@@ -139,6 +141,8 @@ export function EditTools({name, title, timedMode, visible, taken, view, scene, 
   const band = useBand({name, view, edits, enabled: working("smooth"), revision: state.keptRevision, onNote: setNote});
   const separation = useSeparation({name, view, edits, enabled: working("separate"), revision: state.keptRevision, onNote: setNote});
   const banking = useBank({name, view, edits, enabled: working("bank"), revision: state.keptRevision, heights: state.heights, onNote: setNote});
+  const aiLine = useAiLine({name, view, enabled: tool === "ai-line", savedAt: state.recipe?.at ?? null,
+    unsaved: unsavedAiDraft});
   const kerbs = useKerbs({name, view, edits, kerbs: state.kerbs, enabled: working("kerb"),
     highlightId: tool === "select" ? picked?.kerbId ?? null : null, onNote: setNote, onDelete: () => remove()});
   const stitch = useStitch({name, view, edits, stitches: state.stitches, enabled: working("stitch"), onNote: setNote});
@@ -244,7 +248,7 @@ export function EditTools({name, title, timedMode, visible, taken, view, scene, 
   const placing = {wheel: (keys: WheelKeys, by: number) => placingWheel.current(keys, by), takesWheel: true};
   const controllers: ToolControllers = {
     select: select.controller, camera: camera.controller, smooth: band.controller, separate: separation.controller, bank: banking.controller, kerb: kerbs.controller,
-    stitch: stitch.controller, elevation: elevation.controller, move: move.controller, delete: remover.controller,
+    stitch: stitch.controller, "ai-line": aiLine, elevation: elevation.controller, move: move.controller, delete: remover.controller,
     copy: {...placing, options: <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setPlacingWheel} onFailed={setCopyFailed} />},
     // (Insert and Groups draw their bars themselves: they stay mounted with the Library)
     model: placing, group: placing,

@@ -1,12 +1,37 @@
 """Editor data HTTP endpoints; Handler supplies response, request and same-page helpers."""
 import json
 import os
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import generator
-from app import settings, trackedits, trackinspect, trackview
+import numpy as np
+from app import mytracks, settings, trackedits, trackinspect, trackview
+from track import fastlane
 
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
+
+
+def _lane_data(directory):
+    """Read the installed AI line in directory and identify the file revision that was read."""
+    path = directory / fastlane.FILE
+    try:
+        before = path.stat()
+        points, detail, _ = fastlane.read_lane(path)
+        after = path.stat()
+    except FileNotFoundError:
+        return {"status": "missing", "message": "No AI line is installed for this track."}
+    except (OSError, ValueError):
+        return {"status": "invalid", "message": "The installed AI line could not be read."}
+    if (before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns):
+        return {"status": "invalid", "message": "The AI line changed while loading. Reopen the tool to try again."}
+    if not all(np.isfinite(records[field]).all() for records in (points, detail) for field in records.dtype.names):
+        return {"status": "invalid", "message": "The installed AI line contains invalid numbers."}
+
+    columns = {"position": points["pos"], "distance": points["length"], "id": points["id"]}
+    columns.update(("segment_length" if field == "length" else field, detail[field]) for field in detail.dtype.names)
+    return {"status": "ready", "closed": mytracks.is_circuit(directory), "revision": str(after.st_mtime_ns),
+            "points": [dict(zip(columns, row)) for row in zip(*(column.tolist() for column in columns.values()))]}
 
 
 class EditorHandlers:
@@ -42,6 +67,14 @@ class EditorHandlers:
             self._send(500, {"error": str(e)})
         except ConnectionError:             # (the page asked for another track meanwhile)
             pass
+
+    def _ai_line(self, name):
+        """The spline accompanying the installed KN5 of track name, independent of its source and draft."""
+        try:
+            model = trackview.kn5_path(settings.ac_path(), generator.slug(name))
+        except trackview.NotOurs:
+            return self._send(404, {"error": "This track has no track file (build it again)"})
+        self._send(200, _lane_data(Path(model).parent), headers={"Cache-Control": "no-store"})
 
     def _edits_answer(self, work):
         """The answer of work() on a track's edits: 200 with its result, or what went wrong."""
