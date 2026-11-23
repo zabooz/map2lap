@@ -24,7 +24,7 @@ class LaneCodeVersionTest(unittest.TestCase):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (2, "83d1dae76c78a4f471ea45ce7bae54c71fd1cf6f896e9fe9b9b07a85562cd167")
+        expected = (3, "c076fb5304258f10882204572d064e1b69e71adb50376a2fefaf2a64f0cd93da")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments alone, update only the digest.")
@@ -75,7 +75,7 @@ class AILineTest(unittest.TestCase):
         self.generate()
         before = fastlane.read_lane(self.lane)[0]["pos"].copy()
         old_key = ailinestate.input_key(self.model, False)
-        move = {"id": "move-one", "kind": "move", "free": False, "range": 10, "offset": 3,
+        move = {"id": "move-one", "kind": "move", "free": False, "range": 10, "routeOffset": 3,
                 "anchor": {"metre": 30, "level": 9, "origin": [0, 0],
                            "context": [[45, 10], [50, 10], [55, 10]]}}
         recipe = self.folder / "data/map2lap.json"
@@ -113,14 +113,71 @@ class AILineTest(unittest.TestCase):
         self.write_track([(20, 10), (80, 10)])
         for centre, duplicate, reason in [(0, False, "Fixed"), (30, True, "Overlap")]:
             x = 20 + centre
-            move = {"kind": "move", "id": "a", "range": 8, "offset": 2, "free": False,
+            move = {"kind": "move", "id": "a", "range": 8, "routeOffset": 2, "free": False,
                     "anchor": {"metre": centre, "level": 9, "origin": [0, 0],
                                "context": [[max(20,x-5),10],[x,10],[x+5,10]]}}
             moves = [move, dict(move, id="b")] if duplicate else [move]
             (self.folder / "data/map2lap.json").write_text(json.dumps({"edits":{"aiCorrections":moves}}))
             log = self.generate()
-            self.assertFalse(self.lane.exists(), log)
-            self.assertRegex(log[-1], reason + ".*route metre")
+            self.assertTrue(self.lane.exists(), log)
+            self.assertRegex(" ".join(log), reason + ".*route metre")
+
+    def test_wall_skips_only_its_move_in_build_race_and_editor(self):
+        from app import ailanejobs
+        from server_editor import _move_preview
+        from track import ailinestate
+        self.write_track([(20, 10), (80, 10)])
+        self.generate()
+        before = fastlane.read_lane(self.lane)[0]["pos"].copy()
+        def move(mid, offset):
+            x = mid+20
+            return dict(id=str(mid), kind="move", free=False, range=5, routeOffset=offset,
+                        anchor=dict(metre=mid, level=9, origin=[0,0], context=[[x-5,10],[x,10],[x+5,10]]))
+        moves = [move(16, 80), move(42, 3)]
+        path = self.folder / "data/map2lap.json"
+        path.write_text(json.dumps({"edits": {"aiCorrections": moves}}))
+        for launch in ("build", "race", "button"):
+            if launch == "build":
+                self.generate()
+            else:
+                if launch == "race":
+                    self.lane.unlink()
+                self.assertEqual("ready", ailanejobs.ensure(self.model, False, force=launch=="button")["status"])
+            after = fastlane.read_lane(self.lane)[0]["pos"]
+            np.testing.assert_array_equal(before[abs(before[:,0]-36)<5], after[abs(before[:,0]-36)<5])
+            self.assertGreater((before-after)[:,2].max(), 2.8)
+            diagnostics = json.loads((self.folder / ailinestate.FILE).read_text())["skipped"]
+            self.assertEqual(["16"], list(diagnostics))
+            self.assertIn("route metre", diagnostics["16"])
+        self.assertEqual(moves, json.loads(path.read_text())["edits"]["aiCorrections"])
+        self.assertEqual(diagnostics, _move_preview(self.model, {"aiCorrections": moves})["skipped"])
+
+    def test_legacy_delta_without_its_original_reference_is_skipped(self):
+        self.write_track([(20, 10), (80, 10)])
+        self.generate()
+        before = self.lane.read_bytes()
+        old = dict(id="old", kind="move", range=10, offset=2, free=False,
+                   anchor=dict(metre=30, level=9, origin=[0,0], context=[[45,10],[50,10],[55,10]]))
+        (self.folder / "data/map2lap.json").write_text(json.dumps({"edits": {"aiCorrections":[old]}}))
+        self.assertIn("Legacy move needs to be redrawn at route metre 30.0", " ".join(self.generate()))
+        self.assertEqual(before, self.lane.read_bytes())
+
+    def test_move_target_survives_a_different_automatic_line(self):
+        from track import aicorrections, airacing
+        path = np.array([[0,0],[60,0]])
+        route = aicorrections.Route(path, [0,0], False)
+        m = np.arange(61)
+        ribbon = airacing.RouteRibbon(np.zeros(61,bool), None, None, None, m, [])
+        move = dict(id="a", kind="move", free=False, range=10, routeOffset=4,
+                    anchor=dict(metre=30, level=0, origin=[0,0], context=route.context(30).tolist()))
+        for z in (0, -2):
+            xyz = np.column_stack([m,np.zeros(61),np.full(61,z)]).astype(float)
+            side = np.tile([0,0,-1.], (61,1))
+            out, mask = route.moves([move], ribbon, xyz, side, 2.5)
+            np.testing.assert_allclose(out[30], [30,0,-4])
+            np.testing.assert_array_equal(out[~mask], xyz[~mask])
+            self.assertAlmostEqual(out[25,2], (z-4)/2)
+
 
     def test_save_carries_current_or_manual_line_only_for_matching_inputs(self):
         from unittest.mock import patch

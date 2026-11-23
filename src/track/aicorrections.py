@@ -30,7 +30,7 @@ def problem(items):
             if (item["kind"] != "move" or item["free"] is not False or not isinstance(item["id"], str)
                     or not item["id"] or item["id"] in ids
                     or np.shape(anchor["context"]) != (3, 2) or np.shape(anchor["origin"]) != (2,)
-                    or not np.isfinite([anchor["metre"], anchor["level"], item["range"], item["offset"]]).all()
+                    or not np.isfinite([anchor["metre"], anchor["level"], item["range"], item.get("routeOffset", item.get("offset")), item.get("routeAlong", 0)]).all()
                     or not np.isfinite(anchor["context"]).all() or not np.isfinite(anchor["origin"]).all()
                     or item["range"] <= 0):
                 return "Invalid AI line move"
@@ -99,6 +99,8 @@ class Route:
         intervals = []
         for item in items:
             centre, level = self.resolve(item["anchor"])
+            if "routeOffset" not in item:
+                raise ValueError(f"Legacy move needs to be redrawn at route metre {centre:.1f}")
             extent = item["range"]
             def distance(s):
                 d = abs(s-centre)
@@ -116,6 +118,25 @@ class Route:
             if np.any(ribbon.fixed & affected):
                 raise ValueError(f"Fixed AI line point at route metre {ribbon.metres[ribbon.fixed & affected][0]:.1f}")
             weight = (1 + np.cos(np.pi*d[affected]/extent))/2
-            result[affected] += sides[affected] * (item["offset"]*weight[:, None])
+            context = self.context(centre)
+            tangent = context[2] - context[0]
+            if np.linalg.norm(tangent) == 0:
+                raise ValueError(f"Undefined route direction at route metre {centre:.1f}")
+            tangent /= np.linalg.norm(tangent)
+            target = context[1] + tangent[::-1]*[1,-1]*item["routeOffset"] + tangent*item.get("routeAlong", 0)
+            # A rebuild can sample the peak between two different vertices. Normalise
+            # the taper there so the interpolated anchor lands at the stored position.
+            s = ribbon.metres
+            at = centre
+            if self.circuit:
+                at = s[0] + (centre-s[0]) % self.length
+                s = np.r_[s, s[0]+self.length]
+            def interpolate(values):
+                samples = np.r_[values, values[0]] if self.circuit else values
+                return np.interp(at, s, samples)
+            base = np.array([interpolate(xyz[:, axis]) for axis in (0,2)])
+            weights = np.zeros(len(xyz))
+            weights[affected] = weight
+            result[np.ix_(affected, [0,2])] += (target-base) * (weight/interpolate(weights))[:, None]
             protected |= affected
         return result, protected

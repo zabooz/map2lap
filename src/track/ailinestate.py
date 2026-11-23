@@ -14,7 +14,7 @@ from track import aicorrections, fastlane
 FILE = Path("data/map2lap_ai.json")
 # When line code changes, bump this and update LaneCodeVersionTest in engine/tests/test_fastlane.py.
 # For comment-only edits, update just the test's source digest.
-CODE_VERSION = 2
+CODE_VERSION = 3
 ERRORS = (AssertionError, IndexError, KeyError, OSError, ValueError, struct.error)
 
 
@@ -89,11 +89,11 @@ def checksum(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def record_ready(folder, inputs):
-    _write(folder, inputs, "ready", lane=checksum(folder / fastlane.FILE))
+def record_ready(folder, inputs, skipped=None):
+    _write(folder, inputs, "ready", lane=checksum(folder / fastlane.FILE), skipped=skipped or {})
 
 
-def publish(folder, inputs, candidate):
+def publish(folder, inputs, candidate, skipped=None):
     """Install a worker's complete candidate, restoring the original bytes on metadata failure."""
     lane = folder / fastlane.FILE
     lane.parent.mkdir(exist_ok=True)
@@ -103,7 +103,7 @@ def publish(folder, inputs, candidate):
         shutil.copy2(lane, backup)
     os.replace(candidate, lane)
     try:
-        _write(folder, inputs, "ready", lane=digest)
+        _write(folder, inputs, "ready", lane=digest, skipped=skipped or {})
     except OSError:
         if backup.exists():
             os.replace(backup, lane)

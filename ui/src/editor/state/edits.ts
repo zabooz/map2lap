@@ -137,7 +137,7 @@ const TRACK_CHANGED = "This track was built again: the view shows the build befo
 
 type Send = (url: string, options?: RequestInit) => Promise<Response>;
 
-export interface AiMove {id: string; kind: "move"; range: number; offset: number; free: boolean;
+export interface AiMove {id: string; kind: "move"; range: number; routeOffset?: number; routeAlong?: number; offset?: number; free: boolean;
   anchor: {metre: number; level: number; origin: number[]; context: number[][]; route?: string}}
 
 type Edits = Pick<EditState, "removed" | "objectSorts" | "heights" | "placed" | "copies" | "paints" | "models" | "surfaces" | "trees" | "walls" | "kerbs" | "stitches" | "aiCorrections" | "treeSpacing" | "carDensity">;

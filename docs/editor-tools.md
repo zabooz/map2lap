@@ -46,7 +46,10 @@ draft can differ from the displayed line. Recalculate AI line operates on the sa
 A lateral move is one undoable edit. Its offset tapers to zero over the Move range on each side (30 m by default).
 The recipe owns its route metre, local approach, departure, level and coordinate frame. A rebuilt copy resolves these on
 its own route. An ambiguous anchor, overlap, fixed grid or timing point, or insufficient clearance gives a located error.
-The racing-line solver holds the moved samples fixed. The saved corrections also enter the line fingerprint.
+The target is the lateral distance from the route centre at the anchor. Its along-route component preserves a drop on
+a skewed approach. The taper joins the current automatic line. A rejected move stays in the recipe with its reason
+visible in the Editor. Other valid moves still apply. Legacy moves store only a delta from an unknown automatic line;
+they are skipped until redrawn. The racing-line solver holds the moved samples fixed. The saved corrections also enter the line fingerprint.
 A hand-replaced line is identified by its checksum and remains available for a test drive.
 
 `GET /api/editor/<track>/ai-line` returns the status as JSON with the file status, revision, point count, circuit flag, calculation availability and input validity. With

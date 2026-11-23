@@ -1072,21 +1072,54 @@ def moved_line(reference, corrections):
     return moved, mask
 
 
+def checked_moves(reference, moves, finish):
+    """Try the complete recipe, isolating failed edits in recipe order if necessary."""
+    original = reference[0]["pos"].astype(float)
+    empty = np.zeros(len(original), bool)
+    def apply(items):
+        xyz, mask = moved_line(reference, items) if items else (original, empty)
+        return finish(xyz, mask)
+    try:
+        return apply(moves), {}
+    except ValueError:
+        pass
+    accepted, skipped = [], {}
+    result = apply([])
+    for move in moves:
+        try:
+            result = apply([*accepted, move])
+        except ValueError as error:
+            reason = str(error)
+            if "route metre" not in reason:
+                reason += f" at route metre {move['anchor']['metre']:.1f}"
+            skipped[move["id"]] = reason
+        else:
+            accepted.append(move)
+    return result, skipped
+
+
 def calculate(model, inputs, circuit, lane, log):
     """Compute from already-read inputs and write the complete spline to lane."""
     start = perf_counter()
     reference = move_reference(model, inputs, circuit, log)
     points, detail, ribbon, stations, road, route = reference
-    if inputs[-1]:
-        moved, fixed = moved_line(reference, inputs[-1])
+
+    def finish(moved, fixed):
+        if not fixed.any():
+            return points, detail
         # Refit the adjoining approaches over a curvature window. Other bends
         # already have their validated optimum. The authored samples are immutable.
         lap = stations[-1]-stations[0] + np.linalg.norm(moved[-1, XZ]-moved[0, XZ])
         approach = airacing.restore_scale(stations, fixed, circuit, lap, CURVE_HALF_WINDOW) < 1
         limits = ribbon._replace(fixed=ribbon.fixed | fixed | ~approach)
-        points, detail = _racing_records(moved, stations, road, circuit, inputs[3], limits, model.stem, log)
+        return _racing_records(moved, stations, road, circuit, inputs[3], limits, model.stem, log)
+
+    (points, detail), skipped = checked_moves(reference, inputs[-1], finish)
+    for reason in skipped.values():
+        log(f"AI correction skipped: {reason}")
     _write_lane(lane, points, detail)
     log(f"AI line: {len(points):,} points in {perf_counter() - start:.2f} s")
+    return skipped
 
 
 def regenerate(model, *, circuit, log=print):
@@ -1097,8 +1130,8 @@ def regenerate(model, *, circuit, log=print):
     try:
         inputs = lane_inputs(model, circuit, log)
         fingerprint = ailinestate.fingerprint(inputs, circuit)
-        calculate(model, inputs, circuit, model.parent / FILE, log)
-        ailinestate.record_ready(model.parent, fingerprint)
+        skipped = calculate(model, inputs, circuit, model.parent / FILE, log)
+        ailinestate.record_ready(model.parent, fingerprint, skipped)
     except ailinestate.ERRORS as error:
         reason = ailinestate.reason(error)
         ailinestate.clear(model.parent, fingerprint, reason)

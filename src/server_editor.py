@@ -94,9 +94,9 @@ def _move_preview(model, body):
     moves = body["aiCorrections"]
     if error := fastlane.aicorrections.problem(moves):
         raise ValueError(error)
-    moved, mask = fastlane.moved_line(ref, moves)
+    (moved, mask), skipped = fastlane.checked_moves(ref, moves, lambda xyz, marked: (xyz, marked))
     return {"samples": np.column_stack((np.flatnonzero(mask), moved[mask])).tolist(),
-            "centres": {m["id"]: route.resolve(m["anchor"])[0] for m in moves}}
+            "skipped": skipped, "centres": {m["id"]: route.resolve(m["anchor"])[0] for m in moves if m["id"] not in skipped}}
 
 
 class EditorHandlers:

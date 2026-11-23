@@ -5,7 +5,7 @@ import {screenPoint} from "./pointer";
 
 type Row = [number, number, number, number, number, number, number, number, number];
 export interface MoveGuide {rows: Row[]; path: number[][]; key: string; origin: number[]; closed: boolean; length: number}
-interface Checked {samples: [number, number, number, number][]; centres: Record<string, number>}
+interface Checked {skipped: Record<string, string>; samples: [number, number, number, number][]; centres: Record<string, number>}
 
 const at = (guide: MoveGuide, metre: number) => {
   let s = guide.closed ? ((metre % guide.length) + guide.length) % guide.length : Math.max(0, metre);
@@ -22,6 +22,14 @@ function apart(s: number, m: number, guide: MoveGuide) {
   if (!guide.closed) return Math.abs(s-m);
   const d = Math.abs(s-m) % guide.length;
   return Math.min(d, guide.length-d);
+}
+
+/** Store the dropped world point in the directed frame of the route at this anchor. */
+function placeAt(move: AiMove, x: number, z: number) {
+  const [before, centre, after] = move.anchor.context;
+  const dx = after[0]-before[0], dz = after[1]-before[1], length = Math.hypot(dx,dz);
+  move.routeOffset = ((x-centre[0])*dz-(z-centre[1])*dx)/length;
+  move.routeAlong = ((x-centre[0])*dx+(z-centre[1])*dz)/length;
 }
 
 /** A pressed pointer owns a single move until release. Geometry stays in the view, outside React. */
@@ -42,26 +50,37 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
   const distances = new Map(saved.map(item => [item.id, item.anchor.metre]));
   const samples = new Map<number, number[]>();
   const invalid = new Map<string, string>();
-  let drag: {i: number; start: THREE.Vector3; move: AiMove; error: string} | null = null;
+  let drag: {i: number; start: THREE.Vector3; move: AiMove; shift: number; error: string} | null = null;
   let busy = false, serial = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const owner = (m: number) => saved.find(item => apart(m, distances.get(item.id)!, guide) < item.range);
   const green = new THREE.Color(0x51de94), red = new THREE.Color(0xff3939);
+  const deltas = new Map<string, [number, number]>();
+  for (const move of saved) {
+    if (move.routeOffset === undefined || move.anchor.route !== guide.key) continue;
+    const [before, centre, after] = move.anchor.context;
+    const dx = after[0]-before[0], dz = after[1]-before[1], length = Math.hypot(dx,dz);
+    if (!length) continue;
+    const row = guide.rows.reduce((a,b) => apart(a[3],move.anchor.metre,guide) < apart(b[3],move.anchor.metre,guide) ? a : b);
+    const along = move.routeAlong ?? 0;
+    deltas.set(move.id, [centre[0]+(dx*along+dz*move.routeOffset)/length-row[0],
+                         centre[1]+(dz*along-dx*move.routeOffset)/length-row[2]]);
+  }
   function draw() {
     guide.rows.forEach(([x, y, z, m, dx, dz], i) => {
       const baked = samples.get(i);
       if (baked) [x,y,z] = baked;
       const existing = owner(m);
-      if (!baked && existing) {
-        const d = apart(m, distances.get(existing.id)!, guide);
-        const shift = existing.offset*(1+Math.cos(Math.PI*d/existing.range))/2;
-        x += dx*shift; z += dz*shift;
+      const delta = existing && !invalid.has(existing.id) && deltas.get(existing.id);
+      if (!baked && existing && delta) {
+        const w = (1+Math.cos(Math.PI*apart(m,distances.get(existing.id)!,guide)/existing.range))/2;
+        x += w*delta[0]; z += w*delta[1];
       }
       let colour = existing && invalid.has(existing.id) ? red : green;
       if (drag) {
         const d = apart(m, drag.move.anchor.metre, guide);
         if (d < range) {
-          const shift = drag.move.offset * (1+Math.cos(Math.PI*d/range))/2;
+          const shift = drag.shift * (1+Math.cos(Math.PI*d/range))/2;
           x += dx*shift; z += dz*shift;
           if (drag.error) colour = red;
         }
@@ -75,17 +94,14 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     redraw();
   }
   draw();
-  // Resolve each correction independently so an invalid saved move can still be found and removed.
-  void Promise.all(saved.map(async item => {
-    const check = await post<Checked>(url, {aiCorrections: [item]});
+  if (saved.length) void post<Checked>(url, {aiCorrections: saved}).then(check => {
     if (signal.aborted) return;
-    if (check.error) { invalid.set(item.id, check.error); note(check.error); }
-    else {
-      if (check.centres) distances.set(item.id, check.centres[item.id]);
-      for (const [i,x,y,z] of check.samples ?? []) samples.set(i,[x,y,z]);
-    }
-    draw();
-  }));
+    if (check.error) { note(check.error); return; }
+    for (const [id, why] of Object.entries(check.skipped ?? {})) invalid.set(id, why);
+    for (const [id, metre] of Object.entries(check.centres ?? {})) distances.set(id, metre);
+    for (const [i,x,y,z] of check.samples ?? []) samples.set(i,[x,y,z]);
+    note([...invalid.values()].join(" · ")); draw();
+  });
   function pick(event: PointerEvent) {
     const mouse = screenPoint(event, el);
     const limit = groundDistance(mouse) + .6;
@@ -130,10 +146,10 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     plane.constant = -row[1];
     const start = intersection(e);
     if (!start) return;
-    const move: AiMove = {id: crypto.randomUUID(), kind: "move", range, offset: 0, free: false,
+    const move: AiMove = {id: crypto.randomUUID(), kind: "move", range, free: false,
       anchor: {metre: m, level: row[1], route: guide.key, origin: guide.origin,
         context: [-5,0,5].map(d => at(guide, m+d))}};
-    drag = {i, start, move, error: ""};
+    drag = {i, start, move, shift: 0, error: ""};
     e.stopImmediatePropagation(); e.preventDefault(); el.setPointerCapture(e.pointerId);
   }, opts);
   el.addEventListener("pointermove", e => {
@@ -148,7 +164,8 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     const p = intersection(e);
     if (!p) return;
     const r = guide.rows[drag.i], move = drag.move;
-    move.offset = (p.x-drag.start.x)*r[4] + (p.z-drag.start.z)*r[5];
+    drag.shift = (p.x-drag.start.x)*r[4] + (p.z-drag.start.z)*r[5];
+    placeAt(move, r[0]+r[4]*drag.shift, r[2]+r[5]*drag.shift);
     drag.error = "";
     for (const item of saved) {
       if (apart(move.anchor.metre, distances.get(item.id)!, guide) < range + item.range) {
@@ -161,7 +178,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
       timer = setTimeout(async () => {
         const check = await post<Checked>(url, {aiCorrections: [...saved, move]});
         if (signal.aborted || !drag || request !== serial) return;
-        drag.error = check.error ?? "";
+        drag.error = check.error ?? check.skipped?.[move.id] ?? "";
         el.title = drag.error;
         note(drag.error); draw();
       }, 100);
@@ -175,11 +192,12 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     clearTimeout(timer); ++serial;
     const {move} = drag;
     if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-    if (Math.abs(move.offset) > .001) {
+    if (Math.abs(drag.shift) > .001) {
       busy = true;
       const check = await post<Checked>(url, {aiCorrections: [...saved, move]});
       if (signal.aborted) return;
-      if (check.error) note(check.error);
+      const reason = check.error ?? check.skipped?.[move.id] ?? drag.error;
+      if (reason) note(reason);
       else add(move);
       busy = false;
     }

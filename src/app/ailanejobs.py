@@ -70,8 +70,8 @@ def _worker(model, circuit, target):
     try:
         inputs = fastlane.lane_inputs(model, circuit, lambda line: None)
         key = ailinestate.fingerprint(inputs, circuit)
-        fastlane.calculate(model, inputs, circuit, target, lambda line: None)
-        return {"inputs": key}
+        skipped = fastlane.calculate(model, inputs, circuit, target, lambda line: None)
+        return {"inputs": key, "skipped": skipped}
     except ailinestate.ERRORS as error:
         return {"inputs": key, "message": ailinestate.reason(error)}
 
@@ -103,7 +103,7 @@ def _calculate(model, circuit, slot, revision, original, key):
                 if original["status"] not in ("ready", "manual"):
                     ailinestate.clear(model.parent, key, message)
                 return _failed(message)
-            ailinestate.publish(model.parent, key, target)
+            ailinestate.publish(model.parent, key, target, answer.get("skipped"))
             return ailinestate.status(model.parent, key)
 
 
