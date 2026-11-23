@@ -165,6 +165,8 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 Build, Rebuild and Editor Save regenerate `ai/fast_lane.ai` from the finished KN5's collision road and
 `data/map2lap_route.txt`. Tangent arcs and the sampled line need a continuous 2 m strip of
 `1ROAD_` or `1GRAVEL_` on the driving level.
+At tile boundaries, two ribbon ends with a shared 3D centre and matching widths can have slightly rotated
+end rows. The AI counts the joint as supported only where those ends diverge by at most 2 cm.
 SideLeft and SideRight end at the connected road edge or the nearest `1KERB_walkcol_` or `1WALL_` collision
 within car height above it. A raised pavement can cover asphalt terrain. Bridge slabs below the deck and high
 tunnel ceilings leave the lane free. Editor racing kerbs are passable over supported road.

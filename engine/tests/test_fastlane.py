@@ -191,6 +191,29 @@ class AILineTest(unittest.TestCase):
         self.assertFalse(self.lane.exists(), log)
         self.assertIn("car width", log[-1])
 
+    def test_oblique_deck_join_supports_the_swept_car_but_an_open_joint_does_not(self):
+        # Each tile ends its deck ribbon normal to its own last segment. The two end
+        # rows share a centre but their outer tips rotate 6.5 cm on a 10 m wide deck.
+        faces = np.array([[0, 1, 4], [0, 4, 3], [1, 2, 5], [1, 5, 4]])
+        x = np.array([-5., 0., 5.])
+        def deck(start, end):
+            return np.column_stack((np.tile(x, 2), np.zeros(6), np.r_[start, end]))
+
+        first = deck(x * 0 - 6, x * 0)
+        second = deck(x * .013, x * .013 + 6)
+        def fits(offset=0., extra=None, x=0.):
+            roads = {"1ROAD_deck_0_-1": (None, first, None, faces),
+                     "1ROAD_deck_0_0": (None, second + [0, 0, offset], None, faces)}
+            roads.update(extra or {})
+            return fastlane._fits_chord(fastlane._local_roads(roads),
+                                        np.array([x + .004, 0., -.65]), np.array([x - .005, 0., .85]), 1.)
+
+        self.assertTrue(fits(), "the same deck continues across its shared centre")
+        self.assertFalse(fits(x=3.), "the wider opening near the shoulder is outside tyre tolerance")
+        self.assertFalse(fits(.05), "a separated second deck leaves a real slot")
+        wall = np.array([[-1, 0, 0], [1, 0, 0], [1, .4, 0], [-1, .4, 0]])
+        self.assertFalse(fits(extra={"1WALL_fence": (None, wall, None, np.array([[0, 1, 2], [0, 2, 3]]))}))
+
     def test_short_gap_in_one_wheel_track_between_samples_blocks_the_line(self):
         self.write_track([(20, 10), (80, 10)], strips=[(-10, 41.2, 0, 55), (41.3, 120, 0, 55),
                                                        (41.2, 41.3, 0, 10.5)])

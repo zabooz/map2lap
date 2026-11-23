@@ -427,14 +427,25 @@ class _RoadPatch(dict):
 
 def _local_roads(roads):
     """Return a local face lookup with cached metre cells for nearby spline probes. Pure."""
-    near = obj_to_kn5._road_near(roads)
-    bounds, edges = {}, {}
+    roads = roads.copy()
+    bounds, edges, end_rows = {}, {}, {}
     for name, (_, pos, _, faces) in roads.items():
         xz = pos[faces][:, :, XZ]
         bounds[name] = xz.min(axis=1), xz.max(axis=1)
         if name.startswith(ROAD_PREFIXES):
-            edge = pos[aicorridor.boundary_edges(faces)]
+            pairs, opposite = aicorridor.boundary_edges(faces, with_opposite=True)
+            edge = pos[pairs]
+            for centre, tips in aicorridor.tile_end_rows(pos, pairs, opposite):
+                end_rows.setdefault(centre, []).append(tips)
             edges[name] = edge, edge[:, :, XZ].min(axis=1), edge[:, :, XZ].max(axis=1)
+    for i, triangle in enumerate(aicorridor.seam_triangles(end_rows, CAR_HALF_WIDTH)):
+        name = f"1ROAD_ai_seam/{i}"
+        roads[name] = None, triangle, None, np.array([[0, 1, 2]])
+        xz = triangle[:, XZ]
+        bounds[name] = xz.min(axis=0, keepdims=True), xz.max(axis=0, keepdims=True)
+        edge = triangle[[[0, 1], [1, 2], [2, 0]]]
+        edges[name] = edge, edge[:, :, XZ].min(axis=1), edge[:, :, XZ].max(axis=1)
+    near = obj_to_kn5._road_near(roads)
     cell = 8.0  # Share face patches across several 1.5 m samples without scanning a whole tile.
 
     @lru_cache(maxsize=128)

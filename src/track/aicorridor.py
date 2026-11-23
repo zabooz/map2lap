@@ -1,7 +1,7 @@
 """Free lateral space above the collision road in an AI spline cross section."""
 import numpy as np
 
-from track import obj_to_kn5
+from track import editorinfo, obj_to_kn5
 
 BLOCKERS = ("1KERB_walkcol_", "1WALL_")
 # Clearance for the body of a road car. A high van needs more; a tunnel ceiling above this stays passable.
@@ -142,13 +142,68 @@ def free_span(patch, centre, side, reach=0., grade=0.):
     return lo, hi
 
 
-def boundary_edges(faces):
-    """Vertex pairs on the outer edges of the mesh faces. Pure."""
+def boundary_edges(faces, *, with_opposite=False):
+    """Boundary vertex pairs, optionally with their incident face's third vertex. Pure."""
     edges = np.sort(np.stack((faces, np.roll(faces, -1, axis=1)), axis=2), axis=2).reshape(-1, 2)
     stride = int(faces.max()) + 1
     keys = edges[:, 0].astype(np.int64) * stride + edges[:, 1]
     _, first, count = np.unique(keys, return_index=True, return_counts=True)
-    return edges[first[count == 1]]
+    first = first[count == 1]
+    if with_opposite:
+        return edges[first], faces[first // 3, (first + 2) % 3]
+    return edges[first]
+
+
+def _cross_xz(a, b):
+    """Signed horizontal cross product of two XYZ vectors. Pure."""
+    return a[0] * b[2] - a[2] * b[0]
+
+
+def tile_end_rows(pos, pairs, opposite):
+    """Centred road ends at tile boundaries, ordered with the adjoining face left of the first ray. Pure."""
+    ends = pos[pairs]
+    incident = {}
+    for i in (0, 1):
+        on_border = (np.remainder(ends[:, i, [0, 2]], editorinfo.TILE_M) == 0).any(axis=1)
+        for k in np.flatnonzero(on_border):
+            origin, tip = ends[k, i], ends[k, 1 - i]
+            rays = incident.setdefault(tuple(origin), {})
+            key = tuple(tip)
+            # KN5 has duplicate vertices at UV/normal splits. A twice-seen geometric edge is internal.
+            rays[key] = None if key in rays else opposite[k]
+    for origin, rays in incident.items():
+        rim = [(tip, face) for tip, face in rays.items() if face is not None]
+        if len(rim) != 2:
+            continue
+        tips = np.array([tip for tip, _ in rim]) - origin
+        if np.linalg.norm(tips[0] + tips[1]) > ROAD_SEAM:
+            continue
+        inside = _cross_xz(tips[0], pos[rim[0][1]] - origin)
+        if inside * _cross_xz(tips[1], pos[rim[1][1]] - origin) < 0:
+            yield origin, tips if inside > 0 else tips[::-1]
+
+
+def seam_triangles(rows, half_width):
+    """AI-only floor across a split ribbon's shared centre where the end rows rotate slightly. Pure."""
+    # Two centimetres across the joint is about a tyre tread block. Limit the actual
+    # opening even at the shoulder; wide slots or separate deck ends must stay open.
+    tread = 0.02
+    for centre, ends in rows.items():
+        if len(ends) != 2:
+            continue
+        entry, exit = ends[0], ends[1][::-1]
+        gaps = np.linalg.norm(exit - entry, axis=1)
+        radii = np.linalg.norm(entry, axis=1)
+        # Opposing face interiors, matching half widths, and almost parallel end rows.
+        # A junction/fork whose two tangents diverge by a tread within the car is ambiguous.
+        if (np.any(abs(radii - np.linalg.norm(exit, axis=1)) > ROAD_SEAM)
+                or np.any(gaps * half_width > tread * radii)):
+            continue
+        for i, (a, b, gap) in enumerate(zip(entry, exit, gaps)):
+            # One side of a rotated join already overlaps. Only the opening needs a face.
+            if gap and (1 if i == 0 else -1) * _cross_xz(a, b) < 0:
+                scale = min(1., tread / gap)
+                yield np.array([centre, centre + scale * a, centre + scale * b])
 
 
 def boundary_stations(edges, centre, forward, side, reach, width):
