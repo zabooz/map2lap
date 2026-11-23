@@ -245,6 +245,50 @@ def _gate(kind, objs, ground, c, fwd, obj, tex_dir, tex=None, span=None):
     return lh, rh
 
 
+def grid_marks(roads, nodes, material):
+    """White brackets clipped to the road triangles at each KN5 grid slot, in AC coordinates. Pure."""
+    from app.trackground import clip_region
+    from track import kn5
+
+    # A 2.6 m wide box with a 10 cm stroke leaves mirrors clear and a crossbar beyond a 2.5 m nose.
+    boxes = [(-1.3, 2.65, 1.3, 2.75), (-1.3, 1.95, -1.2, 2.65), (1.2, 1.95, 1.3, 2.65)]
+    nearby = obj_to_kn5._road_near(roads)
+    marks = []
+    for node in nodes:
+        if not node.name.startswith("AC_START_"):
+            continue
+        centre = np.asarray(node.matrix[12:15])
+        forward = np.asarray(node.matrix[8:11])
+        side = np.cross([0., 1., 0.], forward)
+        pieces = []
+        for _, positions, _, faces in nearby(centre[0], centre[2], 4.).values():
+            local = (positions - centre) @ np.array([side, forward]).T
+            triangles = local[faces]
+            hit = ((triangles.max(axis=1) >= [-1.3, 1.95]) & (triangles.min(axis=1) <= [1.3, 2.75])).all(axis=1)
+            ids, compact = np.unique(faces[hit], return_inverse=True)
+            if not len(ids):
+                continue
+            verts = np.zeros(len(ids), kn5.VERTEX)
+            verts["pos"] = positions[ids]
+            for box in boxes:
+                cut = clip_region(verts, compact.reshape(-1, 3), box, None, local[ids])["pos"].reshape(-1, 3, 3)
+                # Check the clipped faces: a long graded deck can start well outside the slot's elevation band.
+                same = (abs(cut[:, :, 1] - centre[1]) < obj_to_kn5.LEVEL_GAP_M).all(axis=1)
+                if same.any():
+                    pieces.append(cut[same])
+        if pieces:
+            tri = np.concatenate(pieces)
+            down = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])[:, 1] < 0
+            tri[down] = tri[down, ::-1]
+            pos = tri.reshape(-1, 3)
+            pos[:, 1] += BAND_LIFT
+            name = node.name.replace("AC_START_", "nocol_grid_")
+            for mark in obj_to_kn5.mesh_nodes(name, material, False, pos, pos[:, [0, 2]], np.arange(len(pos)).reshape(-1, 3)):
+                mark.cast_shadows = 0
+                marks.append(mark)
+    return marks
+
+
 def circuit_gate(path, obj_dir, parts, roads, start):
     """Write one gantry OBJ and its textures at the checked start/finish; return its material-to-image paths."""
     ends = np.asarray([node.matrix[12:15] for node in start])

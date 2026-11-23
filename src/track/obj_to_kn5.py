@@ -55,9 +55,9 @@ FACADE_LEVELS = (0.82, 1.0, 1.15)       # brightness levels of the facades (make
 BUILDING_AMBIENT, BUILDING_DIFFUSE = 0.75, 1.3
 MAX_VERTS = 65535
 SLOTS, SLOT_GAP, START_LIFT = 6, 8.0, 0.15
-# Metres from the first car's centre to the timing plane: a normal road car's nose stays behind the line.
-# Very long vehicles can need more clearance; all following slots stay farther back along the road.
-STAGE_START_GAP_M = 3.0
+# The band reaches 0.6 m toward the grid. A 2.5 m nose then clears the paint by 0.9 m,
+# allowing for model origin and settling at spawn. A nose longer than 3.4 m can reach the band.
+STAGE_START_GAP_M = 4.0
 STAGE_GRID_M = STAGE_START_GAP_M + (SLOTS - 1) * SLOT_GAP
 # View distance (m) and shadows per kind of object, first matching name prefix. Without a limit AC draws every tile up
 # to the horizon, kerbs and markings too (a 2400-tile track: 22 fps; a 25-tile one: 90+).
@@ -1082,6 +1082,17 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
             results.append(gate)
             n_nodes += gate[0]
             n_verts += gate[1]
+        if route and "paint" not in mat_index:
+            # Minimal OBJ exports can omit the road-marking material. Supply the same white for the grid.
+            from PIL import Image
+            filename = "grid_paint.png"
+            occupied = {os.path.basename(path).casefold() for path in mtl.values() if path}
+            while filename in occupied:
+                filename = "_" + filename
+            mtl["paint"] = os.path.join(chunk_dir, filename)
+            Image.new("RGB", (1, 1), (230, 230, 230)).save(mtl["paint"])
+            mat_index["paint"] = len(used)
+            used.append("paint")
         # JPG as DDS (dds_texture); PNG (alpha: trees, furniture, water) stays
         jpgs = sorted({mtl[m] for m in used if mtl[m].lower().endswith(".jpg")})
         bc7 = bc7_images(mtl, set().union(*(r[4] for r in results)))
@@ -1121,6 +1132,9 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
             empties, base = start_empties(objs, anchor, log, junctions)
         if prepare_output is not None:
             kn5_path = prepare_output(route_race.has_gates({node.name for node in empties}))
+        if route:
+            from scenery import gates
+            root.children.extend(gates.grid_marks(objs, empties, mat_index["paint"]))
         root.children += empties
         kn5.write_streamed(kn5_path, textures, materials, root, chunks, n_nodes)
     finally:

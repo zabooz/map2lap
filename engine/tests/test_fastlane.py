@@ -69,6 +69,30 @@ class AILineTest(unittest.TestCase):
         self.assertEqual(b"", tail)
         self.assertRegex(log[-1], r"AI line: \d+ points in")
 
+    def test_open_line_follows_the_saved_bent_runout_to_its_end(self):
+        self.write_track([(20, 10), (80, 10), (93, 10), (107, 22)])
+        self.generate()
+        points, _, _ = fastlane.read_lane(self.lane)
+        np.testing.assert_allclose(points["pos"][-1, [0, 2]], [107, 22], atol=.02)
+
+    def test_short_runout_stops_at_first_road_edge_and_keeps_the_timed_line(self):
+        self.write_track([(20, 10), (80, 10)], strips=[(-10, 86.2, 0, 55), (87, 120, 0, 55)])
+        log = self.generate()
+        self.assertTrue(self.lane.exists(), log)
+        points, _, _ = fastlane.read_lane(self.lane)
+        self.assertAlmostEqual(points["pos"][-1, 0], 86.2, delta=.05)
+
+    def test_blocked_turn_in_runout_preserves_the_usable_straight_after_the_finish(self):
+        for bend in (80, 90):
+            with self.subTest(bend=bend):
+                obstacle = ("1KERB_walkcol_corner", [(bend+.45, 9.2, 9.4), (bend+.6, 9.2, 9.4),
+                                                     (bend+.6, 9.2, 9.55), (bend+.45, 9.2, 9.55)])
+                self.write_track([(20, 10), (bend, 10), (bend, 30)], obstacles=[obstacle])
+                log = self.generate()
+                self.assertTrue(self.lane.exists(), log)
+                points, _, _ = fastlane.read_lane(self.lane)
+                np.testing.assert_allclose(points["pos"][-1, [0, 2]], [bend, 10], atol=.02)
+
     def test_circuit_starts_at_the_kn5_gate_and_closes_without_a_duplicate_point(self):
         self.write_track([(8, 10), (55, 10), (55, 45), (8, 45), (8, 10)], circuit=True)
         self.generate(circuit=True)

@@ -186,8 +186,11 @@ Mapped road widths also limit broad collision strips. At intersections and local
 along the route, bounded by the free cross section.
 
 An A–B Route has an open line behind the last grid slot through the finish. If the road starts at the rear slot, the line
-starts there. A Circuit begins at its timing line and closes without a repeated endpoint. When the path cannot be sampled
-on the road, the log gives the reason and, for a surface failure, the route metre. The track is still saved. Play offers
+starts there. Beyond the finish it follows the saved runout to the last continuous car-width section on its road
+level. If the route ends at the gate, only the supported part of the final approach direction (up to 10 m) is used.
+This moves braking into the available runout and keeps the timed line when the road ends early.
+A Circuit begins at its timing line and closes without a repeated endpoint. When the path cannot be sampled on the road,
+the log gives the reason and, for a surface failure, the route metre. The track is still saved. Play offers
 opponents when an AI line is available.
 
 ## Traps
@@ -197,14 +200,16 @@ opponents when an AI line is available.
 - AC drives along **+Z** of the start point (`obj_to_kn5.empty`). Start slots move up to the first road on the route.
 - Point-to-point routes get `AC_AB_START_L/R` and `AC_AB_FINISH_L/R` (acs.exe knows them; CSP's rally mode reads them) and
   `"run": "point-to-point"` in `ui_track.json`; circuits and areas keep the lap line `AC_TIME_0_L/R`.
-- Point-to-point grid, pit and hotlap spawns use the actual start gate: the first car's centre is 3 m before its
+- Point-to-point grid, pit and hotlap spawns use the actual start gate. The first spawn is 4 m before its
   timing plane, with five more slots 8 m apart behind it along the route, including at bends. New builds place
   the gate at pin 1 if the road approaching that pin holds the grid. Otherwise they search forward for the first
   drivable position with room for the grid. If the builder cannot place both gates, the build log explains why.
 - Play offers Practice, Hotlap and Race for timed Routes and Circuits. A–B sessions use the default layout and
   measure from the start gate to the finish gate. Race has start lights and one run on a Route, or a lap count on
   a Circuit. A Race can use the installed AI line with up to one fewer opponent than the track has pitboxes.
-  New builds have six slots. The player starts behind the selected opponents and only their own best time is
+  New builds have six slots. White non-colliding grid brackets follow the road faces at each Route and Circuit
+  spawn. Their shared pit nodes remain usable. A track-local CSP script hides the stock sign holders there.
+  The player starts behind the selected opponents and only their own best time is
   imported into AC's `personalbest.ini`.
 - Circuit starts with the same grid spacing before its `AC_TIME_0_L/R` line. The converter checks the grid and line on
   a single road level over a once-driven stretch, including the approach from the end of the lap. The timing segment

@@ -20,7 +20,9 @@ UP = np.array([0.0, 1.0, 0.0])
 XZ = [0, 2]
 SPACING = 1.5  # Trento-Bondone's open line samples about every 1.54 m.
 GRID_RUN_IN = 5.0  # One car length behind the last grid centre.
-FINISH_RUN_OUT = 10.0  # Two car lengths beyond the finish.
+# Without a mapped runout, probe at most two car lengths in the arrival direction for the timing crossing.
+# Only a continuous, full-width road on the finish level can support this short terminal chord.
+FINISH_RUN_OUT = 10.0
 # Route text is rounded to centimetres; a grid point can differ by a diagonal centimetre and KN5 float rounding.
 GRID_XZ_TOL = 0.02
 # A 2 m road car needs 1 m on either side of the spline. Wider vehicles would need a larger footprint.
@@ -193,6 +195,65 @@ def _route_path(path, points, grid):
     if not rear_m < start < finish:
         raise NoLine("the start grid and A–B gates are out of order along the route")
     return path, metres - offset, rear_m - offset, start - offset, finish - offset, positions[0, 1]
+
+
+def _runout_step(road, previous, incoming, xz, metre):
+    """Next surface point if the swept chord, turning section and terminal section fit. Pure."""
+    x, z = xz
+    levels = obj_to_kn5.road_levels(road(x, z, CAR_HALF_WIDTH), x, z)
+    level = min(levels, key=lambda y: abs(y - previous[1]), default=np.inf)
+    if abs(level - previous[1]) >= obj_to_kn5.LEVEL_GAP_M:
+        return None
+    site = np.array([x, level, z])
+    if not _fits_chord(road, previous, site, CAR_HALF_WIDTH):
+        return None
+    direction = _unit(site - previous)
+    try:
+        # A kerb just outside both straight sweeps can still touch the car as it rotates at their join.
+        _section(road, previous, _unit(np.cross(UP, incoming + direction)), metre)
+        _section(road, site, _unit(np.cross(UP, direction)), metre)
+    except NoLine:
+        return None
+    return site
+
+
+def _runout_stations(path, metres, finish, points, road):
+    """Driveable suffix along the saved route, including its bends and a final partial step. Pure."""
+    # _route_path adds a terminal probe for gates at the very end of a centimetre-rounded route.
+    end = metres[-2] if metres[-2] > finish + GRID_XZ_TOL else min(metres[-1], finish + FINISH_RUN_OUT)
+    corners = np.unique(np.r_[finish, metres[(metres > finish) & (metres < end)], end])
+    prefix = "AC" if all(gate in points for gate in route_race.GATES) else "M2"
+    height = points[f"{prefix}_AB_FINISH_L"][13] - obj_to_kn5.START_LIFT
+    stations = [finish]
+    # The first runout chord can turn at the timing plane itself. Include the arriving car in that test.
+    before = max(finish - SPACING, metres[0])
+    approach = _surface([before, finish], _at(path, metres, [before, finish]), road, height, False)
+    previous = approach[-1]
+    incoming = _unit(previous - approach[0])
+
+    def supported(metre):
+        return _runout_step(road, previous, incoming, _at(path, metres, metre), metre)
+
+    for a, b in zip(corners, corners[1:]):
+        for station in np.linspace(a, b, math.ceil((b - a) / SPACING) + 1)[1:]:
+            if station - stations[-1] <= GRID_XZ_TOL:
+                continue
+            site = supported(station)
+            if site is None:
+                lo, hi = stations[-1], station
+                while hi - lo > GRID_XZ_TOL:
+                    mid = (lo + hi) / 2
+                    if supported(mid) is None:
+                        hi = mid
+                    else:
+                        lo = mid
+                if lo > stations[-1] + GRID_XZ_TOL:
+                    stations.append(lo)
+                return np.asarray(stations)
+            incoming = _unit(site - previous)
+            previous = site
+            stations.append(station)
+    return np.asarray(stations)
 
 
 def _fillet(vertex, before, after, trim, signed_angle):
@@ -413,7 +474,8 @@ def _sample(path, points, circuit, road, mapped=(), rings=(), *, ownership=False
         fixed = (knots == first) | (knots >= rear)
     else:
         path, metres, rear, start, finish, height = _route_path(path, points, grid)
-        first, last = rear - GRID_RUN_IN, min(finish + FINISH_RUN_OUT, metres[-1])
+        runout = _runout_stations(path, metres, finish, points, road)
+        first, last = rear - GRID_RUN_IN, runout[-1]
         run_in = _at(path, metres, np.linspace(first, rear, math.ceil(GRID_RUN_IN / (SPACING / 2)) + 1))
         approach = np.column_stack((run_in[:, 0], np.full(len(run_in), height), run_in[:, 1]))
         if not all(_fits_chord(road, a, b, CAR_HALF_WIDTH) for a, b in zip(approach, approach[1:])):
@@ -431,8 +493,14 @@ def _sample(path, points, circuit, road, mapped=(), rings=(), *, ownership=False
     if ownership:
         rounded, route_m, widths, turns = rounded
     length = _distances(rounded)
-    steps = max(3 if circuit else 1, math.ceil(length[-1] / SPACING))
-    along = np.linspace(0, length[-1], steps if circuit else steps + 1, endpoint=not circuit)
+    if circuit:
+        steps = max(3, math.ceil(length[-1] / SPACING))
+        along = np.linspace(0, length[-1], steps, endpoint=False)
+    else:
+        # Keep the finish and every checked runout chord exactly, even on a bend or at a truncated road edge.
+        timed_length = length[-1] - (last - finish)
+        along = np.r_[np.linspace(0, timed_length, math.ceil(timed_length / SPACING) + 1)[:-1],
+                      timed_length + (runout - finish)]
     xz = _at(rounded, length, along)
     result = first + along, xz, height
     if not ownership:

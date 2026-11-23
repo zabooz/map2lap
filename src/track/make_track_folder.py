@@ -87,6 +87,17 @@ VIBRATION_LENGTH=0.3
 # surfaces.ini). Defined as a surface, WALL turned into drivable ground and cars drove through houses.
 
 
+# AC instantiates the stock sign holders at the pit nodes, which share our single-file road grid.
+# Hide only the two stock crew models' geometry in this track, leaving the functional pit nodes in place.
+GRID_CREW = """
+[SCRIPT_...]
+SCRIPT = '
+  local crew = ac.findNodes("?Meccanico_PALETTA?.fbx")
+  crew:findMeshes("?"):setVisible(false)
+  crew:findSkinnedMeshes("?"):setVisible(false)
+'
+"""
+
 # CSP track config. No [Material_Water]: CSP's realistic water shader would cover the comic water (which matches the
 # trees, on purpose). For realistic water again: [Material_Water] Materials = water, Type = LAKE
 EXT_CONFIG = """\
@@ -208,6 +219,8 @@ def make(name, title, obj=OBJ, preview=os.path.join(ROOT, "out", "check_top.png"
     os.makedirs(os.path.join(root, "extension"), exist_ok=True)
     with open(os.path.join(root, "extension", "ext_config.ini"), "w", encoding="utf-8") as f:
         f.write(EXT_CONFIG)
+        if route is not None:
+            f.write(GRID_CREW)
     write_trees(root, trees)
     weather.install_track(root)
     facades.write_glow(os.path.join(root, "extension"))
