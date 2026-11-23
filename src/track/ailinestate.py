@@ -9,12 +9,12 @@ import tempfile
 
 import numpy as np
 
-from track import fastlane
+from track import aicorrections, fastlane
 
 FILE = Path("data/map2lap_ai.json")
 # When line code changes, bump this and update LaneCodeVersionTest in engine/tests/test_fastlane.py.
 # For comment-only edits, update just the test's source digest.
-CODE_VERSION = 1
+CODE_VERSION = 2
 ERRORS = (AssertionError, IndexError, KeyError, OSError, ValueError, struct.error)
 
 
@@ -29,7 +29,7 @@ def reason(error):
 
 def fingerprint(inputs, circuit):
     """Hash the delimited lane inputs in driving order. Pure."""
-    route, markers, meshes, mapped, rings = inputs
+    route, markers, meshes, mapped, rings, origin, corrections = inputs
     digest = hashlib.sha256()
 
     def field(raw):
@@ -37,7 +37,9 @@ def fingerprint(inputs, circuit):
         digest.update(raw)
 
     field(struct.pack("<I?", CODE_VERSION, circuit))
-    field(b"[]")  # Reserved corrections list, in canonical JSON.
+    field(json.dumps(corrections, sort_keys=True, separators=(",", ":"), allow_nan=False).encode())
+    if corrections:
+        field(np.asarray(origin, dtype="<f8").tobytes())
     field(route.astype("<f8", copy=False).tobytes())
     field(struct.pack("<I", len(markers)))
     for name, matrix in sorted(markers.items()):
@@ -62,7 +64,7 @@ def fingerprint(inputs, circuit):
 def _record(folder):
     try:
         data = json.loads((folder / FILE).read_text(encoding="utf-8"))
-        if isinstance(data, dict) and data.get("schema") == 1 and data.get("code") == CODE_VERSION and data.get("corrections") == []:
+        if isinstance(data, dict) and data.get("schema") == 2 and data.get("code") == CODE_VERSION and data.get("corrections") == aicorrections.recipe(folder):
             return data
     except (OSError, ValueError):
         pass
@@ -72,7 +74,7 @@ def _record(folder):
 def _write(folder, inputs, status, **fields):
     path = folder / FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = dict(schema=1, code=CODE_VERSION, corrections=[], inputs=inputs, status=status, **fields)
+    data = dict(schema=2, code=CODE_VERSION, corrections=aicorrections.recipe(folder), inputs=inputs, status=status, **fields)
     with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
         tmp = Path(stream.name)
     try:

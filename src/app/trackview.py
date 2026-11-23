@@ -69,7 +69,12 @@ def recipe(ac, name):
         return None
     if not (isinstance(edits, dict) and tracksource.exists(edits.get("source"))):
         from app import trackmodels
-        return trackmodels.cold_recipe(ac, name)
+        cold = trackmodels.cold_recipe(ac, name)
+        if isinstance(edits, dict) and edits.get("aiCorrections"):
+            cold = cold or {"base": objectlist.state_of(path), "source": None, "saved": 0,
+                            "deleted": [], "object_sorts": []}
+            return {**cold, "aiCorrections": edits["aiCorrections"]}
+        return cold
     return edits if edits.get("kn5") == objectlist.state_of(path) else None
 
 

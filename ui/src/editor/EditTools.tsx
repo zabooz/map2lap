@@ -146,7 +146,7 @@ export function EditTools({name, title, timedMode, visible, taken, view, scene, 
   const separation = useSeparation({name, view, edits, enabled: working("separate"), revision: state.keptRevision, onNote: setNote});
   const banking = useBank({name, view, edits, enabled: working("bank"), revision: state.keptRevision, heights: state.heights, onNote: setNote});
   const aiLine = useAiLine({name, view, enabled: tool === "ai-line", writes: aiLineWrites,
-    unsaved: unsavedAiDraft});
+    unsaved: unsavedAiDraft, edits, moves: state.aiCorrections, editable});
   const kerbs = useKerbs({name, view, edits, kerbs: state.kerbs, enabled: working("kerb"),
     highlightId: tool === "select" ? picked?.kerbId ?? null : null, onNote: setNote, onDelete: () => remove()});
   const stitch = useStitch({name, view, edits, stitches: state.stitches, enabled: working("stitch"), onNote: setNote});

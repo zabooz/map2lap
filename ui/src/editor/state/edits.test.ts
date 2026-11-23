@@ -557,3 +557,17 @@ test("steps handed back for another draft revision than the one read are not tak
   expect(again.edits.state().canUndo).toBe(false);
   edits.stop(); again.edits.stop();
 });
+
+test("one AI line drag is a single undoable recipe edit", async () => {
+  const {edits, s} = await started();
+  const move = {id: "a", kind: "move" as const, range: 30, offset: 2, free: false,
+    anchor: {metre: 20, level: 1, origin: [0, 0], context: [[15, 0], [20, 0], [25, 0]]}};
+  edits.addAiCorrection(move);
+  edits.undo(); expect(edits.state().aiCorrections).toEqual([]);
+  edits.redo(); expect(edits.state().aiCorrections).toEqual([move]);
+  edits.saveNow(); await settle();
+  expect(s.asked[0].body).toHaveProperty("aiCorrections", [move]);
+  edits.removeAiCorrection("a");
+  expect(edits.state().aiCorrections).toEqual([]);
+  edits.stop();
+});

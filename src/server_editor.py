@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 import generator
 import numpy as np
 from app import mytracks, settings, trackedits, trackinspect, trackview
-from track import ailinestate, fastlane
+from track import ailinestate, editorinfo, fastlane
 
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
 LANE_CHANGED = "The installed AI line changed. Reopen the tool to load its current revision."
@@ -69,6 +69,34 @@ def _lane_data(directory, revision=None):
             status = "invalid"
             message = "The installed AI line could not be read." if isinstance(error, OSError) else str(error)
         return {"status": status, "message": message, "closed": None, "revision": None, "count": 0}
+
+
+@lru_cache(maxsize=1)
+def _move_reference(model, circuit, revision):
+    """Keep the automatic reference across pointer gestures on the same installed geometry."""
+    inputs = fastlane.lane_inputs(model, circuit, lambda _: None)
+    return fastlane.move_reference(model, inputs, circuit, lambda _: None)
+
+
+def _move_preview(model, body):
+    """Editor-only guide and swept-width check. Never publishes a line."""
+    files = [model, model.parent / fastlane.ROUTE, *map(Path, editorinfo.archives(model))]
+    revision = tuple((path.name, _lane_revision(path.stat())) for path in files)
+    circuit = mytracks.is_circuit(model.parent)
+    ref = _move_reference(model, circuit, revision)
+    points, detail, ribbon, _, _, route = ref
+    if body.get("guide"):
+        xyz = points["pos"].astype(float)
+        side = fastlane._frame(xyz, circuit)[3]
+        rows = np.column_stack((xyz, ribbon.metres, side[:, 0], side[:, 2], detail["left"], detail["right"], ribbon.fixed))
+        return {"rows": rows.tolist(), "path": route.path.tolist(), "key": route.key,
+                "origin": route.origin, "closed": circuit, "length": route.length}
+    moves = body["aiCorrections"]
+    if error := fastlane.aicorrections.problem(moves):
+        raise ValueError(error)
+    moved, mask = fastlane.moved_line(ref, moves)
+    return {"samples": np.column_stack((np.flatnonzero(mask), moved[mask])).tolist(),
+            "centres": {m["id"]: route.resolve(m["anchor"])[0] for m in moves}}
 
 
 class EditorHandlers:

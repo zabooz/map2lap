@@ -26,7 +26,7 @@ from track import build_tiles     # (first: sets the asphalt mesh switches and t
 from app import buildoptions, circuitlap, debugapp, mapcache, mytracks, settings, system, trackcode, version
 from app.paths import ROOT
 from scenery import farview, gates
-from track import ailinestate, fastlane, make_obj, make_track_folder, obj_to_kn5, objectlist, parallel, route_race
+from track import aicorrections, ailinestate, fastlane, make_obj, make_track_folder, obj_to_kn5, objectlist, parallel, route_race
 
 blockworker = build_tiles.blockworker
 roadsmod = build_tiles.roadsmod
@@ -392,7 +392,7 @@ def _refuse_saved(name):
 
 
 def build(points, width, name, title=None, log=print, clean=False, area=None, progress=None, cache_gb=None, upto=None,
-          line=None, kind="route", circuit_timing=None):
+          line=None, kind="route", circuit_timing=None, ai_corrections=None):
     """The whole chain up to the track folder; returns a dict with paths and figures.
     progress(phase, done, total): progress for the generator page (phases: PHASES).
     line: (route [(lat, lon), ...], index of the end pin in it) instead of OSRM's: an earlier build's route as it was,
@@ -407,10 +407,10 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     if not upto:
         _refuse_saved(slug(name))
     with plancache.one_run(os.path.join(ROOT, "cache")):
-        return _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, kind, circuit_timing)
+        return _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, kind, circuit_timing, ai_corrections)
 
 
-def _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, kind="route", circuit_timing=None):
+def _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, kind="route", circuit_timing=None, ai_corrections=None):
     """build, its processes sharing their plans."""
     progress = progress or (lambda phase, done, total: None)
     t_start = time.perf_counter()
@@ -542,6 +542,8 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
            "tiles": [list(t) for t in tiles], "width": width, "length_m": length, "points": points,
            "rules": rules, "title": title, "code_key": revisit.code_key()}
     anc.update(options)
+    if ai_corrections:
+        anc["aiCorrections"] = ai_corrections
     if area:                # (without route and start: obj_to_kn5.start_empties takes the road nearest the anchor)
         anc["area"] = [float(v) for v in area]
     else:
@@ -640,8 +642,6 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
     progress("kn5", 0, 0)
     kn5_path = obj_to_kn5.convert(obj_path, None, anchor_path, log=log, parts=kn5_parts, prepare_output=prepare_output)
     root = os.path.dirname(kn5_path)
-    if not area:
-        fastlane.regenerate(kn5_path, circuit=circuit, log=log)
     # the settings into the track folder: "My tracks" on the generator page rebuilds with them (mytracks)
     info = {"version": version.VERSION, "track_version": version.TRACK_VERSION, "title": title,
             "points": [list(p) for p in points], "width": None if area else width,
@@ -653,7 +653,14 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
         with open(anchor_path, encoding="utf-8") as f:
             info.update(kind="circuit", timing=mytracks.circuit_timing(json.load(f).get("timing")))
     info.update(buildoptions.checked(anc))
-    mytracks.save(root, {**info, "code": trackcode.encode(info)})
+    info["code"] = trackcode.encode(info)
+    if anc.get("aiCorrections"):
+        # Only hand-authored line edits transfer to a rebuilt KN5. Its own
+        # meshes are the source for future Editor edits on this copy.
+        info["edits"] = {"aiCorrections": anc["aiCorrections"]}
+    mytracks.save(root, info)
+    if not area:
+        fastlane.regenerate(kn5_path, circuit=circuit, log=log)
     progress("clean", 0, 0)
     if cache_gb is not None:
         mapcache.trim(cache_gb, log=log)
@@ -675,6 +682,7 @@ def main():
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--area", type=float, nargs=4, metavar=("S", "W", "N", "E"), help="area instead of a route")
     mode.add_argument("--circuit", action="store_true", help="close the lap from the last pin back to the first")
+    ap.add_argument("--ai-source", help="reuse the saved AI corrections from this track")
     ap.add_argument("--circuit-source", help="reuse this installed Circuit's full saved line for Rebuild")
     ap.add_argument("--clean", action="store_true", help="delete the temporary data afterwards")
     ap.add_argument("--result", action="store_true", help="a line RESULT <json> at the end (for server.py)")
@@ -692,7 +700,8 @@ def main():
         def progress(phase, done, total):
             print("PROGRESS " + json.dumps({"phase": phase, "done": done, "total": total}), flush=True)
     line, timing = _saved_circuit(a.circuit_source) if a.circuit_source else (None, None)
-    res = build(pts, a.width, a.name, a.title, clean=a.clean, area=a.area, progress=progress, line=line, circuit_timing=timing,
+    moves = aicorrections.recipe(Path(make_track_folder.AC) / "content" / "tracks" / slug(a.ai_source)) if a.ai_source else []
+    res = build(pts, a.width, a.name, a.title, clean=a.clean, area=a.area, progress=progress, line=line, circuit_timing=timing, ai_corrections=moves,
                 cache_gb=settings.load()["cache_gb"] if a.cache_gb is None else a.cache_gb,
                 kind="circuit" if a.circuit else "route")
     if a.result:

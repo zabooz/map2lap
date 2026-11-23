@@ -174,7 +174,7 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None, roof_material=None, ground_quality="sd", circuit=None):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None, roof_material=None, ground_quality="sd", circuit=None, ai_moves=False):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     ground_specular: (ksSpecular, ksSpecularEXP) of its ground tiles, which then shine (else they have none).
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
@@ -211,6 +211,10 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
         road.name = "1GRASS_ground_0_0"
     tree.children = [road, ground("1GRASS_ground_-1_0", 1, -TILE, -TILE),
                      ground("nocol_far_1", 2, -2000.0, 0.0, 4000.0, -3.0), kn5.Node(1, "AC_START_0", 1, matrix=START)]
+    if ai_moves:
+        for gate, z in (("AC_AB_START", -44), ("AC_AB_FINISH", -230)):
+            for side, x in (("L", 123), ("R", 133)):
+                tree.children.append(obj_to_kn5.empty(gate + "_" + side, (x, 0, z), (0, 0, -1)))
     if terrain_cell_m == 1:
         # A full 1 m tile exceeds 65,535 vertices: use the actual export splitter rather than wrapping its indices.
         x, z = np.meshgrid(np.arange(257.), np.arange(-256., 1.))
@@ -506,7 +510,7 @@ class Handler(server.Handler):
                        ground_materials=body.get("ground_materials", 0), ground_brightness=body.get("ground_brightness"),
                        tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"), walls=body.get("walls", False),
                        tree_model=body.get('tree_model', 'spruce'), terrain_cell_m=body.get('terrain_cell_m', 2),
-                       parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'), structure=body.get('structure'), roof_material=body.get('roof_material'), ground_quality=body.get('ground_quality', 'sd'))
+                       parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'), structure=body.get('structure'), roof_material=body.get('roof_material'), ground_quality=body.get('ground_quality', 'sd'), ai_moves=body.get('ai_moves', False))
         elif self.path == "/__test/ai-line":
             lane = Path(AC, "content", "tracks", body["name"], fastlane.FILE)
             points = np.zeros(3, dtype=fastlane.POINT)

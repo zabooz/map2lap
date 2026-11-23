@@ -223,6 +223,13 @@ class CircuitBuildTest(unittest.TestCase):
         self.assertEqual("test_2", args[args.index("--name") + 1])
         self.assertEqual("test", args[args.index("--circuit-source") + 1])
 
+    def test_build_as_copy_passes_the_route_with_saved_ai_moves(self):
+        (self.installed / "data").mkdir(parents=True)
+        mytracks.save(self.installed, {"title": "Test", "points": PINS, "edits": {"aiCorrections": [{"id": "m"}]}})
+        args = self.post_build("/api/rebuild", {"name": "test", "copy": True})
+        self.assertIn("--ai-source", args[:args.index("--")])
+        self.assertEqual("test", args[args.index("--ai-source")+1])
+
     def test_rebuild_uses_the_full_installed_lap_without_routing_and_rechecks_the_grid(self):
         (self.installed / "data").mkdir(parents=True)
         mytracks.save(self.installed, {"title": "Test", "points": PINS, "kind": "circuit", "timing": SAVED_TIMING,

@@ -43,7 +43,7 @@ from app.paths import ROOT, SRC  # noqa: E402
 from server_editor import EditorHandlers, IMAGE_TYPES  # noqa: E402
 from server_library import LibraryHandlers, MATERIAL_UPLOADS  # noqa: E402
 from server_roadtools import RoadToolHandlers  # noqa: E402
-from track import fastlane, kn5, obj_to_kn5, route_race  # noqa: E402
+from track import ailinestate, fastlane, kn5, obj_to_kn5, route_race  # noqa: E402
 
 PORT = 8800
 job = {"state": "idle", "log": [], "result": None, "error": None,     # state: idle running stopping stopped done error
@@ -237,7 +237,7 @@ def saved_in_editor(name):
 
 
 def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, ground_quality="sd",
-                kind="route", *, circuit_source=None):
+                kind="route", *, circuit_source=None, ai_source=None):
     """Start a build (new and rebuild); returns (HTTP code, response)."""
     if not settings.is_ac(settings.ac_path()):
         return 400, {"error": "Assetto Corsa folder not found: set it in Settings"}
@@ -258,6 +258,8 @@ def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=
             args.append("--circuit")
             if circuit_source:
                 args += ["--circuit-source", circuit_source]
+        if ai_source:
+            args += ["--ai-source", ai_source]
         args += ["--width", str(float(width or 100)), "--", *(f"{la},{lo}" for la, lo in points)]
     if clean:
         args.insert(0, "--clean")
@@ -1004,6 +1006,16 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                 self._send(200, f.read(), WEB_TYPES.get(os.path.splitext(file)[1], "application/octet-stream"))
 
     def do_POST(self):
+        move = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/move-preview", self.path)
+        if move:
+            if not self._own_page():
+                return self._send(403, {"error": "Only the editor can preview a move"})
+            try:
+                from server_editor import _move_preview
+                model = Path(trackview.kn5_path(settings.ac_path(), move[1]))
+                return self._send(200, _move_preview(model, self._body()))
+            except (trackview.NotOurs, *ailinestate.ERRORS) as e:
+                return self._send(400, {"error": ailinestate.reason(e)})
         lane = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/recalculate", self.path)
         if lane:
             if not self._own_page():
@@ -1228,6 +1240,8 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                     return self._send(404, {"error": "No saved build settings for this track"})
                 title = info["title"]
                 mode = {"kind": "circuit", "circuit_source": name} if info.get("kind") == "circuit" else {}
+                if (info.get("edits") or {}).get("aiCorrections"):
+                    mode["ai_source"] = name
                 if body.get("copy"):
                     name, title = mytracks.copy_name(settings.ac_path(), name, title)
                 self._send(*start_build(name, title, [tuple(p) for p in info["points"]], body.get("width", info.get("width")),

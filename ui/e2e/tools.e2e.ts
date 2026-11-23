@@ -57,6 +57,44 @@ test("Road has Smooth road, Bend road, Bank road, Racing kerb and Stitch road, w
   await expect(terrain.locator("button")).toHaveAttribute("id", "edit-elevation");
 });
 
+test("dragging the AI line produces one removable, undoable saved move", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", ai_moves: true, trees: false});
+  await openEditor(page);
+  await keysOnView(page);
+  const guide = page.waitForResponse(r => r.url().endsWith("/ai-line/move-preview") && r.request().postDataJSON().guide);
+  await page.keyboard.press("l");
+  const result = await (await guide).json();
+  expect(result.error).toBeUndefined();
+  const bar = page.locator("#edit-ai-line-set");
+  await expect(bar.getByRole("slider", {name: /Move range/})).toHaveValue("30");
+  const bounds = (await scene(page).boundingBox())!;
+  const row = result.rows.find((r: number[]) => r[3] > 104);
+  // Initial camera looks from 45 m behind and 22 m above AC_START_0.
+  const three = await import("three");
+  const camera = new three.PerspectiveCamera(55, bounds.width/bounds.height, .5, 10000);
+  camera.position.set(128,22,5); camera.lookAt(128,0,-40); camera.updateMatrixWorld();
+  const p = new three.Vector3(row[0],row[1]+.34,row[2]).project(camera);
+  const x = bounds.x+(p.x+1)*bounds.width/2, y = bounds.y+(1-p.y)*bounds.height/2;
+  const moves = async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiCorrections;
+  await page.mouse.move(x,y); await page.mouse.down();
+  await page.mouse.move(x+15,y,{steps: 4}); await page.mouse.up();
+  await expect.poll(moves).toHaveLength(1);
+  await page.keyboard.press("Control+z");
+  await expect.poll(moves).toHaveLength(0);
+  await page.keyboard.press("Control+y");
+  await expect.poll(moves).toHaveLength(1);
+  await page.mouse.click(x+15,y,{button: "right"});
+  await expect.poll(moves).toHaveLength(0);
+  await page.keyboard.press("Control+z");
+  await expect.poll(moves).toHaveLength(1);
+  await saveTrack(page);
+  const recalc = bar.getByRole("button", {name: "Recalculate AI line"});
+  await expect(recalc).toBeEnabled();
+  await recalc.click();
+  await expect(bar).toContainText("Braking");
+  expect(await moves()).toHaveLength(1);
+});
+
 test("L shows the installed AI line", async ({page, backend}) => {
   let statusReads = 0, binaryReads = 0;
   page.on("request", request => {

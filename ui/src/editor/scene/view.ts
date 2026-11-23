@@ -12,6 +12,8 @@ import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, fitSphere, makeGeome
 import {screenPoint, LEFT_BUTTON, CLICK_PX} from "./pointer";
 import {Marquee, selectionVolume, type SelectionRectangle} from "./marquee";
 import {RoadMarkers, type RangeDrawing} from "./roadMarkers";
+import {editMoves, type MoveGuide} from "./aiMoves";
+import type {AiMove} from "../state/edits";
 import {AiLineDraw} from "./aiLine";
 import {aiLinePoint, type AiLineHover, type InstalledAiLine} from "./aiLineData";
 import {KerbHighlight} from "./kerbHighlight";
@@ -1119,6 +1121,12 @@ export class TrackView {
   drawBand(line: Place[] | null, width: number) { this.roadMarkers.drawBand(line, width); }
 
   /** Prepare the installed revision of the AI line, retaining its geometry while that revision holds. */
+  editAiMoves(guide: MoveGuide, url: string, moves: AiMove[], range: number, showGuide: boolean,
+    add: (move: AiMove) => void, remove: (id: string) => void, note: (reason: string) => void) {
+    return editMoves(this.renderer.domElement, this.scene, this.camera, guide, url, moves, range, showGuide,
+      add, remove, note, () => { this.dirty = true; }, mouse => this.pointing.hit(mouse)?.distance ?? Infinity);
+  }
+
   setAiLine(lane: InstalledAiLine | null) {
     if (this.aiLine?.revision === lane?.revision && this.aiLine?.closed === lane?.closed) return;
     this.aiLine = lane;

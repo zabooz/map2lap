@@ -20,11 +20,11 @@ class LaneCodeVersionTest(unittest.TestCase):
 
         folder = Path(ailinestate.__file__).parent
         digest = hashlib.sha256()
-        for name in ("fastlane", "airacing", "aicorridor", "aibends", "ailinestate"):
+        for name in ("fastlane", "airacing", "aicorridor", "aibends", "ailinestate", "aicorrections"):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (1, "66d9a7f33bfa19691ce7f741b2a3f58d1244e2fc697d5e283cb60a94ebd92f96")
+        expected = (2, "83d1dae76c78a4f471ea45ce7bae54c71fd1cf6f896e9fe9b9b07a85562cd167")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments alone, update only the digest.")
@@ -68,6 +68,59 @@ class AILineTest(unittest.TestCase):
         log = []
         fastlane.regenerate(self.model, circuit=circuit, log=log.append)
         return log
+
+    def test_saved_move_survives_calculation_on_its_racing_line_and_invalidates_metadata(self):
+        from track import ailinestate
+        self.write_track([(20, 10), (80, 10)])
+        self.generate()
+        before = fastlane.read_lane(self.lane)[0]["pos"].copy()
+        old_key = ailinestate.input_key(self.model, False)
+        move = {"id": "move-one", "kind": "move", "free": False, "range": 10, "offset": 3,
+                "anchor": {"metre": 30, "level": 9, "origin": [0, 0],
+                           "context": [[45, 10], [50, 10], [55, 10]]}}
+        recipe = self.folder / "data/map2lap.json"
+        recipe.write_text(json.dumps({"edits": {"aiCorrections": [move]}}))
+        self.assertNotEqual(old_key, ailinestate.input_key(self.model, False))
+        self.assertEqual("pending", ailinestate.inspect(self.model, False)["status"])
+        from unittest.mock import patch
+        from app import ailanejobs
+        with patch.object(ailanejobs, "compute", wraps=ailanejobs.compute) as worker:
+            self.assertEqual("ready", ailanejobs.ensure(self.model, False)["status"])
+            self.assertEqual("ready", ailanejobs.ensure(self.model, False)["status"])
+            self.assertEqual(1, worker.call_count)
+        after = fastlane.read_lane(self.lane)[0]["pos"]
+        inside = abs(before[:, 0]-50) < 10
+        expected = 1.5*(1 + np.cos(np.pi*(before[inside, 0]-50)/10))
+        np.testing.assert_allclose(after[inside, 2], before[inside, 2]-expected, atol=1e-5)
+        self.assertEqual("ready", ailinestate.inspect(self.model, False)["status"])
+        meta = self.folder / ailinestate.FILE
+        data = json.loads(meta.read_text())
+        self.assertEqual([move], data["corrections"])
+        data["corrections"] = []
+        meta.write_text(json.dumps(data))
+        self.assertEqual("pending", ailinestate.inspect(self.model, False)["status"])
+
+    def test_rebuilt_route_resolves_the_directed_passage_or_reports_ambiguity(self):
+        from track.aicorrections import Route
+        anchor = {"metre": 50, "context": [[45, 0], [50, 0], [55, 0]], "origin": [0, 0], "level": 9}
+        rebuilt = Route(np.array([[-20, 0], [49.6, 0], [80, 0]]), [0, 0], False)
+        self.assertEqual((70, 9), rebuilt.resolve(anchor))
+        repeated = Route(np.array([[0, 0], [80, 0], [0, 0], [80, 0]]), [0, 0], False)
+        with self.assertRaisesRegex(ValueError, "Unresolved route anchor at route metre 50.0"):
+            repeated.resolve(anchor)
+
+    def test_fixed_or_overlapping_moves_leave_a_located_error(self):
+        self.write_track([(20, 10), (80, 10)])
+        for centre, duplicate, reason in [(0, False, "Fixed"), (30, True, "Overlap")]:
+            x = 20 + centre
+            move = {"kind": "move", "id": "a", "range": 8, "offset": 2, "free": False,
+                    "anchor": {"metre": centre, "level": 9, "origin": [0, 0],
+                               "context": [[max(20,x-5),10],[x,10],[x+5,10]]}}
+            moves = [move, dict(move, id="b")] if duplicate else [move]
+            (self.folder / "data/map2lap.json").write_text(json.dumps({"edits":{"aiCorrections":moves}}))
+            log = self.generate()
+            self.assertFalse(self.lane.exists(), log)
+            self.assertRegex(log[-1], reason + ".*route metre")
 
     def test_save_carries_current_or_manual_line_only_for_matching_inputs(self):
         from unittest.mock import patch

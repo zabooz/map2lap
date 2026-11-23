@@ -188,12 +188,12 @@ def _save(ac, name, copy_to, title, revision):
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
     changed = (edits["deleted"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"]
-               or edits.get("models") or edits.get("surfaces") or edits.get("trees") or edits.get("walls") or edits.get("kerbs") or edits.get("stitches")
+               or edits.get("models") or edits.get("surfaces") or edits.get("trees") or edits.get("walls") or edits.get("kerbs") or edits.get("stitches") or edits.get("aiCorrections")
                or edits.get('tree_spacing') or edits.get('car_density'))
     # (a cold track's kn5 holds its model bindings and regional paints itself: an empty list there removes them, so it is a change)
     built = trackview.recipe(ac, name) if source is None else None
     held = built and built.get("cold_models") and any(built[key] for key in ("models", "paints", "placed", "deleted"))
-    if not (changed or held or source or copy_to):
+    if not (changed or held or source or copy_to or (built and built.get("aiCorrections"))):
         raise Refused("Nothing to save: nothing is changed")
     objects, trees = trackview.list_of(path), trackview.treefx_of(path)
     # (the first Save: the track as it is, kept before anything is written. Replaced, its file itself can stay as that; a copy leaves
@@ -330,7 +330,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
                   "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "trees": edits.get("trees", []), "walls": walls,
                   "kerbs": edits.get("kerbs", []),
-                  "stitches": edits.get("stitches", []),
+                  "stitches": edits.get("stitches", []), "aiCorrections": edits.get("aiCorrections", []),
                   "trees_next": edits.get("trees_next", 0), "detail_profile": trackdetail.PROFILE,
                   "region_geometry": tracknative.GEOMETRY_CACHE_VERSION, "ground_format": groundmaterial.GROUND_FORMAT,
                   "kn5": objectlist.state_of(new_kn5), "saved": time.time()}

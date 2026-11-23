@@ -2,6 +2,8 @@ import {useEffect, useRef, useState} from "react";
 import {post} from "../../api";
 import {BRAKE_COLOUR, EDGE_COLOUR, SPEED_COLOURS} from "../scene/aiLine";
 import {fetchAiLine, type AiLineHover, type InstalledAiLine} from "../scene/aiLineData";
+import type {MoveGuide} from "../scene/aiMoves";
+import type {AiMove, TrackEdits} from "../state/edits";
 import {MeshFetchError} from "../scene/requests";
 import type {TrackView} from "../scene/view";
 import type {Place} from "../types";
@@ -40,8 +42,8 @@ function Legend({slow, fast}: {slow: number; fast: number}) {
 type AiLineAnswer = Awaited<ReturnType<typeof fetchAiLine>> | {status: "error"; message: string};
 
 /** Check the installed revision when the tool opens, after recalculation and after Save. Visibility does not affect a transfer. */
-export function useAiLine({name, view, enabled, writes, unsaved}: {
-  name: string; view: TrackView; enabled: boolean; writes: number; unsaved: boolean;
+export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, editable}: {
+  name: string; view: TrackView; enabled: boolean; writes: number; unsaved: boolean; edits: TrackEdits; moves: AiMove[]; editable: boolean;
 }): ToolController {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
@@ -87,12 +89,36 @@ export function useAiLine({name, view, enabled, writes, unsaved}: {
     return () => view.showAiLine(null);
   }, [view, enabled, lane]);
 
+  const [range, setRange] = useState(30);
+  const [guide, setGuide] = useState<{data: MoveGuide; revision: string} | null>(null);
+  const revision = JSON.stringify([name, writes, attempt]);
+  const url = `/api/editor/${encodeURIComponent(name)}/ai-line/move-preview`;
+  const canEdit = enabled && editable && answer && "canCalculate" in answer && answer.canCalculate;
+  useEffect(() => {
+    if (!canEdit) return;
+    let current = true;
+    void post<MoveGuide>(url, {guide: true}).then(data => {
+      if (!current) return;
+      if (data.rows && data.path && data.origin && data.key && data.length && data.closed !== undefined)
+        setGuide({data: data as MoveGuide, revision});
+      else if (data.error) setError(data.error);
+    });
+    return () => { current = false; };
+  }, [canEdit, url, revision]);
+  useEffect(() => {
+    if (!canEdit || guide?.revision !== revision) return;
+    return view.editAiMoves(guide.data, url, moves, range, !lane,
+      move => edits.addAiCorrection(move), id => edits.removeAiCorrection(id), setError);
+  }, [canEdit, guide, revision, url, moves, range, lane, edits, view]);
+
   return {
     activate: () => { setError(""); setAttempt(value => value + 1); },
     clear: () => setHovered(null),
     options: <>
       <ToolOptions id="edit-ai-line-set" title="AI line" note={unsaved ? "Line from the last build or save" : undefined}
         actions={<>
+          {canEdit && <label>Move range <input type="range" min="1" max="100" step="1" value={range}
+            onChange={e => setRange(Number(e.target.value))} /> {range} m</label>}
           {answer && "canCalculate" in answer && answer.canCalculate && <button type="button" disabled={unsaved || working}
             title={unsaved ? "Save first." : undefined} onClick={() => void recalculate()}>Recalculate AI line</button>}
           {unsaved && <span>Save first.</span>}

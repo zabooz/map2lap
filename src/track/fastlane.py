@@ -10,7 +10,7 @@ from time import perf_counter
 
 import numpy as np
 
-from track import aibends, aicorridor, airacing, editorinfo, kn5, obj_to_kn5, route_race
+from track import aibends, aicorridor, aicorrections, airacing, editorinfo, kn5, obj_to_kn5, route_race
 
 FILE = Path("ai/fast_lane.ai")
 ROUTE = Path("data/map2lap_route.txt")
@@ -1003,7 +1003,9 @@ def _racing_records(base, stations, road, circuit, mapped, route, name, log):
 def lane_inputs(model, circuit, log):
     """Read exactly the geometry, markers and mapped carriageways used for this line."""
     with (model.parent / ROUTE).open("rb") as stream:
-        path = np.loadtxt(stream, skiprows=1, ndmin=2)
+        header = stream.readline().split()
+        origin = tuple(map(float, header[1:3])) if header[:1] == [b"anchor"] else ()
+        path = np.loadtxt(stream, ndmin=2)
     scan = kn5.scan(model)
     markers = {key: matrix for key, matrix in scan["points"].items()
                if re.fullmatch(r"AC_START_\d+|AC_TIME_\d+_[LR]", key)}
@@ -1011,31 +1013,78 @@ def lane_inputs(model, circuit, log):
         gates = route_race.GATES if all(k in scan["points"] for k in route_race.GATES) else route_race.ALIASES.values()
         markers.update((k, scan["points"][k]) for k in gates if k in scan["points"])
     mapped, rings = aibends.lane_roads(editorinfo.archives(model), log)
-    return path, markers, _roads(model, scan["meshes"]), mapped, rings
+    return path, markers, _roads(model, scan["meshes"]), mapped, rings, origin, aicorrections.recipe(model.parent)
 
 
-def calculate(model, inputs, circuit, lane, log):
-    """Compute from already-read inputs and write the complete spline to lane."""
-    start = perf_counter()
-    path, markers, roads, mapped, rings = inputs
+def move_reference(model, inputs, circuit, log):
+    """The validated automatic line and its exact sample-to-route correspondence for authoring."""
+    path, markers, roads, mapped, rings, origin, _ = inputs
     road = _local_roads(roads)
 
     def records(stations, xz, height, limits):
         xyz = _surface(stations, xz, road, height, circuit)
-        return _racing_records(xyz, stations, road, circuit, mapped, limits, model.stem, log)
+        points, detail = _racing_records(xyz, stations, road, circuit, mapped, limits, model.stem, log)
+        return points, detail, limits, stations, road, aicorrections.Route(path, origin, circuit)
 
     preferred = _sample(path, markers, circuit, road, mapped, rings, ownership=True)
     try:
-        points, detail = records(*preferred)
+        return records(*preferred)
     except NoLine:
-        # Resampling a shorter lap can move a chord at a distant tight spot. Keep the
-        # individually rounded line if the final 1.5 m samples cannot support the car.
         if not mapped:
             raise
         original = _sample(path, markers, circuit, road, mapped, rings, ownership=True, grouped=False)
         if np.array_equal(original[1], preferred[1]):
             raise
-        points, detail = records(*original)
+        return records(*original)
+
+
+def moved_line(reference, corrections):
+    """Apply recipe moves to the automatic reference and validate their seams and cross-sections."""
+    points, detail, ribbon, stations, road, route = reference
+    xyz = points["pos"].astype(float)
+    sides = _frame(xyz, route.circuit)[3]
+    moved, mask = route.moves(corrections, ribbon, xyz, sides, obj_to_kn5.LEVEL_GAP_M)
+    for i in np.flatnonzero(mask):
+        x, y, z = moved[i]
+        levels = obj_to_kn5.road_levels(road(x, z, 0), x, z)
+        height = min(levels, key=lambda h: abs(h-y), default=np.inf)
+        if abs(height-y) >= obj_to_kn5.LEVEL_GAP_M:
+            raise NoLine(f"No driveable surface at route metre {ribbon.metres[i]:.1f}")
+        moved[i, 1] = height
+    joins = mask | np.roll(mask, 1)
+    if not route.circuit:
+        joins[0] = False
+    indices = np.flatnonzero(joins)
+    widths = np.where(np.isfinite(ribbon.half_width), ribbon.half_width, (detail["left"]+detail["right"])/2)
+    # At junctions the neighbouring street can share the same road mesh. Keep the
+    # same ownership capsule as the automatic line when a route width is known.
+    mapped = indices[np.isfinite(ribbon.half_width[indices]) & np.isfinite(ribbon.half_width[indices-1])]
+    fit = airacing.joins_fit(moved[:, XZ], mapped, ribbon.start, ribbon.end, widths, FILLET_CLEARANCE)
+    if not fit.all():
+        raise NoLine(f"Outside the selected road at route metre {ribbon.metres[mapped[~fit][0]]:.1f}")
+    side = _frame(moved, route.circuit)[3]
+    for i in indices:
+        m = ribbon.metres[i]
+        if not _fits_chord(road, moved[i-1], moved[i], FILLET_CLEARANCE):
+            raise NoLine(f"Insufficient clearance at route metre {m:.1f}")
+        if min(_section(road, moved[i], side[i], m)[:2]) < FILLET_CLEARANCE:
+            raise NoLine(f"Insufficient clearance at route metre {m:.1f}")
+    return moved, mask
+
+
+def calculate(model, inputs, circuit, lane, log):
+    """Compute from already-read inputs and write the complete spline to lane."""
+    start = perf_counter()
+    reference = move_reference(model, inputs, circuit, log)
+    points, detail, ribbon, stations, road, route = reference
+    if inputs[-1]:
+        moved, fixed = moved_line(reference, inputs[-1])
+        # Refit the adjoining approaches over a curvature window. Other bends
+        # already have their validated optimum. The authored samples are immutable.
+        lap = stations[-1]-stations[0] + np.linalg.norm(moved[-1, XZ]-moved[0, XZ])
+        approach = airacing.restore_scale(stations, fixed, circuit, lap, CURVE_HALF_WINDOW) < 1
+        limits = ribbon._replace(fixed=ribbon.fixed | fixed | ~approach)
+        points, detail = _racing_records(moved, stations, road, circuit, inputs[3], limits, model.stem, log)
     _write_lane(lane, points, detail)
     log(f"AI line: {len(points):,} points in {perf_counter() - start:.2f} s")
 
