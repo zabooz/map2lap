@@ -2,10 +2,9 @@
   padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
 .dialog::backdrop { background: rgba(7, 12, 18, .62); backdrop-filter: blur(3px); }
 .dialog form { display: flex; flex-direction: column; height: 100%; }
-.header { display: flex; align-items: start; justify-content: space-between; padding: 20px 24px 16px;
+.header { display: flex; align-items: center; justify-content: space-between; padding: 12px 24px;
   border-bottom: 1px solid var(--line); }
 .eyebrow { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
-.header h2 { margin: 2px 0 0; font-size: 26px; letter-spacing: -.04em; }
 .close { border: 0; background: transparent; color: var(--muted); font-size: 25px; line-height: 1; cursor: pointer; }
 .tabs { display: flex; flex: none; gap: 18px; padding: 0 24px; border-bottom: 1px solid var(--line); }
 .tabs button { padding: 10px 2px 8px; border: 0; border-bottom: 2px solid transparent; background: none;
@@ -22,6 +21,7 @@
 .field { display: flex; flex-wrap: wrap; gap: 5px; color: var(--muted); font-size: 12px; }
 .field select, .field input[type=range] { width: 100%; min-width: 0; }
 .field select { background: var(--raised); }
+.gripPreset { grid-column: 1 / -1; }
 .value { margin-left: auto; color: var(--text); font-variant-numeric: tabular-nums; }
 .check { display: flex; align-items: center; gap: 7px; font-size: 12px; }
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

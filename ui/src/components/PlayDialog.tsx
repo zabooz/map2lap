@@ -2,11 +2,13 @@ import {useEffect, useRef, useState} from "react";
 import {createPortal} from "react-dom";
 import {get} from "../api";
 import {MAX_WIND_KMH, effectiveSeason, type WeatherOptions} from "../editor/scene/weather";
-import type {PlaySession, SessionMode} from "../hooks/usePlay";
+import type {GripEdits, PlaySession, SessionMode} from "../hooks/usePlay";
 import type {TimedMode} from "../types";
 import styles from "./PlayDialog.module.css";
 
 type Cars = {cars: {id: string; name: string}[]; last: string | null};
+type GripValues = {start: number; variation: number};
+type GripOptions = {presets: (GripValues & {name: string})[]; current: GripValues; last: string | null};
 const LAP_OPTIONS = [2, 4, 8, 16, 32, 64, 128];
 const TABS = [{id: "session", label: "Session"}, {id: "air", label: "Air and road"}] as const;
 const MODES: Record<SessionMode, string> = {practice: "Practice", hotlap: "Hotlap", race: "Race"};
@@ -23,6 +25,8 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("session");
   const [laps, setLaps] = useState(LAP_OPTIONS[0]);
   const [maxOpponents, setMaxOpponents] = useState<number | null>(null);
+  const [gripOptions, setGripOptions] = useState<GripOptions | null>(null);
+  const [grip, setGrip] = useState<string | GripEdits>("");
   const [gridError, setGridError] = useState(false);
   const [ai, setAi] = useState({opponents: 0, strength: 95, aggression: 0, car: ""});
   const [minutes, setMinutes] = useState<number | null>(initialClock === undefined ? null : Math.round(initialClock * 60));
@@ -35,17 +39,18 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
     return () => element.close();
   }, []);
   useEffect(() => {
-    if (!timedMode || saving) return;
+    if (saving) return;
     let alive = true;
-    void get<{max_opponents: number}>(`/api/play/options?name=${encodeURIComponent(name)}`).then(result => {
+    void get<{max_opponents: number; grip: GripOptions}>(`/api/play/options?name=${encodeURIComponent(name)}`).then(result => {
       if (!alive) return;
+      setGripOptions(result?.grip ?? null);
       const limit = result?.max_opponents;
       setGridError(typeof limit !== "number");
       setMaxOpponents(limit ?? null);
       setAi(value => ({...value, opponents: Math.min(value.opponents, limit ?? 0)}));
     });
     return () => { alive = false; };
-  }, [name, timedMode, saving]);
+  }, [name, saving]);
   useEffect(() => {
     let alive = true;
     Promise.all([get<Cars>("/api/cars"), get<{car: string | null}>("/api/settings")]).then(([available, settings]) => {
@@ -61,17 +66,22 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
     setWeather(old => ({...old, [key]: value}));
   const mode = timedMode ? sessionMode : "practice";
   const race = mode === "race";
-  const start = () => onStart({car, ...(minutes === null ? {} : {clock: minutes / 60}), weather, session: mode,
+  const preset = typeof grip === "string" ? grip : grip.preset;
+  const gripValues = {...(gripOptions?.presets.find(p => p.name === preset) ?? gripOptions?.current),
+    ...(typeof grip === "object" ? grip : {})};
+  const editGrip = (field: keyof GripValues, value: number) =>
+    setGrip(previous => ({...(typeof previous === "string" ? {preset: previous || undefined} : previous), [field]: value}));
+  const start = () => onStart({car, ...(minutes === null ? {} : {clock: minutes / 60}), weather, session: mode, ...(grip ? {grip} : {}),
     ...(race ? {laps: timedMode === "route" ? 1 : laps, ai} : {})});
   const dry = weather.kind === "dry";
   const time = minutes === null ? "Last session time" : `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 
   return createPortal(
-    <dialog ref={dialog} className={styles.dialog} aria-labelledby="play-title"
+    <dialog ref={dialog} className={styles.dialog} aria-label="Play"
             onCancel={e => { e.preventDefault(); onCancel(); }}>
       <form onSubmit={e => { e.preventDefault(); start(); }}>
         <header className={styles.header}>
-          <div><span className={styles.eyebrow}>Assetto Corsa · {MODES[mode]}</span><h2 id="play-title">Play</h2></div>
+          <span className={styles.eyebrow}>Assetto Corsa · {MODES[mode]}</span>
           <button type="button" className={styles.close} aria-label="Close Play" onClick={onCancel}>×</button>
         </header>
         <div className={styles.tabs} role="tablist" aria-label="Play settings" onKeyDown={e => {
@@ -109,8 +119,6 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
               <input aria-label="Time of day" type="range" min={0} max={1439} value={minutes ?? 600}
                      onChange={e => setMinutes(Number(e.target.value))} />
             </label>
-            <label className={styles.check}><input type="checkbox" checked={minutes === null}
-              onChange={e => setMinutes(e.target.checked ? null : 600)} />Use last session time</label>
           </section>
           <section className={styles.section} aria-label="Conditions">
             <h3>Conditions</h3>
@@ -189,6 +197,24 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
                 <input aria-label="Wind speed" type="range" min={-1} max={MAX_WIND_KMH} value={weather.windSpeed}
                        onChange={e => update("windSpeed", Number(e.target.value))} />
               </label>
+              <label className={`${styles.field} ${styles.gripPreset}`}>Track grip
+                <select aria-label="Track grip" value={typeof grip === "string" ? grip : "Custom"} onChange={e => setGrip(e.target.value)} disabled={!gripOptions}>
+                  <option value="">{gripOptions?.last ? `Last session · ${gripOptions.last}` : "Last session"}</option>
+                  {typeof grip === "object" && <option value="Custom">Custom</option>}
+                  {gripOptions?.presets.map(preset => <option key={preset.name} value={preset.name}>
+                    {`${preset.name} · ${preset.start}% ${preset.variation ? `base, ${preset.variation}% variation` : "fixed"}`}
+                  </option>)}
+                </select>
+              </label>
+              {(["start", "variation"] as const).map(field => {
+                const label = field === "start" ? "Starting grip" : "Grip variation";
+                const value = gripValues[field];
+                return <label key={field} className={styles.field}>{label}
+                  <span className={styles.value}>{value === undefined ? "—" : `${value}%`}</span>
+                  <input aria-label={label} type="range" min={0} max={100} value={value ?? 0} disabled={!gripOptions}
+                    onChange={e => editGrip(field, Number(e.target.value))} />
+                </label>;
+              })}
             </div>
           </section>
         </div>

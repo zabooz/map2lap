@@ -8,12 +8,17 @@ test("Play switches between Hotlap and a Race grid without moving the dialog", a
     alpha.kind = "circuit";
     await route.fulfill({response, json: data});
   });
-  await page.route("**/api/play/options?name=alpha", route => route.fulfill({json: {max_opponents: 3}}));
+  await page.route("**/api/play/options?name=alpha", async route => {
+    const response = await route.fetch();
+    await route.fulfill({response, json: {...await response.json(), max_opponents: 3}});
+  });
   await page.goto("/");
   await page.locator("#t-mine").click();
   await page.locator("#actions").getByRole("button", {name: "▶ Play"}).click();
 
   const dialog = page.getByRole("dialog", {name: "Play"});
+  await expect(dialog.getByRole("heading", {name: "Play", exact: true})).toHaveCount(0);
+  await expect(dialog.getByRole("checkbox", {name: "Use last session time"})).toHaveCount(0);
   const session = dialog.getByRole("combobox", {name: "Session"});
   const opponents = dialog.getByRole("combobox", {name: "Opponents"});
   await expect(session).toHaveValue("practice");
@@ -31,6 +36,18 @@ test("Play switches between Hotlap and a Race grid without moving the dialog", a
 
   await dialog.getByRole("tab", {name: "Air and road"}).click();
   await expect(session).toHaveCount(0);
+  const grip = dialog.getByRole("combobox", {name: "Track grip"});
+  await expect(grip.getByRole("option", {name: "Green · 95% base, 2% variation"})).toHaveCount(1);
+  await grip.selectOption({label: "Optimum · 100% fixed"});
+  const base = dialog.getByRole("slider", {name: "Starting grip"});
+  const variation = dialog.getByRole("slider", {name: "Grip variation"});
+  await expect(variation).toHaveValue("0");
+  await base.fill("91");
+  await expect(grip).toHaveValue("Custom");
+  await grip.selectOption("Green");
+  await expect(base).toHaveValue("95");
+  await expect(variation).toHaveValue("2");
+  await variation.fill("0");
   const air = dialog.getByRole("slider", {name: "Air temperature"});
   await air.fill("17");
   expect(await dialog.boundingBox()).toEqual(bounds);
@@ -40,6 +57,8 @@ test("Play switches between Hotlap and a Race grid without moving the dialog", a
 
   const request = page.waitForRequest("**/api/play");
   await startDriving(page);
-  expect((await request).postDataJSON()).toMatchObject({name: "alpha", session: "race", laps: 2,
+  const body = (await request).postDataJSON();
+  expect(body).not.toHaveProperty("clock");
+  expect(body).toMatchObject({name: "alpha", session: "race", laps: 2, grip: {preset: "Green", variation: 0},
     ai: {opponents: 3, strength: 92, aggression: 24, car: "car_a"}, weather: {airTemperature: 17}});
 });

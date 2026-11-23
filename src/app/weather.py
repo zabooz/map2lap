@@ -1,4 +1,5 @@
 """Editor weather and session temperatures, with portable public-CSP visuals."""
+import configparser
 import math
 from pathlib import Path
 import re
@@ -18,6 +19,65 @@ DEFAULT = {'kind': 'dry', 'intensity': 'light', 'windDirection': 0, 'windSpeed':
 TYPES = {'dry': (15, 17, 19), 'rain': (6, 7, 2), 'snow': (9, 10, 11)}
 LEVELS = ('light', 'medium', 'heavy')
 BEGIN, END = b'; MAP2LAP_WEATHER_BEGIN', b'; MAP2LAP_WEATHER_END'
+
+
+# Kunos' cfg/templates/tracks.ini, in the order of GRIP_KEYS. Grip is independent
+# of the visual weather. Optimum fixes starting grip for comparable timed drives.
+GRIP_KEYS = ("SESSION_START", "SESSION_TRANSFER", "RANDOMNESS", "LAP_GAIN")
+TRACK_GRIP = {"Dusty": (86, 50, 1, 30), "Old": (89, 80, 3, 50), "Slow": (96, 80, 1, 300),
+              "Green": (95, 90, 2, 132), "Fast": (98, 80, 2, 700), "Optimum": (100, 100, 0, 1)}
+GRIP_SLIDERS = {"start": "SESSION_START", "variation": "RANDOMNESS"}
+
+
+def grip_options(race_file):
+    """Stock AC grip choices and the last session's matching preset, including custom configurations."""
+    ini = configparser.ConfigParser(interpolation=None, strict=False)
+    last = None
+    current = {"start": 100, "variation": 0}
+    try:
+        ini.read(race_file, encoding="utf-8-sig")
+        if ini.has_section("DYNAMIC_TRACK"):
+            last = "Custom"
+            for field, key in GRIP_SLIDERS.items():
+                try:
+                    value = ini.getfloat("DYNAMIC_TRACK", key)
+                    if math.isfinite(value):
+                        current[field] = value
+                except (ValueError, configparser.NoOptionError):
+                    pass
+            values = tuple(ini.getfloat("DYNAMIC_TRACK", key, fallback=None) for key in GRIP_KEYS)
+            last = next((name for name, preset in TRACK_GRIP.items() if preset == values), last)
+    except (configparser.Error, ValueError, OSError):
+        pass
+    return {"presets": [{"name": name, "start": start, "variation": randomness}
+                        for name, (start, _, randomness, _) in TRACK_GRIP.items()], "last": last, "current": current}
+
+
+def valid_grip(choice):
+    """Whether the selection names a stock preset or edits grip percentages. Pure."""
+    if isinstance(choice, str):
+        return choice in TRACK_GRIP
+    if not isinstance(choice, dict) or choice.keys() - {*GRIP_SLIDERS, "preset"}:
+        return False
+    if "preset" in choice and not (isinstance(choice["preset"], str) and choice["preset"] in TRACK_GRIP):
+        return False
+    edits = choice.keys() & GRIP_SLIDERS.keys()
+    return bool(edits) and all(type(choice[key]) is int and 0 <= choice[key] <= 100 for key in edits)
+
+
+def apply_grip(ini, choice):
+    """Apply a validated stock preset and any explicit slider edits to the session INI."""
+    if not ini.has_section("DYNAMIC_TRACK"):
+        ini.add_section("DYNAMIC_TRACK")
+        for key, value in zip(GRIP_KEYS, TRACK_GRIP["Optimum"]):
+            ini.set("DYNAMIC_TRACK", key, str(value))
+    edits = {"preset": choice} if isinstance(choice, str) else choice
+    if "preset" in edits:
+        for key, value in zip(GRIP_KEYS, TRACK_GRIP[edits["preset"]]):
+            ini.set("DYNAMIC_TRACK", key, str(value))
+    for field, key in GRIP_SLIDERS.items():
+        if field in edits:
+            ini.set("DYNAMIC_TRACK", key, str(edits[field]))
 
 
 def parse(value):

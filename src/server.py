@@ -543,7 +543,7 @@ def _launch_play(ac, track_file, race_file, ini, selected_weather, effects, *, t
     return 200, {"ok": True}
 
 
-def play(name, clock=None, weather_options=None, car=None, *, session=None, laps=None, ai=None):
+def play(name, clock=None, weather_options=None, car=None, *, session=None, laps=None, ai=None, grip=None):
     """Drive the track in AC (My tracks and the Editor, "Play"): race.ini the way Content Manager writes it, with the last
     settings (car, skin, weather, assists) but this track and offline; then acs.exe (system.start_ac;
     system.ensure_steam starts Steam if needed). clock: the local hour to start at (the Editor's), else the last one stays.
@@ -553,6 +553,8 @@ def play(name, clock=None, weather_options=None, car=None, *, session=None, laps
     import configparser
     if clock is not None and not valid_clock(clock):
         return 400, {"error": "The time of day is not an hour of the day"}
+    if grip is not None and not weather.valid_grip(grip):
+        return 400, {"error": "Choose a track grip preset or percentages between 0 and 100"}
     installed = {c["id"] for c in cars()} if car or ai is not None else set()
     if car is not None and (not isinstance(car, str) or (car and car not in installed)):
         return 400, {"error": "That car is not installed"}
@@ -647,6 +649,8 @@ def play(name, clock=None, weather_options=None, car=None, *, session=None, laps
         if not ini.has_section("LIGHTING"):
             ini.add_section("LIGHTING")
         ini.set("LIGHTING", "SUN_ANGLE", f"{sun_angle(clock):.2f}")
+    if grip is not None:
+        weather.apply_grip(ini, grip)
     if selected_weather is not None:
         weather.apply_session(ini, selected_weather)
     effects = settings.load()['weather_effects']
@@ -960,7 +964,7 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
         elif urlsplit(self.path).path == "/api/play/options":
             name = generator.slug(parse_qs(urlsplit(self.path).query).get("name", [""])[0])
             track = os.path.join(settings.ac_path(), "content", "tracks", name)
-            self._send(200, {"max_opponents": _opponent_limit(track)})
+            self._send(200, {"max_opponents": _opponent_limit(track), "grip": weather.grip_options(race_ini())})
         elif self.path in ("/api/update", "/api/update?fresh=1"):   # (a newer Map2Lap on GitHub: the page links it)
             rel = version.latest(fresh=self.path.endswith("fresh=1"))
             newer = bool(rel) and version.key(rel["version"]) > version.key(version.VERSION)
@@ -1197,7 +1201,8 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                     self._send(400, {"error": "Choose the session with the session field"})
                 else:
                     self._send(*play(generator.slug(body.get("name") or ""), body.get("clock"), body.get("weather"),
-                                     body.get("car"), session=body.get("session"), laps=body.get("laps"), ai=body.get("ai")))
+                                     body.get("car"), session=body.get("session"), laps=body.get("laps"), ai=body.get("ai"),
+                                     grip=body.get("grip")))
             elif self.path == "/api/delete":
                 self._send(*delete_track(generator.slug(body.get("name") or "")))
             elif self.path == "/api/cache/clear":

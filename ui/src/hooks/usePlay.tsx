@@ -7,7 +7,8 @@ import type {TimedMode} from "../types";
 
 const STARTING_MS = 5000;       // how long Play stays "Starting …": AC's window takes a while, the server answers at once
 export type SessionMode = "practice" | "hotlap" | "race";
-export type PlaySession = {car: string; clock?: number; weather: WeatherOptions; session: SessionMode; laps?: number;
+export type GripEdits = {preset?: string; start?: number; variation?: number};
+export type PlaySession = {car: string; clock?: number; grip?: string | GripEdits; weather: WeatherOptions; session: SessionMode; laps?: number;
   ai?: {opponents: number; strength: number; aggression: number; car: string}};
 
 /** Start AC with the chosen session, car and conditions. */

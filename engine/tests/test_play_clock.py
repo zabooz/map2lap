@@ -67,6 +67,35 @@ class PlayAtAnHourTest(unittest.TestCase):
         ini.read(self.race, encoding="utf-8")
         return ini
 
+    def test_track_grip_writes_native_preset_and_preserves_custom_settings_when_omitted(self):
+        self.race.write_text(RACE + "\n[DYNAMIC_TRACK]\nSESSION_START=87\nRANDOMNESS=4\nOTHER=keep\n")
+        self.assertEqual((200, True), self.started())
+        self.assertEqual("4", self.ini()["DYNAMIC_TRACK"]["RANDOMNESS"])
+        self.assertEqual("Custom", server.weather.grip_options(self.race)["last"])
+        self.assertEqual((200, True), self.started(grip="Optimum"))
+        self.assertEqual(dict(self.ini()["DYNAMIC_TRACK"]), {
+            "SESSION_START": "100", "RANDOMNESS": "0", "OTHER": "keep", "SESSION_TRANSFER": "100", "LAP_GAIN": "1"})
+        self.assertEqual("Optimum", server.weather.grip_options(self.race)["last"])
+        before = self.race.read_bytes()
+        self.assertEqual((400, False), self.started(grip="unsupported"))
+        self.assertEqual(before, self.race.read_bytes())
+        self.assertEqual((200, True), self.started(grip="Dusty"))
+        self.assertEqual("86", self.ini()["DYNAMIC_TRACK"]["SESSION_START"])
+
+    def test_custom_grip_overrides_only_selected_fields(self):
+        self.race.write_text(RACE + "\n[DYNAMIC_TRACK]\nSESSION_START=87\nRANDOMNESS=4\nLAP_GAIN=37\n")
+        self.assertEqual(server.weather.grip_options(self.race)["current"], {"start": 87, "variation": 4})
+        self.assertEqual((200, True), self.started(grip={"start": 91}))
+        section = self.ini()["DYNAMIC_TRACK"]
+        self.assertEqual((section["SESSION_START"], section["RANDOMNESS"], section["LAP_GAIN"]), ("91", "4", "37"))
+        self.assertEqual((200, True), self.started(grip={"preset": "Green", "variation": 0}))
+        section = self.ini()["DYNAMIC_TRACK"]
+        self.assertEqual(tuple(section[key] for key in server.weather.GRIP_KEYS), ("95", "90", "0", "132"))
+        before = self.race.read_bytes()
+        for invalid in ({"start": True}, {"variation": 101}, {"preset": "missing", "start": 95}, {}):
+            self.assertEqual((400, False), self.started(grip=invalid))
+        self.assertEqual(before, self.race.read_bytes())
+
     def test_the_editors_hour_goes_into_the_session(self):
         self.assertEqual((200, True), self.started(18.5))
         self.assertAlmostEqual(88.0, self.ini().getfloat("LIGHTING", "SUN_ANGLE"))
@@ -337,10 +366,10 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.assertEqual("skin4", ini.get("CAR_5", "SKIN"))
 
     def test_play_request_passes_session_and_grid_options(self):
-        handler = self.play_request(b'{"name":"one","session":"race","laps":2,"ai":{"opponents":1}}')
+        handler = self.play_request(b'{"name":"one","session":"race","laps":2,"ai":{"opponents":1},"grip":"Green"}')
         with mock.patch.object(server, "play", return_value=(200, {"ok": True})) as launch:
             handler.do_POST()
-        launch.assert_called_once_with("one", None, None, None, session="race", laps=2, ai={"opponents": 1})
+        launch.assert_called_once_with("one", None, None, None, session="race", laps=2, ai={"opponents": 1}, grip="Green")
         handler.send_response.assert_called_once_with(200)
 
 
