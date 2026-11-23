@@ -228,7 +228,8 @@ test("Circuit closes a lap through its numbered pins and builds it", async ({pag
   expect(build.ok()).toBe(true);
   await expect(card(page)).toContainText("Installed in Assetto Corsa.");
   await page.locator("#t-mine").click();
-  await expect(page.getByRole("button", {name: /Testtown Circuit.*Circuit 3\.00 km/s})).toBeVisible();
+  await expect(page.locator("#pane-mine").getByRole("button", {name: /^Testtown Circuit\b/})).toBeVisible();
+  await expect(card(page).getByText("3.00 km", {exact: true})).toBeVisible();
 
   await page.locator("#t-new").click();
   await button(page, "Route").click();
@@ -302,7 +303,8 @@ test("Circuit fits a pasted lap and a saved lap across the antimeridian", async 
 
   await page.reload();
   await page.locator("#t-mine").click();
-  await page.getByRole("button", {name: /Antimeridian Circuit.*Circuit 2\.40 km/s}).click();
+  await page.locator("#pane-mine").getByRole("button", {name: /^Antimeridian Circuit\b/}).click();
+  await expect(card(page).getByText("2.40 km", {exact: true})).toBeVisible();
   await expect.poll(async () => (await view()).z).toBeGreaterThan(13);
   expect((await view()).c.lng).toBeLessThan(-179);
   await expect(paths).toHaveCount(1);

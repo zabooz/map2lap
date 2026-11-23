@@ -54,7 +54,7 @@ test("a failed build says so, a new selection takes the card back", async ({page
   await route(page, "Will fail");
   await page.locator("#go").click();
   await expect(card(page)).toContainText("exit code 1");
-  await expect(card(page)).toContainText("Details in the log below.");
+  await expect(card(page)).toContainText("See the Build log.");
   await clickMap(page, 0.7, 0.3);
   await expect(card(page)).toContainText("2.00 km");
 });

@@ -72,5 +72,5 @@ select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .empty { margin: auto; text-align: center; color: var(--muted); max-width: 240px; }
 
 @media (max-width: 760px) {
-  body { grid-template-columns: 1fr; grid-template-rows: auto auto; }
+  body { height: auto; min-height: 100%; grid-template-columns: 1fr; grid-template-rows: auto auto; }
 }

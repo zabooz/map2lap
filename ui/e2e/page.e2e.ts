@@ -76,7 +76,7 @@ for (const [name, status] of Object.entries(STATES)) {
     await expect(page.locator("#log")).toContainText("line 59");
     if (name === "done") await expect(card(page).getByRole("button", {name: "▶ Play"})).toBeInViewport({ratio: 1});
     if (name === "running") await expect(card(page).getByText("3 / 6 parts")).toBeInViewport({ratio: 1});
-    if (name === "error") await expect(card(page).getByText("Details in the log below.")).toBeInViewport({ratio: 1});
+    if (name === "error") await expect(card(page).getByText("See the Build log.")).toBeInViewport({ratio: 1});
   });
 }
 
