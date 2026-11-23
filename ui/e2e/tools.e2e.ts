@@ -95,6 +95,43 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   expect(await moves()).toHaveLength(1);
 });
 
+test("Redraw finishes on the line, Escape discards the stroke, and a saved free stroke reopens", async ({page,backend}) => {
+  await backend.post("/__test/rebuild", {name:"alpha", title:"Alpha Test", ai_moves:true, trees:false});
+  await openEditor(page); await keysOnView(page);
+  const response = page.waitForResponse(r => r.url().endsWith("/ai-line/move-preview") && r.request().postDataJSON().guide);
+  await page.keyboard.press("l");
+  const guide = await (await response).json();
+  const bar = page.locator("#edit-ai-line-set");
+  await bar.getByRole("checkbox",{name:"Free mode"}).check();
+  await bar.getByRole("button",{name:"Redraw",exact:true}).click();
+  const bounds=(await scene(page).boundingBox())!, three=await import("three");
+  const camera=new three.PerspectiveCamera(55,bounds.width/bounds.height,.5,10000);
+  camera.position.set(128,22,5); camera.lookAt(128,0,-40); camera.updateMatrixWorld();
+  const position = (metre:number, off=0): [number,number] => {
+    const row=guide.rows.find((r:number[])=>r[3]>=metre);
+    const q=new three.Vector3(row[0]+off,row[1]+.38,row[2]).project(camera);
+    return [bounds.x+(q.x+1)*bounds.width/2,bounds.y+(1-q.y)*bounds.height/2];
+  };
+  const click = (metre:number, off=0) => page.mouse.click(...position(metre,off));
+  const moves=async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiCorrections;
+  await click(105); await click(91);
+  await expect(bar).toContainText("End precedes the start");
+  await page.keyboard.press("Escape");
+  expect(await moves()).toHaveLength(0);
+  await click(90); await click(105,3.5); await click(128);
+  await expect.poll(moves).toHaveLength(1);
+  const [stroke]=await moves();
+  expect(stroke.kind).toBe("redraw"); expect(stroke.free).toBe(true);
+  expect(stroke.points).toHaveLength(1);
+  await saveTrack(page);
+  await bar.getByRole("button",{name:"Recalculate AI line"}).click();
+  await expect(bar).toContainText("Braking");
+  expect(await moves()).toEqual([stroke]);
+  await bar.getByRole("button",{name:"Redraw",exact:true}).click();
+  await page.mouse.move(...position(100));
+  await expect(page.getByRole("region",{name:"AI line point"})).toContainText("Route metre");
+});
+
 test("L shows the installed AI line", async ({page, backend}) => {
   let statusReads = 0, binaryReads = 0;
   page.on("request", request => {

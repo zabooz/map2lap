@@ -81,7 +81,7 @@ export interface Recipe {
   trees?: AddedTree[];
   walls?: WallEdit[];
   kerbs?: KerbEdit[];
-  aiCorrections?: AiMove[];
+  aiCorrections?: AiCorrection[];
   stitches?: StitchEdit[];
   treeSpacing?: TreeSpacing | null;
   carDensity?: CarDensity | null;
@@ -111,7 +111,7 @@ export interface EditState {
   trees: AddedTree[];           // TreeFX trees Copy added (src/app/tracktrees.py)
   walls: WallEdit[];
   kerbs: KerbEdit[];
-  aiCorrections: AiMove[];
+  aiCorrections: AiCorrection[];
   stitches: StitchEdit[];
   treeSpacing?: TreeSpacing | null;
   carDensity?: CarDensity | null;
@@ -138,7 +138,12 @@ const TRACK_CHANGED = "This track was built again: the view shows the build befo
 type Send = (url: string, options?: RequestInit) => Promise<Response>;
 
 export interface AiMove {id: string; kind: "move"; range: number; routeOffset?: number; routeAlong?: number; offset?: number; free: boolean;
-  anchor: {metre: number; level: number; origin: number[]; context: number[][]; route?: string}}
+  anchor: AiAnchor}
+export interface AiAnchor {metre: number; level: number; origin: number[]; context: number[][]; route?: string;
+  lateral?: number; along?: number; angle?: number; after?: number}
+export interface AiRedraw {id: string; kind: "redraw"; free: boolean; anchor: AiAnchor; end: AiAnchor;
+  points: number[][]; tail?: number[]}
+export type AiCorrection = AiMove | AiRedraw;
 
 type Edits = Pick<EditState, "removed" | "objectSorts" | "heights" | "placed" | "copies" | "paints" | "models" | "surfaces" | "trees" | "walls" | "kerbs" | "stitches" | "aiCorrections" | "treeSpacing" | "carDensity">;
 const NONE: Edits = {removed: [], objectSorts: [], heights: [], placed: [], copies: [], paints: [], models: [], surfaces: [], trees: [], walls: [], kerbs: [], stitches: [], aiCorrections: [], treeSpacing: null, carDensity: null};
@@ -322,7 +327,7 @@ export class TrackEdits {
       const edits = {removed: d.deleted as Removed[], objectSorts: (d.object_sorts ?? []) as string[],
                      heights: (d.heights ?? []) as HeightChange[], placed: (d.placed ?? []) as Placement[], copies: (d.copies ?? []) as ObjectCopy[], paints: (d.paints ?? []) as string[], models: (d.models ?? []) as ModelInstance[],
                      surfaces: (d.surfaces ?? []) as SurfaceCut[], trees: (d.trees ?? []) as AddedTree[], walls: (d.walls ?? []) as WallEdit[],
-                     kerbs: (d.kerbs ?? []) as KerbEdit[], aiCorrections: (d.aiCorrections ?? []) as AiMove[], stitches: (d.stitches ?? []) as StitchEdit[], treeSpacing: (d.tree_spacing ?? null) as TreeSpacing | null, carDensity: (d.car_density ?? null) as CarDensity | null};
+                     kerbs: (d.kerbs ?? []) as KerbEdit[], aiCorrections: (d.aiCorrections ?? []) as AiCorrection[], stitches: (d.stitches ?? []) as StitchEdit[], treeSpacing: (d.tree_spacing ?? null) as TreeSpacing | null, carDensity: (d.car_density ?? null) as CarDensity | null};
       const taken = handed?.name === this.name && sameEdits(handed.edits, edits) ? handed : null;
       handed = null;
       this.history = new HistoryKeys();
@@ -436,7 +441,7 @@ export class TrackEdits {
     this.change({...this.edits(), kerbs: this.now.kerbs.map(kerb => kerb.id === id ? {...kerb, ...patch} : kerb)});
   }
 
-  addAiCorrection(move: AiMove) {
+  addAiCorrection(move: AiCorrection) {
     this.change({...this.edits(), aiCorrections: [...this.now.aiCorrections, move]});
   }
 

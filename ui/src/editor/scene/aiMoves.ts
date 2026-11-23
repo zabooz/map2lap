@@ -1,22 +1,10 @@
 import * as THREE from "three";
 import {post} from "../../api";
-import type {AiMove} from "../state/edits";
+import type {AiMove, AiCorrection} from "../state/edits";
+import {Pencil} from "./aiPencil";
 import {screenPoint} from "./pointer";
 
-type Row = [number, number, number, number, number, number, number, number, number];
-export interface MoveGuide {rows: Row[]; path: number[][]; key: string; origin: number[]; closed: boolean; length: number}
-interface Checked {skipped: Record<string, string>; samples: [number, number, number, number][]; centres: Record<string, number>}
-
-const at = (guide: MoveGuide, metre: number) => {
-  let s = guide.closed ? ((metre % guide.length) + guide.length) % guide.length : Math.max(0, metre);
-  for (let i = 1; i < guide.path.length; i++) {
-    const [x, z] = guide.path[i-1], [dx, dz] = [guide.path[i][0]-x, guide.path[i][1]-z];
-    const length = Math.hypot(dx, dz);
-    if (s <= length && length) return [x + dx*s/length, z + dz*s/length];
-    s -= length;
-  }
-  return guide.path[guide.path.length-1];
-};
+import {at, type Checked, type MoveGuide} from "./aiGuide";
 
 function apart(s: number, m: number, guide: MoveGuide) {
   if (!guide.closed) return Math.abs(s-m);
@@ -34,9 +22,10 @@ function placeAt(move: AiMove, x: number, z: number) {
 
 /** A pressed pointer owns a single move until release. Geometry stays in the view, outside React. */
 export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THREE.PerspectiveCamera,
-  guide: MoveGuide, url: string, saved: AiMove[], range: number, showGuide: boolean,
-  add: (move: AiMove) => void, remove: (id: string) => void, note: (why: string) => void,
-  redraw: () => void, groundDistance: (mouse: THREE.Vector2) => number) {
+  guide: MoveGuide, url: string, corrections: AiCorrection[], range: number, showGuide: boolean, free: boolean, pen: boolean,
+  add: (move: AiCorrection) => void, remove: (id: string) => void, note: (why: string) => void,
+  redraw: () => void, groundDistance: (mouse: THREE.Vector2) => number, groundPoint: (mouse: THREE.Vector2) => THREE.Vector3 | null) {
+  const saved = corrections.filter(item => item.kind === "move");
   const stops = new AbortController(), {signal} = stops;
   const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0));
   const positions = new Float32Array(guide.rows.length*3), colours = new Float32Array(positions.length);
@@ -44,16 +33,18 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     .setAttribute("position", new THREE.BufferAttribute(positions, 3))
     .setAttribute("color", new THREE.BufferAttribute(colours, 3));
   const mat = new THREE.LineBasicMaterial({vertexColors: true, depthWrite: false});
-  const line = guide.closed ? new THREE.LineLoop(geometry, mat) : new THREE.Line(geometry, mat);
+  const line = new THREE.LineSegments(geometry, mat);
   line.renderOrder = 11;
   scene.add(line);
   const distances = new Map(saved.map(item => [item.id, item.anchor.metre]));
   const samples = new Map<number, number[]>();
   const invalid = new Map<string, string>();
   let drag: {i: number; start: THREE.Vector3; move: AiMove; shift: number; error: string} | null = null;
+  const liveYellow = new Set<number>();
   let busy = false, serial = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const owner = (m: number) => saved.find(item => apart(m, distances.get(item.id)!, guide) < item.range);
+  const yellow = new Set<number>();
   const green = new THREE.Color(0x51de94), red = new THREE.Color(0xff3939);
   const deltas = new Map<string, [number, number]>();
   for (const move of saved) {
@@ -67,6 +58,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
                          centre[1]+(dz*along-dx*move.routeOffset)/length-row[2]]);
   }
   function draw() {
+    const edges: number[] = [];
     guide.rows.forEach(([x, y, z, m, dx, dz], i) => {
       const baked = samples.get(i);
       if (baked) [x,y,z] = baked;
@@ -76,30 +68,38 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
         const w = (1+Math.cos(Math.PI*apart(m,distances.get(existing.id)!,guide)/existing.range))/2;
         x += w*delta[0]; z += w*delta[1];
       }
-      let colour = existing && invalid.has(existing.id) ? red : green;
+      let colour = guide.errors?.[i] || existing && invalid.has(existing.id) ? red : yellow.has(i) ? amber : green;
+      if ((i > 0 || guide.closed) && !pencil.covers(m)) edges.push((i+guide.rows.length-1)%guide.rows.length, i);
       if (drag) {
         const d = apart(m, drag.move.anchor.metre, guide);
         if (d < range) {
           const shift = drag.shift * (1+Math.cos(Math.PI*d/range))/2;
           x += dx*shift; z += dz*shift;
           if (drag.error) colour = red;
+          else if (liveYellow.has(i)) colour = amber;
         }
       }
       positions.set([x, y+.34, z], 3*i);
       colour.toArray(colours, 3*i);
     });
+    geometry.setIndex(edges);
     geometry.attributes.position.needsUpdate = geometry.attributes.color.needsUpdate = true;
     geometry.computeBoundingSphere();
-    line.visible = showGuide || saved.length > 0 || !!drag;
+    line.visible = showGuide || corrections.length > 0 || pen || !!drag;
     redraw();
   }
+  const amber = new THREE.Color(0xffd23b);
+  const pencil = new Pencil(el, scene, camera, guide, corrections, free, pen, url, groundPoint, groundDistance,
+    e => pick(e), add, remove, note, () => draw());
   draw();
-  if (saved.length) void post<Checked>(url, {aiCorrections: saved}).then(check => {
+  if (corrections.length) void post<Checked>(url, {aiCorrections: corrections}).then(check => {
     if (signal.aborted) return;
     if (check.error) { note(check.error); return; }
     for (const [id, why] of Object.entries(check.skipped ?? {})) invalid.set(id, why);
     for (const [id, metre] of Object.entries(check.centres ?? {})) distances.set(id, metre);
     for (const [i,x,y,z] of check.samples ?? []) samples.set(i,[x,y,z]);
+    pencil.showSaved(check);
+    for (const i of check.yellow ?? []) yellow.add(i);
     note([...invalid.values()].join(" · ")); draw();
   });
   function pick(event: PointerEvent) {
@@ -134,6 +134,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
   }
   const opts = {capture: true, signal};
   el.addEventListener("pointerdown", e => {
+    if (pencil.press(e)) return;
     if (busy || (e.button !== 0 && e.button !== 2)) return;
     const i = pick(e);
     if (i < 0) return;
@@ -146,7 +147,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     plane.constant = -row[1];
     const start = intersection(e);
     if (!start) return;
-    const move: AiMove = {id: crypto.randomUUID(), kind: "move", range, free: false,
+    const move: AiMove = {id: crypto.randomUUID(), kind: "move", range, free,
       anchor: {metre: m, level: row[1], route: guide.key, origin: guide.origin,
         context: [-5,0,5].map(d => at(guide, m+d))}};
     drag = {i, start, move, shift: 0, error: ""};
@@ -154,9 +155,10 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
   }, opts);
   el.addEventListener("pointermove", e => {
     if (!drag) {
-      if (invalid.size) {
+      if (pencil.hover(e)) return;
+      if (invalid.size || Object.keys(guide.errors ?? {}).length) {
         const i = pick(e), id = i < 0 ? undefined : owner(guide.rows[i][3])?.id;
-        el.title = (id && invalid.get(id)) || "";
+        el.title = (id && invalid.get(id)) || guide.errors?.[i] || "";
       }
       return;
     }
@@ -167,6 +169,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     drag.shift = (p.x-drag.start.x)*r[4] + (p.z-drag.start.z)*r[5];
     placeAt(move, r[0]+r[4]*drag.shift, r[2]+r[5]*drag.shift);
     drag.error = "";
+    liveYellow.clear();
     for (const item of saved) {
       if (apart(move.anchor.metre, distances.get(item.id)!, guide) < range + item.range) {
         drag.error = `Overlapping correction at route metre ${move.anchor.metre.toFixed(1)}`; break;
@@ -176,9 +179,10 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     clearTimeout(timer);
     if (!drag.error) {
       timer = setTimeout(async () => {
-        const check = await post<Checked>(url, {aiCorrections: [...saved, move]});
+        const check = await post<Checked>(url, {aiCorrections: [...corrections, move]});
         if (signal.aborted || !drag || request !== serial) return;
         drag.error = check.error ?? check.skipped?.[move.id] ?? "";
+        for (const i of check.yellow ?? []) liveYellow.add(i);
         el.title = drag.error;
         note(drag.error); draw();
       }, 100);
@@ -194,9 +198,9 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
     if (Math.abs(drag.shift) > .001) {
       busy = true;
-      const check = await post<Checked>(url, {aiCorrections: [...saved, move]});
+      const check = await post<Checked>(url, {aiCorrections: [...corrections, move]});
       if (signal.aborted) return;
-      const reason = check.error ?? check.skipped?.[move.id] ?? drag.error;
+      const reason = check.error ?? check.skipped?.[move.id];
       if (reason) note(reason);
       else add(move);
       busy = false;
@@ -204,5 +208,5 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     drag = null; draw();
   }, opts);
   el.addEventListener("pointercancel", () => { drag = null; clearTimeout(timer); ++serial; draw(); }, opts);
-  return () => { stops.abort(); clearTimeout(timer); el.title = ""; scene.remove(line); geometry.dispose(); mat.dispose(); redraw(); };
+  return () => { pencil.dispose(); stops.abort(); clearTimeout(timer); el.title = ""; scene.remove(line); geometry.dispose(); mat.dispose(); redraw(); };
 }

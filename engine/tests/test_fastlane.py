@@ -20,11 +20,11 @@ class LaneCodeVersionTest(unittest.TestCase):
 
         folder = Path(ailinestate.__file__).parent
         digest = hashlib.sha256()
-        for name in ("fastlane", "airacing", "aicorridor", "aibends", "ailinestate", "aicorrections"):
+        for name in ("fastlane", "airacing", "aicorridor", "aibends", "ailinestate", "aicorrections", "airedraw"):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (3, "c076fb5304258f10882204572d064e1b69e71adb50376a2fefaf2a64f0cd93da")
+        expected = (4, "beaa4d2960eb77a3bea1bbe97008220dc67e548f3c4e5e824d4feda24a20eb48")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments alone, update only the digest.")

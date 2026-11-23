@@ -2,8 +2,8 @@ import {useEffect, useRef, useState} from "react";
 import {post} from "../../api";
 import {BRAKE_COLOUR, EDGE_COLOUR, SPEED_COLOURS} from "../scene/aiLine";
 import {fetchAiLine, type AiLineHover, type InstalledAiLine} from "../scene/aiLineData";
-import type {MoveGuide} from "../scene/aiMoves";
-import type {AiMove, TrackEdits} from "../state/edits";
+import type {MoveGuide} from "../scene/aiGuide";
+import type {AiCorrection, TrackEdits} from "../state/edits";
 import {MeshFetchError} from "../scene/requests";
 import type {TrackView} from "../scene/view";
 import type {Place} from "../types";
@@ -43,8 +43,10 @@ type AiLineAnswer = Awaited<ReturnType<typeof fetchAiLine>> | {status: "error"; 
 
 /** Check the installed revision when the tool opens, after recalculation and after Save. Visibility does not affect a transfer. */
 export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, editable}: {
-  name: string; view: TrackView; enabled: boolean; writes: number; unsaved: boolean; edits: TrackEdits; moves: AiMove[]; editable: boolean;
+  name: string; view: TrackView; enabled: boolean; writes: number; unsaved: boolean; edits: TrackEdits; moves: AiCorrection[]; editable: boolean;
 }): ToolController {
+  const [pen, setPen] = useState(false);
+  const [free, setFree] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const recalculate = async () => {
@@ -84,10 +86,10 @@ export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, e
   const lane = answer?.status === "ready" ? answer : null;
   const hover = hovered?.lane === lane ? hovered.hover : null;
   useEffect(() => {
-    if (!enabled || !lane) return;
+    if (!enabled || !lane || pen || (unsaved && moves.some(m => m.kind === "redraw"))) return;
     view.showAiLine(hover => setHovered(hover && {lane, hover}));
     return () => view.showAiLine(null);
-  }, [view, enabled, lane]);
+  }, [view, enabled, lane, pen, moves, unsaved]);
 
   const [range, setRange] = useState(30);
   const [guide, setGuide] = useState<{data: MoveGuide; revision: string} | null>(null);
@@ -107,16 +109,20 @@ export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, e
   }, [canEdit, url, revision]);
   useEffect(() => {
     if (!canEdit || guide?.revision !== revision) return;
-    return view.editAiMoves(guide.data, url, moves, range, !lane,
+    return view.editAiMoves(guide.data, url, moves, range, !lane, free, pen,
       move => edits.addAiCorrection(move), id => edits.removeAiCorrection(id), setError);
-  }, [canEdit, guide, revision, url, moves, range, lane, edits, view]);
+  }, [canEdit, guide, revision, url, moves, range, lane, free, pen, edits, view]);
 
   return {
     activate: () => { setError(""); setAttempt(value => value + 1); },
-    clear: () => setHovered(null),
+    clear: () => { setHovered(null); setPen(false); },
     options: <>
       <ToolOptions id="edit-ai-line-set" title="AI line" note={unsaved ? "Line from the last build or save" : undefined}
         actions={<>
+          {canEdit && <>
+            <button type="button" aria-pressed={pen} onClick={() => setPen(value => !value)}>Redraw</button>
+            <label><input type="checkbox" checked={free} onChange={e => setFree(e.target.checked)} /> Free mode</label>
+          </>}
           {canEdit && <label>Move range <input type="range" min="1" max="100" step="1" value={range}
             onChange={e => setRange(Number(e.target.value))} /> {range} m</label>}
           {answer && "canCalculate" in answer && answer.canCalculate && <button type="button" disabled={unsaved || working}

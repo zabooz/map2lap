@@ -27,13 +27,29 @@ def problem(items):
     for item in items:
         try:
             anchor = item["anchor"]
-            if (item["kind"] != "move" or item["free"] is not False or not isinstance(item["id"], str)
-                    or not item["id"] or item["id"] in ids
-                    or np.shape(anchor["context"]) != (3, 2) or np.shape(anchor["origin"]) != (2,)
-                    or not np.isfinite([anchor["metre"], anchor["level"], item["range"], item.get("routeOffset", item.get("offset")), item.get("routeAlong", 0)]).all()
-                    or not np.isfinite(anchor["context"]).all() or not np.isfinite(anchor["origin"]).all()
-                    or item["range"] <= 0):
-                return "Invalid AI line move"
+            if (type(item["free"]) is not bool or not isinstance(item["id"], str)
+                    or not item["id"] or item["id"] in ids):
+                return "Invalid AI correction"
+            anchors = [anchor]
+            if item["kind"] == "move":
+                if not np.isfinite([item["range"], item.get("routeOffset", item.get("offset")), item.get("routeAlong", 0)]).all() or item["range"] <= 0:
+                    return "Invalid AI line move"
+            elif item["kind"] == "redraw":
+                anchors.append(item["end"])
+                clicks = item["points"]
+                if (not isinstance(clicks, list) or any(np.shape(p) != (3,) for p in clicks)
+                        or not np.isfinite(clicks).all()):
+                    return "Invalid AI line redraw"
+                if "tail" in item and (not item["free"] or np.shape(item["tail"]) != (3,) or not np.isfinite(item["tail"]).all()):
+                    return "Invalid AI runout endpoint"
+            else:
+                return "Unknown AI correction"
+            for target in anchors:
+                if (np.shape(target["context"]) != (3, 2) or np.shape(target["origin"]) != (2,)
+                        or not np.isfinite([target["metre"], target["level"], target.get("lateral", 0), target.get("angle", 0),
+                                             target.get("along", 0), target.get("after", 0)]).all()
+                        or not np.isfinite(target["context"]).all() or not np.isfinite(target["origin"]).all()):
+                    return "Invalid AI correction anchor"
             ids.add(item["id"])
         except (TypeError, KeyError, ValueError):
             return "Invalid AI line move"

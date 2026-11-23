@@ -50,6 +50,12 @@ The target is the lateral distance from the route centre at the anchor. Its alon
 a skewed approach. The taper joins the current automatic line. A rejected move stays in the recipe with its reason
 visible in the Editor. Other valid moves still apply. Legacy moves store only a delta from an unknown automatic line;
 they are skipped until redrawn. The racing-line solver holds the moved samples fixed. The saved corrections also enter the line fingerprint.
+
+Redraw starts and ends with a click on the line in driving order. Intermediate ground clicks shape the curve.
+Escape discards a draft. Right-click a saved correction to remove it. Free mode belongs to each new correction.
+Yellow marks off-road segments supported by a driving surface. Red marks an invalid section, with its reason and
+route metre on hover. At an open finish the dashed continuation accepts the end click for a free runout.
+Build as copy carries the correction recipe and resolves it on the new geometry.
 A hand-replaced line is identified by its checksum and remains available for a test drive.
 
 `GET /api/editor/<track>/ai-line` returns the status as JSON with the file status, revision, point count, circuit flag, calculation availability and input validity. With

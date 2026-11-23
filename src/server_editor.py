@@ -74,8 +74,61 @@ def _lane_data(directory, revision=None):
 @lru_cache(maxsize=1)
 def _move_reference(model, circuit, revision):
     """Keep the automatic reference across pointer gestures on the same installed geometry."""
-    inputs = fastlane.lane_inputs(model, circuit, lambda _: None)
-    return fastlane.move_reference(model, inputs, circuit, lambda _: None)
+    inputs = fastlane.lane_inputs(model, circuit, lambda _: None, preview=True)
+    reference, invalid = fastlane.preview_reference(model, inputs, circuit)
+    return reference, invalid, fastlane._local_roads(inputs[2], free=True)
+
+
+def _runout_guide(ref, wider):
+    """Clickable extension of the finish direction up to the generator's normal runout distance."""
+    points, _, _, _, _, route = ref
+    if route.circuit:
+        return []
+    direction = fastlane._unit(route.path[-1]-route.path[-2])
+    height = points["pos"][-1,1]
+    tail = []
+    for d in np.linspace(0, generator.RUNOUT_M, int(generator.RUNOUT_M/fastlane.SPACING)+1):
+        x, z = route.path[-1] + d*direction
+        levels = fastlane.obj_to_kn5.road_levels(wider(x,z,0),x,z)
+        y = min(levels,key=lambda v: abs(v-height),default=height)
+        tail.append([x,y,z,route.length+d,direction[1],-direction[0],0,0,0])
+        height = y
+    return tail
+
+
+def _ink_preview(ref, wider, item, section):
+    """Full-width check and road/off-road colours for a pencilled replacement. Pure."""
+    points, _, ribbon, _, road, route = ref
+    is_tail = "tail" in item
+    if is_tail and (route.circuit or abs(item["end"]["metre"]-route.length) > fastlane.GRID_XZ_TOL):
+        raise ValueError(f"Invalid runout endpoint at route metre {section.end:.1f}")
+    inside = (ribbon.metres >= section.start) & (ribbon.metres <= section.end)
+    fixed = inside & ribbon.fixed
+    if is_tail:
+        fixed &= ribbon.metres <= route.length
+    if fixed.any() and np.any(np.linalg.norm(section.positions(ribbon.metres[fixed])[:,[0,2]]-
+                                               points["pos"][fixed][:,[0,2]],axis=1) > fastlane.GRID_XZ_TOL):
+        raise ValueError(f"Fixed AI line point at route metre {ribbon.metres[fixed][0]:.1f}")
+    floor = wider if item["free"] else road
+    xyz = fastlane._surface(section.metres, section.xyz[:,[0,2]],floor,section.xyz[0,1],False)
+    fastlane.check_click_levels(section, xyz, route)
+    if not item["free"]:
+        stations = section.metres
+        if route.circuit:
+            stations = ribbon.metres[0] + (stations-ribbon.metres[0]) % route.length
+        nearest = fastlane.nearest_stations(ribbon.metres, stations)
+        fastlane.check_selected_road(xyz[:,fastlane.XZ], section.metres, ribbon, nearest,
+                                     np.arange(1,len(xyz)))
+    sides = fastlane._frame(xyz,False)[3]
+    yellow = []
+    for i in range(len(xyz)):
+        previous = xyz[max(0,i-1)]
+        m = section.metres[i]
+        if (not fastlane._fits_chord(floor,previous,xyz[i],fastlane.FILLET_CLEARANCE)
+                or min(fastlane._section(floor,xyz[i],sides[i],m)[:2]) < fastlane.FILLET_CLEARANCE):
+            raise ValueError(f"Insufficient clearance at route metre {m:.1f}")
+        yellow.append(item["free"] and not fastlane._fits_chord(road,previous,xyz[i],fastlane.FILLET_CLEARANCE))
+    return np.column_stack((xyz,yellow)).tolist()
 
 
 def _move_preview(model, body):
@@ -83,20 +136,48 @@ def _move_preview(model, body):
     files = [model, model.parent / fastlane.ROUTE, *map(Path, editorinfo.archives(model))]
     revision = tuple((path.name, _lane_revision(path.stat())) for path in files)
     circuit = mytracks.is_circuit(model.parent)
-    ref = _move_reference(model, circuit, revision)
-    points, detail, ribbon, _, _, route = ref
+    ref, errors, wider = _move_reference(model, circuit, revision)
+    points, detail, ribbon, _, road, route = ref
     if body.get("guide"):
         xyz = points["pos"].astype(float)
         side = fastlane._frame(xyz, circuit)[3]
         rows = np.column_stack((xyz, ribbon.metres, side[:, 0], side[:, 2], detail["left"], detail["right"], ribbon.fixed))
-        return {"rows": rows.tolist(), "path": route.path.tolist(), "key": route.key,
-                "origin": route.origin, "closed": circuit, "length": route.length}
-    moves = body["aiCorrections"]
-    if error := fastlane.aicorrections.problem(moves):
+        return {"rows": rows.tolist(), "path": route.path.tolist(), "key": route.key, "errors": errors,
+                "origin": route.origin, "closed": circuit, "length": route.length, "tail": _runout_guide(ref,wider)}
+    items = body["aiCorrections"]
+    if error := fastlane.aicorrections.problem(items):
         raise ValueError(error)
-    (moved, mask), skipped = fastlane.checked_moves(ref, moves, lambda xyz, marked: (xyz, marked))
-    return {"samples": np.column_stack((np.flatnonzero(mask), moved[mask])).tolist(),
-            "skipped": skipped, "centres": {m["id"]: route.resolve(m["anchor"])[0] for m in moves if m["id"] not in skipped}}
+    ink, centres, ends, skipped, spans, moves = {}, {}, {}, {}, [], []
+    for item in items:
+        key = item["id"]
+        try:
+            centre, _ = route.resolve(item["anchor"])
+            if item["kind"] == "redraw":
+                part = fastlane.airedraw.resolve(item, route, fastlane.SPACING/2)
+                start, end = part.start, part.end
+            else:
+                start,end = centre-item["range"], centre+item["range"]
+            if any(start < b and end > a for a,b in spans):
+                raise ValueError(f"Overlapping correction at route metre {centre:.1f}")
+            if item["kind"] == "redraw":
+                ink[key] = _ink_preview(ref,wider,item,part)
+                ends[key] = end
+            else:
+                moves.append(item)
+            spans.append((start,end))
+            centres[key] = centre
+        except ValueError as error:
+            skipped[key] = str(error)
+    (moved, mask, queries), rejected = fastlane.checked_moves(ref, moves, lambda *result: result, wider)
+    skipped.update(rejected)
+    record = ailinestate._record(model.parent)
+    if record.get("skipped") and record.get("corrections") == items:
+        if ailinestate.input_key(model, circuit) == record.get("inputs"):
+            skipped.update(record["skipped"])
+    yellow = [int(i) for i in np.flatnonzero(mask) if fastlane._query(queries,i) is wider and
+              not fastlane._fits_chord(road,moved[i-1],moved[i],fastlane.FILLET_CLEARANCE)]
+    return {"samples": np.column_stack((np.flatnonzero(mask), moved[mask])).tolist(), "ink": ink, "yellow": yellow,
+            "skipped": skipped, "centres": centres, "ends": ends}
 
 
 class EditorHandlers:

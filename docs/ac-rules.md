@@ -166,7 +166,7 @@ Build and Rebuild generate `ai/fast_lane.ai` on the finished track. Editor Save 
 when its inputs still match. A Race with opponents generates a missing line before starting. Practice,
 Hotlap and solo Race skip this step. The Editor can explicitly recalculate the saved track's line.
 `data/map2lap_ai.json` fingerprints collision geometry, grid and timing markers, route, mapped road and
-ring facts, circuit mode, line-code version and the reserved corrections list. A separate file checksum
+ring facts, circuit mode, line-code version and the corrections from the Editor recipe. A separate file checksum
 identifies hand-replaced lines so the driver can choose which line to use.
 
 Tangent arcs and the sampled line need a continuous 2 m strip of
@@ -188,6 +188,10 @@ own measured sides and the selected route legs bound the move through junctions.
 crossings and circulating lanes stay pinned. Every final chord is checked on its driving level, and widths
 are measured again on the resulting line. Where a move fails, the original car-width-checked line resumes
 locally with a smooth transition. Curvature measured on the final line sets radius and speed.
+Hand-drawn sections replace the route before checking its floor. Authored samples stay fixed during optimisation
+and require 1.1 m of clearance on each side. A free correction can also use grass and kerb surfaces on its level.
+Walls and building collision still block it. The recipe keeps invalid corrections for inspection; where possible
+the automatic line continues through their sections.
 Mapped road widths also limit broad collision strips. At intersections and local width bulges the sides interpolate
 along the route, bounded by the free cross section.
 
