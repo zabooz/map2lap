@@ -168,6 +168,12 @@ Build, Rebuild and Editor Save regenerate `ai/fast_lane.ai` from the finished KN
 SideLeft and SideRight end at the connected road edge or the nearest `1KERB_walkcol_` or `1WALL_` collision
 within car height above it. A raised pavement can cover asphalt terrain. Bridge slabs below the deck and high
 tunnel ceilings leave the lane free. Editor racing kerbs are passable over supported road.
+At a staggered junction, short route links spanning at most two mapped carriageway widths can share a tangent
+arc when one turn dominates a shallow reverse. The car must fit within half the junction road width of the
+selected route and every chord, including the straight joins, must clear the collision corridor on the route's
+level. Mapped roundabouts and circular roads, including rings recognized from the mapped road geometry,
+keep their entry, circulation and exit even on a painted island. Separate fillets remain at distinct direction
+changes, when matching road widths are missing, or when the replacement fails.
 The grid and timing lines hold their original positions. Curvature measured along the rounded line sets radius and speed.
 Mapped road widths also limit broad collision strips. At intersections and local width bulges the sides interpolate
 along the route, bounded by the free cross section.

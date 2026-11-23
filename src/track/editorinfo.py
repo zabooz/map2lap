@@ -82,11 +82,14 @@ class Paint:
             values = source.attrs.get(key)
             if values is not None and str(values[i]):
                 tags[key] = str(values[i])
+        junction = source.attrs.get("osm_junction")
+        if junction is not None and str(junction[i]):
+            tags["junction"] = str(junction[i])
         raw = source.attrs.get("tags")
         if raw is not None:
             try:
                 osm = json.loads(str(raw[i]))
-                tags.update({k: osm[k] for k in ("surface", "bridge", "tunnel", "layer", "lanes", "width", "oneway", "highway", "natural", "landuse") if k in osm})
+                tags.update({k: osm[k] for k in ("surface", "bridge", "tunnel", "layer", "lanes", "width", "oneway", "junction", "highway", "natural", "landuse") if k in osm})
             except (ValueError, TypeError):
                 pass
         self.data["features"].append({"id": str(source.ids[i]), "layer": source.layer, "tags": tags,

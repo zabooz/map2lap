@@ -95,6 +95,50 @@ class AILineTest(unittest.TestCase):
         self.assertFalse(self.lane.exists())
         self.assertRegex(log[-1], r"AI line skipped: .*at route metre \d+")
 
+    def counterbend(self, *, junction=None, obstacle=(), exit_x=62):
+        # Three surveyed corners at one paved mouth. The street enters east and leaves almost due south.
+        route = [(8, 10), (55, 10), (53.6, 18.8), (53.6, 23.8), (exit_x, 65), (8, 65), (8, 10)]
+        self.write_track(route, circuit=True, strips=[(-10, 125, 0, 80)], obstacles=obstacle)
+        features = []
+        for i, (a, b) in enumerate(zip(route, route[1:])):
+            tags = {"junction": junction} if junction and i == 2 else {}
+            features.append({"id": str(i), "spec": {"width": 10, "kind": "paved"},
+                             "tags": tags, "geometry": [[a, b]]})
+        tile = self.folder / "tile.zip"
+        with ZipFile(tile, "w") as archive:
+            archive.writestr("tile.json", json.dumps({"features": features}))
+        editorinfo._publish(self.model, [("0_0", tile)])
+        log = self.generate(circuit=True)
+        self.assertTrue(self.lane.exists(), log)
+        points, _, _ = fastlane.read_lane(self.lane)
+        xz = points["pos"][:, [0, 2]].astype(float)
+        step = np.diff(xz, axis=0)
+        heading = np.degrees(np.unwrap(np.arctan2(step[:, 1], step[:, 0])))
+        bend = (xz[1:-1, 0] > 30) & (xz[1:-1, 1] < 30) & (heading[:-1] < 150)
+        return np.diff(heading)[bend]
+
+    def test_short_counterturns_at_one_road_mouth_form_a_single_tangent_arc(self):
+        turns = self.counterbend()
+        self.assertGreater(turns.sum(), 70)
+        self.assertGreater(turns.min(), -.02, "the exit must not unwind the main turn")
+
+    def test_painted_roundabout_keeps_its_entry_and_circulating_turn(self):
+        regular = self.counterbend()
+        ring = self.counterbend(junction="roundabout")
+        self.assertGreater(-ring[ring < 0].sum(), 12, "keep the circulating direction even on flat asphalt")
+        self.assertGreater(regular[regular < 0].sum() - ring[ring < 0].sum(), 12,
+                           "the ring tag must distinguish this entry from an ordinary junction")
+
+    def test_counterturns_stay_separate_at_a_real_offset_or_a_blocked_mouth(self):
+        # A more easterly exit makes a real chicane on the same flat collision road.
+        np.testing.assert_array_equal(self.counterbend(exit_x=94),
+                                      self.counterbend(exit_x=94, junction="circular"))
+        # This raised corner overlaps the replacement but leaves the single fillets free.
+        walk = [(42, 9.2, 14), (51.8, 9.2, 14), (51.8, 9.2, 18), (42, 9.2, 18)]
+        obstacle = [("1KERB_walkcol_mouth", walk)]
+        np.testing.assert_array_equal(self.counterbend(obstacle=obstacle),
+                                      self.counterbend(obstacle=obstacle, junction="roundabout"))
+
     def test_corner_is_rounded_with_room_for_both_sides_of_the_car(self):
         strips = [(-10, 60, 5, 15), (50, 60, 5, 50), (3, 60, 40, 50), (3, 13, 5, 50)]
         self.write_track([(8, 10), (55, 10), (55, 45), (8, 45), (8, 10)], circuit=True, strips=strips)

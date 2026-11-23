@@ -10,7 +10,7 @@ from time import perf_counter
 
 import numpy as np
 
-from track import aicorridor, editorinfo, kn5, obj_to_kn5, route_race
+from track import aibends, aicorridor, editorinfo, kn5, obj_to_kn5, route_race
 
 FILE = Path("ai/fast_lane.ai")
 ROUTE = Path("data/map2lap_route.txt")
@@ -258,7 +258,68 @@ def _corner(vertex, before, after, trim, angle, metre, heights, road):
     return vertex[None, :] if result is None else result
 
 
-def _rounded(path, metres, fixed, heights, road):
+def _straight_join(start, end):
+    """Samples on a new straight connector up to its shared arc endpoint (excluded). Pure."""
+    steps = math.ceil(np.linalg.norm(end - start) / (SPACING / 2))
+    return np.linspace(start, end, steps, endpoint=False)
+
+
+def _group_arc(path, metres, ends, peak, angle, half, min_radius, heights, road):
+    """Larger supported arc for a group and its two approach legs, bounded by adjacent fillet ends. Pure."""
+    axis = _unit(np.diff(path, axis=0))
+    before, after = axis[0], axis[-1]
+    entry, exit = path[1], path[-2]
+    advance, depart = np.linalg.solve(np.column_stack((before, after)), exit - entry)
+    vertex = entry + advance * before
+    # A shallow bend can still be a real offset into another street. Every skipped knot
+    # must fit the same entry or exit carriageway as the dominant turn.
+    for knots, origin, tangent in ((path[1:peak+1], entry, before), (path[peak:-1], exit, after)):
+        if np.max(abs((knots - origin) @ (tangent[::-1] * [1, -1]))) > half:
+            return None
+    # Keep the neighbouring fillets. Two groups on the same straight each get at most half.
+    lengths = np.diff(metres)
+    left = min(np.linalg.norm(entry - ends[0]), lengths[0] / 2)
+    right = min(np.linalg.norm(exit - ends[1]), lengths[-1] / 2)
+    maximum = min(left + advance, right + depart)
+    # The midpoint of a tangent arc is R * (1 - cos(angle/2)) from each tangent line.
+    # Even the furthest internal knot is within the group's length of the incoming line.
+    tangent = math.tan(abs(angle) / 2)
+    maximum = min(maximum, tangent * (half + metres[-2] - metres[1]) / (1 - math.cos(angle / 2)))
+    minimum = min_radius * tangent
+
+    def fits(size):
+        arc, _ = _fillet(vertex, before, after, size, angle)
+        # If a tangent ends inside the group, its straight continuation also replaces route geometry.
+        lead = _straight_join(entry, arc[0]) if advance > size else arc[:0]
+        tail = _straight_join(exit, arc[-1])[::-1] if depart > size else arc[:0]
+        xz = np.vstack((lead, arc, tail))
+        # Only the selected route legs own this junction. A wide crossing road on the same
+        # level must not buy extra room. Map widths are approximate at flared junction mouths.
+        rel = xz[:, None] - path[:-1]
+        along = np.clip((rel * axis).sum(axis=2), 0, lengths)
+        gaps = np.linalg.norm(rel - along[:, :, None] * axis, axis=2)
+        nearest = gaps.argmin(axis=1)
+        rows = np.arange(len(xz))
+        if gaps[rows, nearest].max() + FILLET_CLEARANCE > half:
+            return None
+        stations = metres[nearest] + along[rows, nearest]
+        xyz = np.column_stack((xz[:, 0], np.interp(stations, *heights), xz[:, 1]))
+        if all(_fits_chord(road, a, b, FILLET_CLEARANCE) for a, b in zip(xyz, xyz[1:])):
+            return xz
+        return None
+
+    # A virtual intersection can fall off the road, so even the zero-radius limit can fail.
+    # Try successively tighter trims down to the measured single-corner radius. Half a
+    # spline sample is enough resolution to find a useful arc; a narrower feasible band is skipped.
+    if maximum > minimum + GRID_XZ_TOL:
+        for trim in np.linspace(maximum, minimum, math.ceil((maximum - minimum) / (SPACING / 2)) + 1)[:-1]:
+            replacement = fits(trim)
+            if replacement is not None:
+                return replacement
+    return None
+
+
+def _rounded(path, metres, fixed, heights, road, mapped=(), rings=()):
     """Round free vertices without moving X/Z at pinned metres or overlapping adjacent fillets. Pure."""
     delta = np.diff(path, axis=0)
     length = np.diff(metres)
@@ -277,12 +338,23 @@ def _rounded(path, metres, fixed, heights, road):
     for vertex, a, b, trim, angle, metre in zip(path[1:-1], before, after, trims, angles, metres[1:-1]):
         pieces.append(_corner(vertex, a, b, trim, angle, metre, heights, road))
     pieces.append(path[-1:])
+    if mapped:
+        half = _mapped_widths((path[:-1] + path[1:]) / 2, direction, mapped, half_only=True)
+        protected = fixed | aibends.ring_vertices(path, rings)
+        single = pieces.copy()
+        for i, j, peak, angle, width in aibends.groups(metres, angles, half, protected):
+            radius = np.linalg.norm(single[peak][0] - path[peak]) / weight[peak]
+            ends = single[i - 1][-1], single[j + 1][0]
+            legs = slice(i - 1, j + 2)
+            arc = _group_arc(path[legs], metres[legs], ends, peak - i + 1, angle, width, radius, heights, road)
+            if arc is not None:
+                pieces[i:j+1] = [arc] + [path[:0]] * (j - i)
     rounded = np.vstack(pieces)
     # Adjacent maximum-size fillets can meet exactly at a shared chord midpoint.
     return rounded[np.r_[True, np.linalg.norm(np.diff(rounded, axis=0), axis=1) > 1e-8]]
 
 
-def _sample(path, points, circuit, road):
+def _sample(path, points, circuit, road, mapped=(), rings=()):
     """Sample a rounded track on its KN5 road while holding the timing lines and grid in place. Pure."""
     path = np.asarray(path, dtype=float)
     if path.ndim != 2 or path.shape[1] != 2 or not np.isfinite(path).all():
@@ -330,7 +402,7 @@ def _sample(path, points, circuit, road):
     at, knots, fixed = at[keep], knots[keep], fixed[keep]
     raw = np.linspace(first, last, math.ceil((last - first) / SPACING) + 1)
     levels = _surface(raw, _at(at, knots, raw), road, height, circuit)[:, 1]
-    rounded = _rounded(at, knots, fixed, (raw, levels), road)
+    rounded = _rounded(at, knots, fixed, (raw, levels), road, mapped, rings)
     length = _distances(rounded)
     steps = max(3 if circuit else 1, math.ceil(length[-1] / SPACING))
     along = np.linspace(0, length[-1], steps if circuit else steps + 1, endpoint=not circuit)
@@ -484,9 +556,9 @@ def _speed(curvature, ds, circuit):
     return np.sqrt(limits), np.clip(accel / gas, 0, 1), np.clip(-accel / brake, 0, 1)
 
 
-def _mapped_widths(xz, forward, roads):
+def _mapped_widths(xz, forward, roads, *, half_only=False):
     """Widths of the aligned mapped road containing each X/Z sample, or infinity without a match. Pure."""
-    widths = np.full((len(xz), 2), np.inf)
+    widths = np.full(len(xz) if half_only else (len(xz), 2), np.inf)
     nearest = np.full(len(xz), np.inf)
     for line, width in roads:
         half = width / 2
@@ -505,12 +577,19 @@ def _mapped_widths(xz, forward, roads):
             aligned = (forward[hits] * direction).sum(axis=1)
             # Choose a road whose bearing is closer to parallel than perpendicular to the spline tangent.
             use = (distance <= half) & (distance < nearest[hits]) & (np.abs(aligned) >= math.sqrt(.5))
+            if half_only:
+                # A saved route and a mapped centreline can differ slightly after simplification.
+                # Beyond a car half-width the match could already be a neighbouring carriageway.
+                use &= distance <= CAR_HALF_WIDTH
             sites = hits[use]
-            side = direction[::-1] * [1, -1]
-            offset = (delta[use] @ side) * np.sign(aligned[use])
-            span = (half + offset[:, None] * [-1, 1]) / np.abs(aligned[use, None])
-            widths[sites] = np.maximum(span, CAR_HALF_WIDTH)
             nearest[sites] = distance[use]
+            if half_only:
+                widths[sites] = half
+            else:
+                side = direction[::-1] * [1, -1]
+                offset = (delta[use] @ side) * np.sign(aligned[use])
+                span = (half + offset[:, None] * [-1, 1]) / np.abs(aligned[use, None])
+                widths[sites] = np.maximum(span, CAR_HALF_WIDTH)
     return widths
 
 
@@ -593,10 +672,23 @@ def regenerate(model, *, circuit, log=print):
         path = np.loadtxt(model.parent / ROUTE, skiprows=1, ndmin=2)
         scan = kn5.scan(model)
         road = _local_roads(_roads(model, scan["meshes"]))
-        stations, xz, height = _sample(path, scan["points"], circuit, road)
-        xyz = _surface(stations, xz, road, height, circuit)
-        mapped = list(obj_to_kn5.mapped_road_lines(editorinfo.archives(model), log))
-        points, detail = _records(xyz, stations, road, circuit, mapped)
+        mapped, rings = aibends.lane_roads(editorinfo.archives(model), log)
+        def records(stations, xz, height):
+            xyz = _surface(stations, xz, road, height, circuit)
+            return _records(xyz, stations, road, circuit, mapped)
+
+        preferred = _sample(path, scan["points"], circuit, road, mapped, rings)
+        try:
+            points, detail = records(*preferred)
+        except NoLine:
+            # Resampling a shorter lap can move a chord at a distant tight spot. Keep the
+            # individually rounded line if the final 1.5 m samples cannot support the car.
+            if not mapped:
+                raise
+            original = _sample(path, scan["points"], circuit, road)
+            if np.array_equal(original[1], preferred[1]):
+                raise
+            points, detail = records(*original)
         _write_lane(lane, points, detail)
     except (AssertionError, IndexError, KeyError, OSError, ValueError, struct.error) as error:
         reason = f"missing KN5 marker {error}" if isinstance(error, KeyError) else str(error) or "invalid installed KN5"

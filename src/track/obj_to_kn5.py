@@ -694,6 +694,12 @@ def _mapped_junctions(parts, log=print):
 
 def mapped_road_lines(paths, log):
     """Yield road centrelines and widths from tile fact ZIP paths, in AC X/Z coordinates."""
+    for geometry, width, _ in mapped_road_features(paths, log):
+        yield geometry, width
+
+
+def mapped_road_features(paths, log):
+    """Read validated road lines, widths and their source features from tile fact ZIP paths."""
     for path in paths:
         try:
             with ZipFile(path) as archive:
@@ -718,7 +724,7 @@ def mapped_road_lines(paths, log):
             except (AttributeError, KeyError, OverflowError, TypeError, ValueError) as error:
                 log(f"Skipping junction feature {index} in {os.path.basename(path)}: {error}")
                 continue
-            yield from ((geometry, width) for geometry in geometries if len(geometry) >= 2)
+            yield from ((geometry, width, feature) for geometry in geometries if len(geometry) >= 2)
 
 
 def _junction_geometry(roads):
