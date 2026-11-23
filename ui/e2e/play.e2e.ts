@@ -79,22 +79,22 @@ test("Play asks before using a manual line or starting a failed Race solo", asyn
     if (manual) {
       const {useInstalled, recalculate} = route.request().postDataJSON().ai;
       return route.fulfill({json: useInstalled === "chosen-file" || recalculate ? {ok: true} :
-        {lane: "manual", token: "chosen-file", error: "Replaced by hand"}});
+        {lane: "manual", token: "chosen-file", error: "The installed AI line was replaced by hand."}});
     }
     return route.fulfill({json: n ? {lane: "failed", error: "No driveable road at route metre 74.9"} : {ok: true}});
   });
   await page.goto("/");
   await page.locator("#t-mine").click();
   const dialog = page.getByRole("dialog", {name: "Play"});
-  for (const action of ["Abbrechen", "Ohne Gegner starten", "Installierte Linie verwenden", "Neu berechnen"]) {
+  for (const action of ["Cancel", "Start without opponents", "Use installed line", "Recalculate"]) {
     await page.locator("#actions").getByRole("button", {name: "▶ Play"}).click();
     await dialog.getByRole("combobox", {name: "Session", exact: true}).selectOption("race");
     await dialog.getByLabel("Opponents", {exact: true}).selectOption("1");
     await startDriving(page);
-    await expect(dialog).toContainText(manual ? "Von Hand ersetzt" : "74.9");
+    await expect(dialog).toContainText(manual ? "The installed AI line was replaced by hand." : "74.9");
     await dialog.getByRole("button", {name: action, exact: true}).click();
     await expect(dialog).toHaveCount(0);
-    if (action === "Ohne Gegner starten") manual = true;
+    if (action === "Start without opponents") manual = true;
   }
   expect(grid).toEqual([1, 1, 0, 1, 1, 1, 1]);
 });

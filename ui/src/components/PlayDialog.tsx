@@ -91,7 +91,7 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
     const result = await onStart({car, ...(minutes === null ? {} : {clock: minutes / 60}), weather, session: mode,
       ...(grip ? {grip} : {}), ...(race ? {laps: timedMode === "route" ? 1 : laps, ai: grid} : {})});
     setBusy(false);
-    setAnswer(result.ok ? {} : {...result, error: result.lane === "manual" ? "Von Hand ersetzt" : result.error ?? "Could not start the session."});
+    setAnswer(result.ok ? {} : {...result, error: result.error ?? "Could not start the session."});
   };
   const dismiss = () => { if (!busy) onCancel(); };
   const dry = weather.kind === "dry";
@@ -243,12 +243,12 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
         </fieldset>
         <footer className={styles.footer}>
           <span role="status">{busy ? phase : answer.error ?? (saveFailed ? "Track could not be saved. Close to see why." : saving ? "Saving track before driving …" : "The choices apply to this drive.")}</span>
-          <button type="button" disabled={busy} onClick={dismiss}>{answer.lane ? "Abbrechen" : "Cancel"}</button>
+          <button type="button" disabled={busy} onClick={dismiss}>Cancel</button>
           {answer.lane === "manual" ? <>
-            <button type="button" disabled={busy} onClick={() => void start({recalculate: true})}>Neu berechnen</button>
-            <button type="button" disabled={busy} onClick={() => void start({useInstalled: answer.token})}>Installierte Linie verwenden</button>
+            <button type="button" disabled={busy} onClick={() => void start({recalculate: true})}>Recalculate</button>
+            <button type="button" disabled={busy} onClick={() => void start({useInstalled: answer.token})}>Use installed line</button>
           </> : answer.lane === "failed" ?
-            <button type="button" disabled={busy} onClick={() => void start({opponents: 0})}>Ohne Gegner starten</button> :
+            <button type="button" disabled={busy} onClick={() => void start({opponents: 0})}>Start without opponents</button> :
             <button type="submit" className={styles.start} disabled={busy || !cars || saving || saveFailed}>
               {saving ? "Saving …" : "Start driving"}
             </button>}

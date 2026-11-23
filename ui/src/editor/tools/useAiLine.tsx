@@ -94,9 +94,9 @@ export function useAiLine({name, view, enabled, writes, unsaved}: {
       <ToolOptions id="edit-ai-line-set" title="AI line" note={unsaved ? "Line from the last build or save" : undefined}
         actions={<>
           {answer && "canCalculate" in answer && answer.canCalculate && <button type="button" disabled={unsaved || working}
-            title={unsaved ? "Erst speichern." : undefined} onClick={() => void recalculate()}>KI-Linie neu berechnen</button>}
-          {unsaved && <span>Erst speichern.</span>}
-          {answer && "validity" in answer && answer.validity === "manual" && <span>Von Hand ersetzt</span>}
+            title={unsaved ? "Save first." : undefined} onClick={() => void recalculate()}>Recalculate AI line</button>}
+          {unsaved && <span>Save first.</span>}
+          {answer && "validity" in answer && answer.validity === "manual" && <span>Manually replaced</span>}
           {lane?.validity === "pending" && <span>Unverified installed line</span>}
           {error && <span role="alert">{error}</span>}
           {working && <span role="status">Calculating AI line …</span>}

@@ -78,7 +78,8 @@ test("L shows the installed AI line", async ({page, backend}) => {
   await page.keyboard.press("l");
   await expect(bar).toContainText("Braking");
   await expect(bar).toContainText("Line from the last build or save");
-  await expect(bar.getByRole("button", {name: "KI-Linie neu berechnen"})).toBeDisabled();
+  await expect(bar.getByRole("button", {name: "Recalculate AI line"})).toBeDisabled();
+  await expect(bar.getByText("Save first.", {exact: true})).toBeVisible();
   await page.mouse.move(c.x, c.y + 10);
   const point = page.getByRole("region", {name: "AI line point"});
   await expect(point).toContainText("Route metre");
@@ -434,7 +435,7 @@ test("AI line button reports a saved track's calculation error in the Editor", a
   await page.keyboard.press("l");
   const bar = page.locator("#edit-ai-line-set");
   const answer = page.waitForResponse("**/api/editor/alpha/ai-line/recalculate");
-  await bar.getByRole("button", {name: "KI-Linie neu berechnen"}).click();
+  await bar.getByRole("button", {name: "Recalculate AI line"}).click();
   const {error} = await (await answer).json();
   expect(error).toBeTruthy();
   await expect(bar.getByRole("alert")).toHaveText(error);
