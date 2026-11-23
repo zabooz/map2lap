@@ -77,7 +77,7 @@ export function App() {
   const release = useRelease(settings.settings?.version);
   const attention = settingsAttention(installation, release.newer);
   const build = useBuild(() => setShowResult(true), () => void reload());
-  const {starting, play, choose, dialog: playDialog} = usePlay();
+  const {starting, choose, dialog: playDialog} = usePlay();
   const {controls, save: saveControls} = useControls();
 
   const chooseTab = (t: Tab) => {
@@ -170,9 +170,8 @@ export function App() {
   const goText = busy ? (status.state === "stopping" ? "Stopping …" : "Stop build") : !mine ? "Build track" : group === "edited" ? "Edit" : "Rebuild";
   const goTitle = busy ? undefined : !acOk ? NO_AC : !mine ? undefined : group === "edited" ? "Open it in the Editor" : "Build it again with this version and replace it";
 
-  const startPlay = async (name: string, kind?: Mode, abTiming?: boolean) => {
-    const session = await choose(name, timedMode(kind, abTiming));
-    if (session) void play(name, session);
+  const startPlay = (name: string, kind?: Mode, abTiming?: boolean) => {
+    choose(name, timedMode(kind, abTiming));
   };
   const playButton = (name: string, kind?: Mode, abTiming?: boolean) => (
     <PlayButton title={playTitle(kind)} disabled={!acOk || starting} starting={starting} onClick={() => void startPlay(name, kind, abTiming)} />

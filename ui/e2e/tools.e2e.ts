@@ -78,6 +78,7 @@ test("L shows the installed AI line", async ({page, backend}) => {
   await page.keyboard.press("l");
   await expect(bar).toContainText("Braking");
   await expect(bar).toContainText("Line from the last build or save");
+  await expect(bar.getByRole("button", {name: "KI-Linie neu berechnen"})).toBeDisabled();
   await page.mouse.move(c.x, c.y + 10);
   const point = page.getByRole("region", {name: "AI line point"});
   await expect(point).toContainText("Route metre");
@@ -94,12 +95,12 @@ test("L shows the installed AI line", async ({page, backend}) => {
   await page.keyboard.press("l");
   await expect(bar).toContainText("Braking");
   await expect(point).toContainText("Route metre");
-  expect([statusReads, binaryReads]).toEqual([2, 1]);
+  expect([statusReads, binaryReads]).toEqual([3, 1]);
 
   await saveTrack(page);    // The fixture has no timing gates, so Save removes the old line without generating another.
   await expect(bar).toContainText("No AI line is installed");
   await expect(bar).not.toContainText("Line from the last build or save");
-  expect([statusReads, binaryReads]).toEqual([3, 1]);
+  expect([statusReads, binaryReads]).toEqual([4, 1]);
   await page.keyboard.press("Escape");
   await expect(bar).toHaveCount(0);
   await expect(point).toHaveCount(0);
@@ -425,4 +426,16 @@ test("a small window: the buttons scroll, what is to be said stays in sight; Ele
   await page.mouse.click(c.x, c.y + 60);
   await expect(page.locator("#edit-heights")).toHaveText("2 height changes");
   expect(sent).toBe(1200);
+});
+
+test("AI line button reports a saved track's calculation error in the Editor", async ({page}) => {
+  await openEditor(page);
+  await keysOnView(page);
+  await page.keyboard.press("l");
+  const bar = page.locator("#edit-ai-line-set");
+  const answer = page.waitForResponse("**/api/editor/alpha/ai-line/recalculate");
+  await bar.getByRole("button", {name: "KI-Linie neu berechnen"}).click();
+  const {error} = await (await answer).json();
+  expect(error).toBeTruthy();
+  await expect(bar.getByRole("alert")).toHaveText(error);
 });

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import generator  # noqa: E402,F401
 import server  # noqa: E402
 from app import csp, mytracks, system  # noqa: E402
-from track import kn5, obj_to_kn5, route_race  # noqa: E402
+from track import fastlane, ailinestate, kn5, obj_to_kn5, route_race  # noqa: E402
 
 RACE = "[RACE]\nMODEL=car\n\n[LIGHTING]\nSUN_ANGLE=-48.00\nTIME_MULT=1.0\n\n[TEMPERATURE]\nAMBIENT=13\nROAD=18\n"
 
@@ -45,7 +45,7 @@ class PlayAtAnHourTest(unittest.TestCase):
              mock.patch.object(server, "play_car", return_value=(None, None)), \
              mock.patch.object(server, "_watch_best") as watch, \
              mock.patch.object(system, "start_ac") as launch:
-            code = server.play("one", *args, **options)[0]
+            code, self.answer = server.play("one", *args, **options)
             self.launch_args = launch.call_args
             self.watch_args = watch.call_args
         return code, launch.called
@@ -315,7 +315,16 @@ class PlayAtAnHourTest(unittest.TestCase):
         (self.track / "ui").mkdir()
         (self.track / "ui/ui_track.json").write_text(f'{{"pitboxes": "{pits}"}}')
         (self.track / "ai").mkdir()
-        (self.track / "ai/fast_lane.ai").write_bytes(b"ai")
+        model = self.track / "one.kn5"
+        circuit = mytracks.is_circuit(self.track)
+        if circuit:
+            kn5.write(model, [], [], obj_to_kn5.empty("root", (0, 0, 0), (0, 0, 1)))
+        (self.track / fastlane.ROUTE).write_text("anchor 0 0\n0 0\n0 20\n")
+        points = server.np.zeros(2, dtype=fastlane.POINT)
+        details = server.np.zeros(2, dtype=fastlane.DETAIL)
+        fastlane._write_lane(self.track / fastlane.FILE, points, details)
+        inputs = fastlane.lane_inputs(model, circuit, print)
+        ailinestate.record_ready(self.track, ailinestate.fingerprint(inputs, circuit))
         for skin in ("one", "two", "three", "four"):
             (self.ac / "content/cars/car/skins" / skin).mkdir(parents=True)
 
@@ -350,7 +359,22 @@ class PlayAtAnHourTest(unittest.TestCase):
                 self.assertEqual(RACE, self.race.read_text())
         self.assertEqual((400, False), self.started(session="practice", ai={"opponents": 1}))
         (self.track / "ai/fast_lane.ai").unlink()
-        self.assertEqual((400, False), self.started(session="race", ai={"opponents": 1}))
+        self.assertEqual(3, server._opponent_limit(self.track))
+        self.assertEqual((409, False), self.started(session="race", ai={"opponents": 1}))
+
+    def test_hand_replaced_line_requires_approval_for_these_exact_bytes(self):
+        self.install_timed_route()
+        self.install_ai()
+        lane = self.track / fastlane.FILE
+        original = lane.read_bytes()
+        lane.write_bytes(original + b"manual test")
+        self.assertEqual((409, False), self.started(session="race", ai={"opponents": 1}))
+        self.assertEqual("manual", self.answer["lane"])
+        choice = {"opponents": 1, "useInstalled": self.answer["token"]}
+        self.assertEqual((200, True), self.started(session="race", ai=choice))
+        self.assertEqual(original + b"manual test", lane.read_bytes())
+        lane.write_bytes(original + b"another test")
+        self.assertEqual((409, False), self.started(session="race", ai=choice))
 
     def test_circuit_race_uses_five_opponents_with_six_installed_slots(self):
         mytracks.save(self.track, {"kind": "circuit"})

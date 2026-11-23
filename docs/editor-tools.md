@@ -41,11 +41,11 @@ hook handles its own view marks but does not register another global click, pick
 ## AI line
 
 AI line (L) shows the installed `ai/fast_lane.ai` as a translucent speed band with pink braking marks and shows the route metre
-and point data on hover. The Editor keeps the geometry while the tool is off and checks for a new revision after Save, so an unsaved
-draft can differ from the displayed line. Future edits can use route-metre ranges in the draft, following Bank road's
-`tools/editRanges.ts`, for `fastlane.regenerate` to apply on Save.
+and point data on hover. The Editor keeps the geometry while the tool is off and checks for a new revision on reopening or after Save, so an unsaved
+draft can differ from the displayed line. Recalculate AI line operates on the saved KN5 after pending edits have been saved.
+A hand-replaced line is identified by its checksum and remains available for a test drive.
 
-`GET /api/editor/<track>/ai-line` returns the status as JSON (`status`, `message`, `closed`, `revision`, `count`). With
+`GET /api/editor/<track>/ai-line` returns the status as JSON with the file status, revision, point count, circuit flag, calculation availability and input validity. With
 `?r=<revision>` it returns cacheable `application/octet-stream` or HTTP 409 when the installed revision changed. The binary
 contract is 23 consecutive columns of `count` little-endian values each, 92 bytes per sample including all columns. Each column
 is Float32 except `id` (Int32). In order they are `x, y, z, distance, id, speed, gas, brake, lat_g, radius, left, right,

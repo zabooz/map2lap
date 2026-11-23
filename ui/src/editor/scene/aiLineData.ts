@@ -22,8 +22,8 @@ export interface AiLinePoint {
   grade: number;
 }
 
-export interface AiLineReady {status: "ready"; message: null; closed: boolean; revision: string; count: number}
-interface AiLineUnavailable {status: "missing" | "invalid"; message: string; closed: null; revision: null; count: 0}
+export interface AiLineReady {status: "ready"; canCalculate?: boolean; validity?: string; message: string | null; closed: boolean; revision: string; count: number}
+interface AiLineUnavailable {status: "missing" | "invalid"; canCalculate?: boolean; validity?: string; message: string; closed: null; revision: null; count: 0}
 export interface AiLineHover {point: AiLinePoint; metre: number | null}
 export type InstalledAiLine = ReturnType<typeof decodeAiLine>;
 
@@ -56,7 +56,7 @@ export async function fetchAiLine(name: string, known: InstalledAiLine | null, s
   const url = `/api/editor/${encodeURIComponent(name)}/ai-line`;
   const status = await fetchJson<AiLineReady | AiLineUnavailable>(url, signal);
   if (status.status !== "ready") return status;
-  if (known?.revision === status.revision && known.closed === status.closed) return known;
+  if (known?.revision === status.revision && known.closed === status.closed && known.validity === status.validity && known.canCalculate === status.canCalculate) return known;
   const buffer = await fetchBytes(`${url}?r=${encodeURIComponent(status.revision)}`, signal);
   return decodeAiLine(status, buffer);
 }

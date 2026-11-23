@@ -1,5 +1,6 @@
 """The version-7 AI line follows the final KN5, including its grid and lap seam."""
 from pathlib import Path
+import hashlib
 import json
 import sys
 import tempfile
@@ -11,6 +12,22 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import generator  # noqa: F401 (sets the engine's import path)
 from track import editorinfo, fastlane, kn5, obj_to_kn5
+
+
+class LaneCodeVersionTest(unittest.TestCase):
+    def test_line_sources_match_code_version(self):
+        from track import ailinestate
+
+        folder = Path(ailinestate.__file__).parent
+        digest = hashlib.sha256()
+        for name in ("fastlane", "airacing", "aicorridor", "aibends", "ailinestate"):
+            # Text mode makes the same source hash identical on CRLF and LF checkouts.
+            digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
+            digest.update(b"\0")
+        expected = (1, "66d9a7f33bfa19691ce7f741b2a3f58d1244e2fc697d5e283cb60a94ebd92f96")
+        self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
+                         "Bump CODE_VERSION and update the pair for code changes. "
+                         "For comments alone, update only the digest.")
 
 
 class AILineTest(unittest.TestCase):
@@ -51,6 +68,98 @@ class AILineTest(unittest.TestCase):
         log = []
         fastlane.regenerate(self.model, circuit=circuit, log=log.append)
         return log
+
+    def test_save_carries_current_or_manual_line_only_for_matching_inputs(self):
+        from unittest.mock import patch
+        from app import ailanejobs
+        from track import ailinestate
+        route = [(20, 10), (80, 10)]
+        self.write_track(route)
+        self.generate()
+        reference = self.lane.read_bytes()
+        target = self.folder / "saved"
+        (target / "data").mkdir(parents=True)
+        saved = target / "copy.kn5"
+        xyz = [(30, 9, 5), (31, 9, 5), (31, 9, 6), (30, 9, 6)]
+        for mesh, expected in [("nocol_tree", "ready"), ("nocol_tree", "manual"), ("1WALL_house", "pending")]:
+            if expected == "manual":
+                self.lane.write_bytes(reference + b"test")
+            self.write_track(route, obstacles=[(mesh, xyz)])
+            saved.write_bytes(self.model.read_bytes())
+            (target / fastlane.ROUTE).write_bytes((self.folder / fastlane.ROUTE).read_bytes())
+            ailinestate.carry(self.folder, saved, False)
+            state = ailinestate.inspect(saved, False)
+            self.assertEqual(expected, state["status"])
+            self.assertEqual(expected != "pending", (target / fastlane.FILE).exists())
+            if expected != "pending":
+                self.assertEqual(self.lane.read_bytes(), (target / fastlane.FILE).read_bytes())
+
+            with patch.object(ailanejobs, "compute", wraps=ailanejobs.compute) as calculate:
+                first = ailanejobs.ensure(saved, False)
+                self.assertEqual("manual" if expected == "manual" else "ready", first["status"])
+                self.assertEqual(first, ailanejobs.ensure(saved, False))
+                self.assertEqual(int(expected == "pending"), calculate.call_count)
+
+    def test_manual_line_remains_usable_after_a_failed_publication(self):
+        from unittest.mock import patch
+        from app import ailanejobs
+        from track import ailinestate
+        self.write_track([(20, 10), (80, 10)])
+        self.generate()
+        manual = self.lane.read_bytes() + b"manual"
+        self.lane.write_bytes(manual)
+        replace = ailinestate.os.replace
+        def fail_metadata(src, dst):
+            if Path(dst) == self.folder / ailinestate.FILE:
+                raise PermissionError("cannot replace metadata")
+            replace(src, dst)
+        with patch.object(ailinestate.os, "replace", side_effect=fail_metadata):
+            self.assertEqual("failed", ailanejobs.ensure(self.model, False, force=True)["status"])
+        self.assertEqual(manual, self.lane.read_bytes())
+        self.assertEqual("manual", ailinestate.inspect(self.model, False)["status"])
+
+    def test_unreadable_route_cannot_leave_its_previous_line_installed(self):
+        from app import ailanejobs
+        self.write_track([(20, 10), (80, 10)])
+        self.generate()
+        (self.folder / fastlane.ROUTE).unlink()
+        state = ailanejobs.ensure(self.model, False)
+        self.assertEqual("failed", state["status"])
+        self.assertIn("map2lap_route.txt", state["message"])
+        self.assertFalse(self.lane.exists())
+
+    def test_race_and_button_share_work_and_save_discards_old_result(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+        from unittest.mock import patch
+        from app import ailanejobs
+        route = [(20, 10), (80, 10)]
+        self.write_track(route)
+        entered, resume = Event(), Event()
+        real = ailanejobs.compute
+        calls = []
+
+        def paused(*args):
+            calls.append(1)
+            result = real(*args)
+            if len(calls) == 1:
+                entered.set()
+                self.assertTrue(resume.wait(5))
+            return result
+
+        with patch.object(ailanejobs, "compute", side_effect=paused), ThreadPoolExecutor(2) as pool:
+            race = pool.submit(ailanejobs.ensure, self.model, False)
+            self.assertTrue(entered.wait(5))
+            with ailanejobs.changing(self.model):
+                self.write_track(route, height=11)
+            button = pool.submit(ailanejobs.ensure, self.model, False, force=True)
+            resume.set()
+            self.assertEqual("ready", race.result()["status"])
+            self.assertEqual("ready", button.result()["status"])
+            self.assertEqual(2, len(calls))
+            self.assertEqual("ready", ailanejobs.ensure(self.model, False)["status"])
+            self.assertEqual(2, len(calls))
+        self.assertGreater(fastlane.read_lane(self.lane)[0]["pos"][0, 1], 10.9)
 
     def test_open_route_begins_behind_the_last_grid_slot_and_passes_the_finish(self):
         self.write_track([(20, 10), (80, 10)], prefix="M2")

@@ -1,4 +1,5 @@
 import {useEffect, useRef, useState} from "react";
+import {post} from "../../api";
 import {BRAKE_COLOUR, EDGE_COLOUR, SPEED_COLOURS} from "../scene/aiLine";
 import {fetchAiLine, type AiLineHover, type InstalledAiLine} from "../scene/aiLineData";
 import {MeshFetchError} from "../scene/requests";
@@ -38,10 +39,20 @@ function Legend({slow, fast}: {slow: number; fast: number}) {
 
 type AiLineAnswer = Awaited<ReturnType<typeof fetchAiLine>> | {status: "error"; message: string};
 
-/** Fetch on the first use, when retrying an unavailable line, and after a Save. Visibility does not affect a transfer. */
+/** Check the installed revision when the tool opens, after recalculation and after Save. Visibility does not affect a transfer. */
 export function useAiLine({name, view, enabled, writes, unsaved}: {
   name: string; view: TrackView; enabled: boolean; writes: number; unsaved: boolean;
 }): ToolController {
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+  const recalculate = async () => {
+    setWorking(true);
+    setError("");
+    const result = await post(`/api/editor/${encodeURIComponent(name)}/ai-line/recalculate`);
+    setError(result.error ?? "");
+    setWorking(false);
+    setAttempt(value => value + 1);
+  };
   const known = useRef<InstalledAiLine | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState<{attempt: number; writes: number; answer: AiLineAnswer} | null>(null);
@@ -77,12 +88,20 @@ export function useAiLine({name, view, enabled, writes, unsaved}: {
   }, [view, enabled, lane]);
 
   return {
-    activate: () => { if (!attempt || (answer && !lane)) setAttempt(value => value + 1); },
+    activate: () => { setError(""); setAttempt(value => value + 1); },
     clear: () => setHovered(null),
     options: <>
       <ToolOptions id="edit-ai-line-set" title="AI line" note={unsaved ? "Line from the last build or save" : undefined}
-        actions={lane ? <Legend {...lane.speeds} />
-          : <span role="status">{answer?.message ?? "Loading the installed AI line …"}</span>} />
+        actions={<>
+          {answer && "canCalculate" in answer && answer.canCalculate && <button type="button" disabled={unsaved || working}
+            title={unsaved ? "Erst speichern." : undefined} onClick={() => void recalculate()}>KI-Linie neu berechnen</button>}
+          {unsaved && <span>Erst speichern.</span>}
+          {answer && "validity" in answer && answer.validity === "manual" && <span>Von Hand ersetzt</span>}
+          {lane?.validity === "pending" && <span>Unverified installed line</span>}
+          {error && <span role="alert">{error}</span>}
+          {working && <span role="status">Calculating AI line …</span>}
+          {lane ? <Legend {...lane.speeds} />
+          : <span role="status">{answer?.message ?? "Loading the installed AI line …"}</span>}</>} />
       {hover && <PointDetails hover={hover} />}
     </>,
   };

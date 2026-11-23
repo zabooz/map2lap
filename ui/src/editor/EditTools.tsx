@@ -96,7 +96,7 @@ export function EditTools({name, title, timedMode, visible, taken, view, scene, 
   const [groupBusy, setGroupBusy] = useState(false);
   const [replaceTargets, setReplaceTargets] = useState<string[]>([]);
   const editable = edits.canEdit();
-  const unsavedAiDraft = useMemo(() => tool === "ai-line" && hasUnsavedChanges(state), [tool, state]);
+  const unsavedAiDraft = useMemo(() => tool === "ai-line" && (!!state.inTurn || hasUnsavedChanges(state)), [tool, state]);
   /** Whether t is the tool on and the track can be changed now. */
   const working = (t: Tool) => tool === t && editable;
   const selection = useSelection({name, view, edits, editable, kerbs: state.kerbs, onKerbRemoved: () => kerbs.setSelected(null), onNote: setNote});

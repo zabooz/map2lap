@@ -14,9 +14,9 @@ from pathlib import Path
 
 import numpy as np
 
-from app import (cardensity, mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackkerbs, trackpaint, trackstitch, trackplace, tracksource, tracksurfaces,
+from app import (ailanejobs, cardensity, mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackkerbs, trackpaint, trackstitch, trackplace, tracksource, tracksurfaces,
                  tracktrees, trackvariation, trackview, trackwalls, weather, treespacing)
-from track import editorinfo, fastlane, groundmaterial, kn5, objectlist, route_race
+from track import ailinestate, editorinfo, fastlane, groundmaterial, kn5, objectlist, route_race
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
 ROOM_FACTOR = 1.1               # the disk must hold the kn5 once more, and a little: the rest of a track's folder is small
@@ -138,7 +138,9 @@ def save(ac, name, copy_to=None, title=None, revision=None, may_start=lambda: No
         raise Busy(name)
     try:
         may_start()
-        return _save(ac, name, copy_to, title, revision)
+        target = copy_to or name
+        with ailanejobs.changing(Path(ac, "content", "tracks", target, target + ".kn5")):
+            return _save(ac, name, copy_to, title, revision)
     finally:
         _making.release()
 
@@ -281,8 +283,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
                 going[i] = going.get(i, np.zeros_like(mask)) | mask
     try:
         skip = {name + ".kn5", name + '.uv2', objectlist.FILE, str(trackpaint.BUNDLE)}
-        if kind != "area":
-            skip.add(str(fastlane.FILE))
+        skip.update((str(fastlane.FILE), str(ailinestate.FILE)))
         _copy_folder(folder, temporary, skip)
         new_kn5 = os.path.join(temporary, new + ".kn5")
         materials, images, change, added, native_config, drop_textures, native_files = trackdetail.saved(ac, name, edits["base"], textures.values(), scan, change, path, added)
@@ -340,7 +341,9 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         staged_old = os.path.join(temporary, name + ".kn5")
         route_race.update_copy(staged_old, new_kn5, source_scan["points"])
         if kind != "area":
-            fastlane.regenerate(new_kn5, circuit=kind == "circuit", log=log.append)
+            source_slot = ailanejobs.track(own)
+            with source_slot.condition:
+                ailinestate.carry(folder, new_kn5, kind == "circuit")
         # (a build started or a tab saved meanwhile: the triangles counted are no more the ones to go)
         if objectlist.state_of(path) != edits["base"] or trackedits.load(ac, name)["revision"] != edits["revision"]:
             raise Refused("The track or its changes changed meanwhile: nothing was saved")

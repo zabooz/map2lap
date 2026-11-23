@@ -162,8 +162,14 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 
 ## AI line
 
-Build, Rebuild and Editor Save regenerate `ai/fast_lane.ai` from the finished KN5's collision road and
-`data/map2lap_route.txt`. Tangent arcs and the sampled line need a continuous 2 m strip of
+Build and Rebuild generate `ai/fast_lane.ai` on the finished track. Editor Save carries the installed line
+when its inputs still match. A Race with opponents generates a missing line before starting. Practice,
+Hotlap and solo Race skip this step. The Editor can explicitly recalculate the saved track's line.
+`data/map2lap_ai.json` fingerprints collision geometry, grid and timing markers, route, mapped road and
+ring facts, circuit mode, line-code version and the reserved corrections list. A separate file checksum
+identifies hand-replaced lines so the driver can choose which line to use.
+
+Tangent arcs and the sampled line need a continuous 2 m strip of
 `1ROAD_` or `1GRAVEL_` on the driving level.
 At tile boundaries, two ribbon ends with a shared 3D centre and matching widths can have slightly rotated
 end rows. The AI counts the joint as supported only where those ends diverge by at most 2 cm.
@@ -190,8 +196,7 @@ starts there. Beyond the finish it follows the saved runout to the last continuo
 level. If the route ends at the gate, only the supported part of the final approach direction (up to 10 m) is used.
 This moves braking into the available runout and keeps the timed line when the road ends early.
 A Circuit begins at its timing line and closes without a repeated endpoint. When the path cannot be sampled on the road,
-the log gives the reason and, for a surface failure, the route metre. The track is still saved. Play offers
-opponents when an AI line is available.
+the log gives the reason and, for a surface failure, the route metre. Play keeps the Race dialog open and offers an explicit solo start or cancellation.
 
 ## Traps
 

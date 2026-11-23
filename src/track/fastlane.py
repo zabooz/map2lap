@@ -1000,37 +1000,59 @@ def _racing_records(base, stations, road, circuit, mapped, route, name, log):
         scale = reduced
 
 
-def regenerate(model, *, circuit, log=print):
-    """Replace the AI line from the completed KN5 and its saved route, or explain why no line can be written."""
-    start = perf_counter()
-    model = Path(model)
-    lane = model.parent / FILE
-    try:
-        lane.unlink(missing_ok=True)
-        path = np.loadtxt(model.parent / ROUTE, skiprows=1, ndmin=2)
-        scan = kn5.scan(model)
-        road = _local_roads(_roads(model, scan["meshes"]))
-        mapped, rings = aibends.lane_roads(editorinfo.archives(model), log)
-        def records(stations, xz, height, limits):
-            xyz = _surface(stations, xz, road, height, circuit)
-            return _racing_records(xyz, stations, road, circuit, mapped, limits, model.stem, log)
+def lane_inputs(model, circuit, log):
+    """Read exactly the geometry, markers and mapped carriageways used for this line."""
+    with (model.parent / ROUTE).open("rb") as stream:
+        path = np.loadtxt(stream, skiprows=1, ndmin=2)
+    scan = kn5.scan(model)
+    markers = {key: matrix for key, matrix in scan["points"].items()
+               if re.fullmatch(r"AC_START_\d+|AC_TIME_\d+_[LR]", key)}
+    if not circuit:
+        gates = route_race.GATES if all(k in scan["points"] for k in route_race.GATES) else route_race.ALIASES.values()
+        markers.update((k, scan["points"][k]) for k in gates if k in scan["points"])
+    mapped, rings = aibends.lane_roads(editorinfo.archives(model), log)
+    return path, markers, _roads(model, scan["meshes"]), mapped, rings
 
-        preferred = _sample(path, scan["points"], circuit, road, mapped, rings, ownership=True)
-        try:
-            points, detail = records(*preferred)
-        except NoLine:
-            # Resampling a shorter lap can move a chord at a distant tight spot. Keep the
-            # individually rounded line if the final 1.5 m samples cannot support the car.
-            if not mapped:
-                raise
-            original = _sample(path, scan["points"], circuit, road, mapped, rings, ownership=True, grouped=False)
-            if np.array_equal(original[1], preferred[1]):
-                raise
-            points, detail = records(*original)
-        _write_lane(lane, points, detail)
-    except (AssertionError, IndexError, KeyError, OSError, ValueError, struct.error) as error:
-        reason = f"missing KN5 marker {error}" if isinstance(error, KeyError) else str(error) or "invalid installed KN5"
+
+def calculate(model, inputs, circuit, lane, log):
+    """Compute from already-read inputs and write the complete spline to lane."""
+    start = perf_counter()
+    path, markers, roads, mapped, rings = inputs
+    road = _local_roads(roads)
+
+    def records(stations, xz, height, limits):
+        xyz = _surface(stations, xz, road, height, circuit)
+        return _racing_records(xyz, stations, road, circuit, mapped, limits, model.stem, log)
+
+    preferred = _sample(path, markers, circuit, road, mapped, rings, ownership=True)
+    try:
+        points, detail = records(*preferred)
+    except NoLine:
+        # Resampling a shorter lap can move a chord at a distant tight spot. Keep the
+        # individually rounded line if the final 1.5 m samples cannot support the car.
+        if not mapped:
+            raise
+        original = _sample(path, markers, circuit, road, mapped, rings, ownership=True, grouped=False)
+        if np.array_equal(original[1], preferred[1]):
+            raise
+        points, detail = records(*original)
+    _write_lane(lane, points, detail)
+    log(f"AI line: {len(points):,} points in {perf_counter() - start:.2f} s")
+
+
+def regenerate(model, *, circuit, log=print):
+    """Generate Build/Rebuild's installed line and record its inputs and result."""
+    from track import ailinestate
+    model = Path(model)
+    fingerprint = None
+    try:
+        inputs = lane_inputs(model, circuit, log)
+        fingerprint = ailinestate.fingerprint(inputs, circuit)
+        calculate(model, inputs, circuit, model.parent / FILE, log)
+        ailinestate.record_ready(model.parent, fingerprint)
+    except ailinestate.ERRORS as error:
+        reason = ailinestate.reason(error)
+        ailinestate.clear(model.parent, fingerprint, reason)
         log(f"AI line skipped: {reason}")
         return False
-    log(f"AI line: {len(points):,} points in {perf_counter() - start:.2f} s")
     return True

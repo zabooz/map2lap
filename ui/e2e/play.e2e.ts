@@ -62,3 +62,39 @@ test("Play switches between Hotlap and a Race grid without moving the dialog", a
   expect(body).toMatchObject({name: "alpha", session: "race", laps: 2, grip: {preset: "Green", variation: 0},
     ai: {opponents: 3, strength: 92, aggression: 24, car: "car_a"}, weather: {airTemperature: 17}});
 });
+
+test("Play asks before using a manual line or starting a failed Race solo", async ({page}) => {
+  await page.route("**/api/tracks", async route => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.tracks.find((t: {name: string}) => t.name === "alpha").kind = "circuit";
+    await route.fulfill({response, json: data});
+  });
+  await page.route("**/api/play/options?name=alpha", route => route.fulfill({json: {max_opponents: 5}}));
+  const grid: number[] = [];
+  let manual = false;
+  await page.route("**/api/play", route => {
+    const n = route.request().postDataJSON().ai.opponents;
+    grid.push(n);
+    if (manual) {
+      const {useInstalled, recalculate} = route.request().postDataJSON().ai;
+      return route.fulfill({json: useInstalled === "chosen-file" || recalculate ? {ok: true} :
+        {lane: "manual", token: "chosen-file", error: "Replaced by hand"}});
+    }
+    return route.fulfill({json: n ? {lane: "failed", error: "No driveable road at route metre 74.9"} : {ok: true}});
+  });
+  await page.goto("/");
+  await page.locator("#t-mine").click();
+  const dialog = page.getByRole("dialog", {name: "Play"});
+  for (const action of ["Abbrechen", "Ohne Gegner starten", "Installierte Linie verwenden", "Neu berechnen"]) {
+    await page.locator("#actions").getByRole("button", {name: "▶ Play"}).click();
+    await dialog.getByRole("combobox", {name: "Session", exact: true}).selectOption("race");
+    await dialog.getByLabel("Opponents", {exact: true}).selectOption("1");
+    await startDriving(page);
+    await expect(dialog).toContainText(manual ? "Von Hand ersetzt" : "74.9");
+    await dialog.getByRole("button", {name: action, exact: true}).click();
+    await expect(dialog).toHaveCount(0);
+    if (action === "Ohne Gegner starten") manual = true;
+  }
+  expect(grid).toEqual([1, 1, 0, 1, 1, 1, 1]);
+});

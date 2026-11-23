@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 import generator
 import numpy as np
 from app import mytracks, settings, trackedits, trackinspect, trackview
-from track import fastlane
+from track import ailinestate, fastlane
 
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
 LANE_CHANGED = "The installed AI line changed. Reopen the tool to load its current revision."
@@ -110,6 +110,17 @@ class EditorHandlers:
         try:
             model = trackview.kn5_path(settings.ac_path(), generator.slug(name))
             data = _lane_data(Path(model).parent, revision)
+            if revision is None:
+                info = mytracks.load(Path(model).parent) or {}
+                data["canCalculate"] = not bool(info.get("area"))
+                if data["canCalculate"]:
+                    try:
+                        state = ailinestate.inspect(Path(model), mytracks.is_circuit(Path(model).parent))
+                    except ailinestate.ERRORS:
+                        state = ailinestate.status(Path(model).parent, None)
+                    data["validity"] = state["status"]
+                    if state.get("message"):
+                        data["message"] = state["message"]
         except trackview.NotOurs:
             if revision is not None:
                 return self._send(409, {"error": LANE_CHANGED})

@@ -2,7 +2,6 @@
 // (in its place or as a new track); Play saves first.
 import {useCallback, useState} from "react";
 import {post} from "../../api";
-import {toasts} from "../../components/toastStore";
 import {usePlay} from "../../hooks/usePlay";
 import type {TimedMode} from "../../types";
 import {isCurrent, type EditState, type TrackEdits} from "./edits";
@@ -23,7 +22,7 @@ export function useSave({name, timedMode, edits, state, view, onSaved}: {
   const [asking, setAsking] = useState(false);
   const [saving, setSaving] = useState<{busy: boolean; text: string | null}>({busy: false, text: null});
   const [waiting, setWaiting] = useState<{play: boolean} | null>(null);   // (Save or Play pressed, changes still on their way)
-  const {starting, play, choose, choosing, dialog} = usePlay();
+  const {starting, choose, choosing, dialog} = usePlay();
   const current = isCurrent(state), asBuilt = isAsBuilt(state);
   const canSave = edits.canEdit() && !saving.busy && !current && !asBuilt;
 
@@ -47,14 +46,6 @@ export function useSave({name, timedMode, edits, state, view, onSaved}: {
     if (r.error || !r.name) {
       setSaving({busy: false, text: `Not saved: ${r.error ?? "no answer"}`});
       return null;
-    }
-    const warning = r.log?.find(line => line.startsWith("AI line skipped: "));
-    const notice = "save-ai-line";
-    if (warning) {
-      toasts.post({id: notice, tone: "warning", title: "Track saved without an AI line",
-        message: warning.slice("AI line skipped: ".length), onDismiss: () => toasts.remove(notice)});
-    } else {
-      toasts.remove(notice);
     }
     setSaving({busy: false, text: null});       // (a copy: the Editor shows it now, its name in the track field)
     if (copyTitle !== null) edits.handOver(r.name);
@@ -106,9 +97,7 @@ export function useSave({name, timedMode, edits, state, view, onSaved}: {
         const now = edits.state();
         return isCurrent(now) || isAsBuilt(now) ? name : write();
       })() : undefined;
-      const session = await choose(name, timedMode, view.clockHours(), view.weatherOptions(), prepared);
-      if (!session) return;
-      if (!prepared || await prepared) void play(name, session);
+      choose(name, timedMode, view.clockHours(), view.weatherOptions(), prepared);
     },
   };
 }

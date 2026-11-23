@@ -16,7 +16,7 @@ const MODES: Record<SessionMode, string> = {practice: "Practice", hotlap: "Hotla
 /** Configure one drive while the Editor may be saving its track. */
 export function PlayDialog({name, timedMode, initialClock, initialWeather, saving, saveFailed, onStart, onCancel}: {
   name: string; timedMode?: TimedMode; initialClock?: number; initialWeather: WeatherOptions; saving: boolean; saveFailed: boolean;
-  onStart: (session: PlaySession) => void; onCancel: () => void;
+  onStart: (session: PlaySession) => Promise<{ok?: boolean; error?: string; lane?: "manual" | "failed"; token?: string}>; onCancel: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [cars, setCars] = useState<Cars | null>(null);
@@ -71,19 +71,41 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
     ...(typeof grip === "object" ? grip : {})};
   const editGrip = (field: keyof GripValues, value: number) =>
     setGrip(previous => ({...(typeof previous === "string" ? {preset: previous || undefined} : previous), [field]: value}));
-  const start = () => onStart({car, ...(minutes === null ? {} : {clock: minutes / 60}), weather, session: mode, ...(grip ? {grip} : {}),
-    ...(race ? {laps: timedMode === "route" ? 1 : laps, ai} : {})});
+  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState("");
+  const [answer, setAnswer] = useState<{error?: string; lane?: "manual" | "failed"; token?: string}>({});
+  useEffect(() => {
+    if (!busy || !race || !ai.opponents) return;
+    let active = true;
+    const timer = setInterval(async () => {
+      const progress = await get<{phase?: string}>(`/api/editor/${encodeURIComponent(name)}/ai-line/progress`);
+      if (active && progress?.phase) setPhase(progress.phase);
+    }, 250);
+    return () => { active = false; clearInterval(timer); };
+  }, [busy, name, race, ai.opponents]);
+  const start = async (overrides: Partial<NonNullable<PlaySession["ai"]>> = {}) => {
+    if (busy || saving || saveFailed || !cars) return;
+    setBusy(true);
+    const grid = {...ai, ...overrides};
+    setPhase(race && grid.opponents ? "Checking AI line inputs …" : "Starting …");
+    const result = await onStart({car, ...(minutes === null ? {} : {clock: minutes / 60}), weather, session: mode,
+      ...(grip ? {grip} : {}), ...(race ? {laps: timedMode === "route" ? 1 : laps, ai: grid} : {})});
+    setBusy(false);
+    setAnswer(result.ok ? {} : {...result, error: result.lane === "manual" ? "Von Hand ersetzt" : result.error ?? "Could not start the session."});
+  };
+  const dismiss = () => { if (!busy) onCancel(); };
   const dry = weather.kind === "dry";
   const time = minutes === null ? "Last session time" : `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 
   return createPortal(
     <dialog ref={dialog} className={styles.dialog} aria-label="Play"
-            onCancel={e => { e.preventDefault(); onCancel(); }}>
-      <form onSubmit={e => { e.preventDefault(); start(); }}>
+            onCancel={e => { e.preventDefault(); dismiss(); }}>
+      <form onSubmit={e => { e.preventDefault(); if (!answer.lane) void start(); }}>
         <header className={styles.header}>
           <span className={styles.eyebrow}>Assetto Corsa · {MODES[mode]}</span>
-          <button type="button" className={styles.close} aria-label="Close Play" onClick={onCancel}>×</button>
+          <button type="button" className={styles.close} aria-label="Close Play" disabled={busy} onClick={dismiss}>×</button>
         </header>
+        <fieldset className={styles.settings} disabled={busy || !!answer.lane}>
         <div className={styles.tabs} role="tablist" aria-label="Play settings" onKeyDown={e => {
           if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
           e.preventDefault();
@@ -218,12 +240,18 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
             </div>
           </section>
         </div>
+        </fieldset>
         <footer className={styles.footer}>
-          <span>{saveFailed ? "Track could not be saved. Close to see why." : saving ? "Saving track before driving …" : "The choices apply to this drive."}</span>
-          <button type="button" onClick={onCancel}>Cancel</button>
-          <button type="submit" className={styles.start} disabled={!cars || saving || saveFailed}>
-            {saving ? "Saving …" : "Start driving"}
-          </button>
+          <span role="status">{busy ? phase : answer.error ?? (saveFailed ? "Track could not be saved. Close to see why." : saving ? "Saving track before driving …" : "The choices apply to this drive.")}</span>
+          <button type="button" disabled={busy} onClick={dismiss}>{answer.lane ? "Abbrechen" : "Cancel"}</button>
+          {answer.lane === "manual" ? <>
+            <button type="button" disabled={busy} onClick={() => void start({recalculate: true})}>Neu berechnen</button>
+            <button type="button" disabled={busy} onClick={() => void start({useInstalled: answer.token})}>Installierte Linie verwenden</button>
+          </> : answer.lane === "failed" ?
+            <button type="button" disabled={busy} onClick={() => void start({opponents: 0})}>Ohne Gegner starten</button> :
+            <button type="submit" className={styles.start} disabled={busy || !cars || saving || saveFailed}>
+              {saving ? "Saving …" : "Start driving"}
+            </button>}
         </footer>
       </form>
     </dialog>, document.body);

@@ -37,13 +37,13 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
 import generator  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app import (builtroad, csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadbend, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, trackstitch, tracksource, tracksurfaces,  # noqa: E402
+from app import (ailanejobs, builtroad, csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadbend, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, trackstitch, tracksource, tracksurfaces,  # noqa: E402
                  trackdetail, trackinspect, trackpaint, trackview, updater, version, weather)
 from app.paths import ROOT, SRC  # noqa: E402
 from server_editor import EditorHandlers, IMAGE_TYPES  # noqa: E402
 from server_library import LibraryHandlers, MATERIAL_UPLOADS  # noqa: E402
 from server_roadtools import RoadToolHandlers  # noqa: E402
-from track import kn5, obj_to_kn5, route_race  # noqa: E402
+from track import fastlane, kn5, obj_to_kn5, route_race  # noqa: E402
 
 PORT = 8800
 job = {"state": "idle", "log": [], "result": None, "error": None,     # state: idle running stopping stopped done error
@@ -99,6 +99,12 @@ def build_log(name, clean):
 
 
 def run_build(args, name, clean, started, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, ground_quality="sd"):
+    model = Path(settings.ac_path(), "content", "tracks", name, name + ".kn5")
+    with ailanejobs.changing(model, drain=True):
+        _run_build(args, name, clean, started, terrain_cell_m, parked_cars, tree_spacing_m, ground_quality)
+
+
+def _run_build(args, name, clean, started, terrain_cell_m, parked_cars, tree_spacing_m, ground_quality):
     code, result, keep = None, None, None
     try:
         keep = build_log(name, clean)
@@ -377,7 +383,8 @@ def _has_ab_timing(path):
 def _opponent_limit(track_dir):
     """Available AI grid slots from the installed default layout."""
     root = Path(track_dir)
-    if not (root / "ai/fast_lane.ai").is_file():
+    info = mytracks.load(root) or {}
+    if info.get("area") or not ((root / fastlane.ROUTE).is_file() or (root / fastlane.FILE).is_file() or mytracks.is_circuit(root)):
         return 0
     try:
         data = json.loads((root / "ui/ui_track.json").read_text(encoding="utf-8-sig"))
@@ -577,6 +584,7 @@ def play(name, clock=None, weather_options=None, car=None, *, session=None, laps
         return 400, {"error": "Laps and AI opponents are Race options"}
     if session == "hotlap" and not (circuit or timed_route):
         return 400, {"error": "Hotlap requires a Circuit or a Route with start and finish timing"}
+    lane_choice = ai if isinstance(ai, dict) else {}
     if session == "race":
         if laps is None and timed_route:
             laps = 1
@@ -657,7 +665,13 @@ def play(name, clock=None, weather_options=None, car=None, *, session=None, laps
     if not ini.has_section('LIGHTING'):
         ini.add_section('LIGHTING')
     ini['LIGHTING']['__MAP2LAP_WEATHER_EFFECTS'] = str(int(effects))
-    return _launch_play(ac, track_file, race_file, ini, selected_weather, effects, timed=circuit or timed_route)
+
+    def launch():
+        return _launch_play(ac, track_file, race_file, ini, selected_weather, effects, timed=circuit or timed_route)
+
+    if session == "race" and ai[0]:
+        return ailanejobs.race(Path(track_file), circuit, lane_choice, launch)
+    return launch()
 
 
 def has_build_files(name):
@@ -873,6 +887,11 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
         self._edits_answer(lambda: trackedits.save_telling(settings.ac_path(), edits[1], body))
 
     def do_GET(self):
+        lane = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/progress", self.path)
+        if lane:
+            name = lane[1]
+            model = Path(settings.ac_path(), "content", "tracks", name, name + ".kn5")
+            return self._send(200, {"phase": ailanejobs.track(model).phase}, headers={"Cache-Control": "no-store"})
         progress = PROGRESS_PATH.fullmatch(self.path)
         if progress:
             return self._send(200, painting.get(generator.slug(progress[1]), {}))
@@ -985,6 +1004,26 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                 self._send(200, f.read(), WEB_TYPES.get(os.path.splitext(file)[1], "application/octet-stream"))
 
     def do_POST(self):
+        lane = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/recalculate", self.path)
+        if lane:
+            if not self._own_page():
+                return self._send(403, {"error": "Only the page itself can recalculate a line"})
+            ac, name = settings.ac_path(), lane[1]
+            try:
+                model = Path(trackview.kn5_path(ac, name))
+            except trackview.NotOurs:
+                return self._send(404, {"error": "Track file missing"})
+            if (mytracks.load(model.parent) or {}).get("area"):
+                return self._send(400, {"error": "AI lines require a Route or Circuit"})
+            if trackedits.changes(ac, name):
+                return self._send(409, {"error": "Save the track first."})
+            with lock:
+                if error := _play_blocker():
+                    return self._send(409, {"error": error})
+            result = ailanejobs.ensure(model, mytracks.is_circuit(model.parent), force=True)
+            if result["status"] != "ready":
+                return self._send(409, {"error": result.get("message", "The installed AI line changed. Please retry.")})
+            return self._send(200, result)
         if self.path == "/api/csp/install":
             if not self._own_page():
                 return self._send(403, {"error": "Only the page itself can install CSP"})

@@ -50,7 +50,9 @@ class AiLineTransportTest(unittest.TestCase):
         args, headers = self.request()
         code, status = args
         self.assertEqual(200, code)
-        self.assertEqual({"status", "message", "closed", "revision", "count"}, status.keys())
+        self.assertEqual({"status", "message", "closed", "revision", "count", "canCalculate", "validity"}, status.keys())
+        self.assertTrue(status["canCalculate"])
+        self.assertEqual("pending", status["validity"])
         self.assertEqual(("ready", True, 2), (status["status"], status["closed"], status["count"]))
         self.assertEqual("no-store", headers["headers"]["Cache-Control"])
         args, headers = self.request(status["revision"])

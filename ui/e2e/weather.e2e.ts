@@ -104,6 +104,7 @@ test("the chosen season reaches Play, while selecting snow forces the season sho
   await page.locator("#edit-play").click();
   await startDriving(page);
   expect((await started).postDataJSON().weather.season).toBe("autumn");
+  await expect(page.getByRole("dialog", {name: "Play"})).toBeHidden();
   await page.getByRole("combobox", {name: "Weather", exact: true}).selectOption("snow");
   await expect(season).toHaveValue("winter");
   await expect(season).toBeDisabled();

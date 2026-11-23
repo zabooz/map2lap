@@ -1,5 +1,7 @@
 """TreeFX trees in the Editor: read from the track's object list and its own .bin models, changed by the draft as other objects
 are, and written by Save into the list and trees.txt from the source and the draft, so nothing is added twice."""
+from pathlib import Path
+from unittest.mock import patch
 import os
 import shutil
 import sys
@@ -13,9 +15,9 @@ from test_trackcopy import Base
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "src")))
 
-from app import trackcopy, trackedits, tracksource, tracktrees, trackview  # noqa: E402
+from app import ailanejobs, trackcopy, trackedits, tracksource, tracktrees, trackview  # noqa: E402
 from scenery import treefx  # noqa: E402
-from track import make_track_folder, objectlist  # noqa: E402
+from track import ailinestate, fastlane, make_track_folder, objectlist  # noqa: E402
 
 SPRUCE = {"model": "spruce", "pos": [5.0, 0.0, 0.0], "angle": 10.0, "size": 1.0, "width": 1.0}
 BIRCH = {"model": "birch", "pos": [200.0, 3.0, 0.0], "angle": 0.0, "size": 0.8, "width": 1.1}
@@ -344,10 +346,22 @@ class SaveTest(TreesBase):
         self.assertIsNone(self.saved_section())
         self.assertFalse(os.path.exists(os.path.join(self.root, "extension", "trees")))
 
-    def test_the_trees_alone_are_something_to_save(self):
+    def test_tree_only_save_keeps_verified_line_for_the_next_race(self):
+        model = Path(self.kn5)
+        (model.parent / fastlane.ROUTE).write_text("anchor 0 0\n0 0\n20 0\n")
+        lane = model.parent / fastlane.FILE
+        fastlane._write_lane(lane, np.zeros(2, fastlane.POINT), np.zeros(2, fastlane.DETAIL))
+        original = lane.read_bytes()
+        key = ailinestate.fingerprint(fastlane.lane_inputs(model, False, print), False)
+        ailinestate.record_ready(model.parent, key)
         self.draft(deleted=["trees#1"])
-        trackcopy.save(self.ac, "t")
+        with patch.object(ailanejobs, "compute") as worker, patch.object(fastlane, "regenerate") as build:
+            trackcopy.save(self.ac, "t")
+            self.assertEqual("ready", ailanejobs.ensure(model, False)["status"])
+            build.assert_not_called()
+            worker.assert_not_called()
         self.assertNotIn("1", self.saved_section()["trees"])
+        self.assertEqual(original, lane.read_bytes())
 
 
 class RouteTest(unittest.TestCase):
