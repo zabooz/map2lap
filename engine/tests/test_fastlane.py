@@ -21,7 +21,7 @@ class AILineTest(unittest.TestCase):
         self.lane = self.folder / "ai/fast_lane.ai"
 
     def write_track(self, route, *, circuit=False, road_start=-10, road_end=120, prefix="AC", height=9,
-                    strips=None, grid=None):
+                    strips=None, grid=None, obstacles=()):
         forward = (1, 0, 0)
         root = obj_to_kn5.empty("root", (0, 0, 0), (0, 0, 1))
         grid = grid or [(x, 10, forward) for x in (17, 9, 1)]
@@ -38,6 +38,11 @@ class AILineTest(unittest.TestCase):
                 vertices["pos"] = [(start, y, low), (end, y, low), (end, y, high), (start, y, high)]
                 root.children.append(kn5.Node(2, f"1ROAD_{i}_{y}", 1, vertices=vertices.copy(), bs_center=(0, 0, 0),
                                              indices=np.array([0, 1, 2, 0, 2, 3], dtype=np.uint16)))
+        for name, positions in obstacles:
+            vertices = np.zeros(4, dtype=kn5.VERTEX)
+            vertices["pos"] = positions
+            root.children.append(kn5.Node(2, name, 1, vertices=vertices, bs_center=(0, 0, 0),
+                                          indices=np.array([0, 1, 2, 0, 2, 3], dtype=np.uint16)))
         kn5.write(self.model, [], [], root)
         (self.folder / "data/map2lap_route.txt").write_text(
             "anchor 0 0\n" + "".join(f"{x} {z}\n" for x, z in route))
@@ -103,6 +108,52 @@ class AILineTest(unittest.TestCase):
         for x, z in np.vstack((xz + side, xz - side)):
             self.assertTrue(any(a <= x <= b and lo <= z <= hi for a, b, lo, hi in strips), (x, z))
 
+    def test_walk_above_road_limits_the_fillet_and_the_connected_width(self):
+        walk = [(30, 9.2, 14), (51, 9.2, 14), (51, 9.2, 32), (30, 9.2, 32)]
+        self.write_track([(8, 10), (55, 10), (55, 45), (8, 45), (8, 10)], circuit=True,
+                         obstacles=[("1KERB_walkcol_corner", walk)])
+        objects = fastlane._roads(self.model, kn5.scan(self.model)["meshes"])
+        road = fastlane._local_roads(objects)
+        side = fastlane._section(road, np.array([40., 9., 10.]), np.array([0., 0., 1.]), 0)
+        with self.subTest("width"):
+            self.assertAlmostEqual(side[0], 4)
+        log = self.generate(circuit=True)
+        self.assertTrue(self.lane.exists(), log)
+        pts, details, _ = fastlane.read_lane(self.lane)
+        for offset in np.linspace(-1, 1, 9):
+            edge = pts["pos"][:, [0, 2]] + offset * details["forward"][:, [2, 0]] * [1, -1]
+            x, z = edge.T
+            self.assertFalse(((x > 30) & (x < 51) & (z > 14) & (z < 32)).any(), "body overlaps pavement")
+
+    def test_wall_cuts_road_at_car_height_only_and_racing_kerb_is_passable(self):
+        def slab(z, low, high):
+            return [(25, low, z), (70, low, z), (70, high, z), (25, high, z)]
+        self.write_track([(20, 10), (80, 10)], obstacles=[
+            ("1WALL_parked_car", slab(13, 9.2, 10.4)),
+            ("1WALL_tunnel_roof", slab(11, 14, 15)),
+            ("1WALL_lower_road", slab(11, 5, 8)),
+            ("1ROAD_buried_terrain", [(25, 7.5, 5), (70, 7.5, 5), (70, 7.5, 15), (25, 7.5, 15)]),
+            ("1WALL_deck_soffit", [(25, 8.5, 5), (70, 8.5, 5), (70, 8.5, 15), (25, 8.5, 15)]),
+            ("1KERB_racing_apex", slab(12, 9, 9.05))])
+        self.generate()
+        p, d, _ = fastlane.read_lane(self.lane)
+        middle = (p["pos"][:, 0] > 30) & (p["pos"][:, 0] < 65)
+        np.testing.assert_allclose(d["right"][middle], 3)
+
+    def test_thin_post_between_samples_blocks_the_swept_car_on_a_straight(self):
+        post = [(41.2, 9., 10.5), (41.21, 9., 10.5), (41.21, 10., 10.5), (41.2, 10., 10.5)]
+        self.write_track([(20, 10), (80, 10)], obstacles=[("1WALL_post", post)])
+        log = self.generate()
+        self.assertFalse(self.lane.exists(), log)
+        self.assertIn("car width", log[-1])
+
+    def test_short_gap_in_one_wheel_track_between_samples_blocks_the_line(self):
+        self.write_track([(20, 10), (80, 10)], strips=[(-10, 41.2, 0, 55), (41.3, 120, 0, 55),
+                                                       (41.2, 41.3, 0, 10.5)])
+        log = self.generate()
+        self.assertFalse(self.lane.exists(), log)
+        self.assertIn("car width", log[-1])
+
     def test_side_street_does_not_widen_the_main_road(self):
         self.write_track([(20, 10), (80, 10)], strips=[(-10, 120, 5, 15), (45, 55, 15, 315)])
         self.generate()
@@ -158,11 +209,17 @@ class AILineTest(unittest.TestCase):
         # Flat square, larger than the arc, gives every candidate the same driving level.
         road_vertices = np.array([[-110, 0, -110], [110, 0, -110], [110, 0, 110], [-110, 0, 110]])
         roads = {"1ROAD_arc": (None, road_vertices, None, np.array([[0, 1, 2], [0, 2, 3]]))}
-        road = lambda x, z, margin: roads
+        # A raised traffic island over the same road mesh bounds the inside of the circulating lane.
+        island = np.column_stack((94 * np.cos(angle[:-1]), np.full(len(angle)-1, .18), 94 * np.sin(angle[:-1])))
+        island = np.vstack(([0, .18, 0], island))
+        rim = np.arange(1, len(island))
+        roads["1KERB_walkcol_island"] = None, island, None, np.column_stack((np.zeros_like(rim), rim, np.roll(rim, -1)))
+        road = fastlane._local_roads(roads)
         stations, xz, height = fastlane._sample(path, {"AC_TIME_0_L": root, "AC_TIME_0_R": right}, True, road)
         xyz = fastlane._surface(stations, xz, road, height, True)
         _, detail = fastlane._records(xyz, stations, road, True)
         np.testing.assert_allclose(detail["radius"][25:325], 100, atol=6)
+        self.assertTrue(np.all((detail["right"] > 5) & (detail["right"] < 7)))
         # The pinned timing point is a seam in the synthetic polygon. Measure the steady arc after accelerating.
         np.testing.assert_allclose(detail["speed"][80:325] * 3.6, 90.9, atol=3)
 
@@ -171,7 +228,7 @@ class AILineTest(unittest.TestCase):
         metres = fastlane._distances(path)
         vertices = np.array([[-2, 0, -2], [46, 0, -2], [46, 0, 33], [-2, 0, 33]])
         roads = {"1ROAD_corner": (None, vertices, None, np.array([[0, 1, 2], [0, 2, 3]]))}
-        road = lambda x, z, margin: roads
+        road = fastlane._local_roads(roads)
         rounded = fastlane._rounded(path, metres, np.array([True, False, False, True]),
                                     (metres, np.zeros(len(path))), road)
         x, z = rounded[1]

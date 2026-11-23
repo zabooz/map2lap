@@ -163,11 +163,14 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 ## AI line
 
 Build, Rebuild and Editor Save regenerate `ai/fast_lane.ai` from the finished KN5's collision road and
-`data/map2lap_route.txt`. Tangent arcs round corners where the car's width fits on the same level of the built road.
+`data/map2lap_route.txt`. Tangent arcs and the sampled line need a continuous 2 m strip of
+`1ROAD_` or `1GRAVEL_` on the driving level.
+SideLeft and SideRight end at the connected road edge or the nearest `1KERB_walkcol_` or `1WALL_` collision
+within car height above it. A raised pavement can cover asphalt terrain. Bridge slabs below the deck and high
+tunnel ceilings leave the lane free. Editor racing kerbs are passable over supported road.
 The grid and timing lines hold their original positions. Curvature measured along the rounded line sets radius and speed.
-`1ROAD_` includes Editor Stitch and `1GRAVEL_` includes gravel road. Raised `1KERB_` surfaces sit outside the width
-measurements. Matched road centrelines and widths limit broad collision strips. Across a mapped intersection or a local
-width bulge, widths interpolate along the route and stay within the collision road.
+Mapped road widths also limit broad collision strips. At intersections and local width bulges the sides interpolate
+along the route, bounded by the free cross section.
 
 An A–B Route has an open line behind the last grid slot through the finish. If the road starts at the rear slot, the line
 starts there. A Circuit begins at its timing line and closes without a repeated endpoint. When the path cannot be sampled

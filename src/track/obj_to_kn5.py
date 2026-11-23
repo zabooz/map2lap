@@ -553,12 +553,12 @@ def _road_intervals(objs, centre, side, half_depth=0.0, own_level=False):
         yield from zip(lows[:, 0], highs[:, 0])
 
 
-def _containing_span(intervals):
-    """Unbroken road interval containing across-distance zero. Pure."""
+def _containing_span(intervals, join_tol=1e-9):
+    """Road interval containing zero, joining adjacent spans within join_tol metres. Pure."""
     merged = []
     for lo, hi in sorted(intervals):
-        # The OBJ shares edge vertices to millimetres. Ignore only numerical rounding in intersection math.
-        if merged and lo <= merged[-1][1] + 1e-9:
+        # By default only numerical rounding in intersection math can join two measured intervals.
+        if merged and lo <= merged[-1][1] + join_tol:
             merged[-1][1] = max(merged[-1][1], hi)
         else:
             merged.append([lo, hi])

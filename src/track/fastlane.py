@@ -10,11 +10,11 @@ from time import perf_counter
 
 import numpy as np
 
-from track import editorinfo, kn5, obj_to_kn5, route_race
+from track import aicorridor, editorinfo, kn5, obj_to_kn5, route_race
 
 FILE = Path("ai/fast_lane.ai")
 ROUTE = Path("data/map2lap_route.txt")
-# Road collisions include bridges, gravel and Editor Stitch. Kerbs are raised edges of that surface.
+# Terrain, decks and Editor Stitch can support the line. Raised sidewalks have separate collision.
 ROAD_PREFIXES = ("1ROAD_", "1GRAVEL_")
 UP = np.array([0.0, 1.0, 0.0])
 XZ = [0, 2]
@@ -23,7 +23,7 @@ GRID_RUN_IN = 5.0  # One car length behind the last grid centre.
 FINISH_RUN_OUT = 10.0  # Two car lengths beyond the finish.
 # Route text is rounded to centimetres; a grid point can differ by a diagonal centimetre and KN5 float rounding.
 GRID_XZ_TOL = 0.02
-# A 2 m road car needs 1 m on either side of the spline. Wider cars need more; narrow roads may keep their original line.
+# A 2 m road car needs 1 m on either side of the spline. Wider vehicles would need a larger footprint.
 CAR_HALF_WIDTH = 1.0
 # Ten centimetres of extra clearance allow for the chord between adjacent spline samples on a typical road bend.
 FILLET_CLEARANCE = CAR_HALF_WIDTH + 0.10
@@ -188,12 +188,6 @@ def _route_path(path, points, grid):
     return path, metres - offset, rear_m - offset, start - offset, finish - offset, positions[0, 1]
 
 
-def _on_level(road, xz, height):
-    """Whether X/Z has collision road within the level gap of the supplied reference height. Pure."""
-    x, z = xz
-    return any(abs(y - height) < obj_to_kn5.LEVEL_GAP_M for y in obj_to_kn5.road_levels(road(x, z, 0), x, z))
-
-
 def _fillet(vertex, before, after, trim, signed_angle):
     """Circular arc and unit tangents for a corner with equal trim on its incoming and outgoing edges. Pure."""
     radius = trim / math.tan(abs(signed_angle) / 2)
@@ -211,18 +205,42 @@ def _fillet(vertex, before, after, trim, signed_angle):
     return arc, tangent
 
 
+def _fits_chord(road, start, end, width):
+    """Whether the swept car width fits between two XYZ samples on their driving level. Pure."""
+    centre = (start + end) / 2
+    step = end - start
+    length = np.linalg.norm(step[XZ])
+    if length == 0:
+        return True
+    forward = step[XZ] / length
+    side = forward[::-1] * [1, -1]
+    reach = length / 2
+    # Round outwards so adjacent probes reuse the same cached face patch.
+    patch = road(*centre[XZ], math.ceil(reach + width))
+    slope = step[1] / length
+    span = aicorridor.free_span(patch, centre, side, reach, slope)
+    if span is None or min(-span[0], span[1]) < width:
+        return False
+    for distance in aicorridor.boundary_stations(patch.edges, centre[XZ], forward, side, reach, width):
+        pos = centre + step * (distance / length)
+        span = obj_to_kn5._containing_span(obj_to_kn5._road_intervals(patch, pos, side, own_level=True),
+                                           join_tol=aicorridor.ROAD_SEAM)
+        if span is None or min(-span[0], span[1]) < width:
+            return False
+    return True
+
+
 def _corner(vertex, before, after, trim, angle, metre, heights, road):
     """Largest supported tangent arc within trim of the X/Z corner, on the original driving level. Pure."""
     if not trim:
         return vertex[None, :]
 
     def fit(size):
-        arc, tangent = _fillet(vertex, before, after, size, angle)
-        side = tangent[:, ::-1] * [-FILLET_CLEARANCE, FILLET_CLEARANCE]
+        arc, _ = _fillet(vertex, before, after, size, angle)
         reference = np.interp(np.linspace(metre - size, metre + size, len(arc)), *heights)
-        for p, width, y in zip(arc, side, reference):
-            if not all(_on_level(road, probe, y) for probe in (p, p + width, p - width)):
-                return None
+        points = np.column_stack((arc[:, 0], reference, arc[:, 1]))
+        if not all(_fits_chord(road, a, b, FILLET_CLEARANCE) for a, b in zip(points, points[1:])):
+            return None
         return arc
 
     result = fit(trim)
@@ -300,7 +318,8 @@ def _sample(path, points, circuit, road):
         path, metres, rear, start, finish, height = _route_path(path, points, grid)
         first, last = rear - GRID_RUN_IN, min(finish + FINISH_RUN_OUT, metres[-1])
         run_in = _at(path, metres, np.linspace(first, rear, math.ceil(GRID_RUN_IN / (SPACING / 2)) + 1))
-        if not all(_on_level(road, p, height) for p in run_in):
+        approach = np.column_stack((run_in[:, 0], np.full(len(run_in), height), run_in[:, 1]))
+        if not all(_fits_chord(road, a, b, CAR_HALF_WIDTH) for a, b in zip(approach, approach[1:])):
             first = rear
         knots = np.unique(np.r_[first, metres[(metres > first) & (metres < last)], start, finish, last])
         at = _at(path, metres, knots)
@@ -319,32 +338,56 @@ def _sample(path, points, circuit, road):
 
 
 def _roads(model, meshes):
-    """Read the final KN5's active collision road meshes as the arrays used by the road queries."""
+    """Read active road, sidewalk and wall meshes from the finished KN5."""
     roads = {}
     with open(model, "rb") as stream:
         for i, mesh in enumerate(meshes):
             name = mesh["name"]
-            if name.startswith(ROAD_PREFIXES) and mesh["active"] and mesh["indices"]:
+            if name.startswith(ROAD_PREFIXES + aicorridor.BLOCKERS) and mesh["active"] and mesh["indices"]:
                 vertices, faces = kn5.mesh_arrays(stream, mesh)
-                roads[f"{name}/{i}"] = None, vertices["pos"].astype(float), vertices["uv"], faces
+                roads[f"{name}/{i}"] = None, vertices["pos"].astype(float), None, faces
     return roads
+
+
+class _RoadPatch(dict):
+    """Road meshes for level queries, with nearby barrier triangles for cross sections."""
 
 
 def _local_roads(roads):
     """Return a local face lookup with cached metre cells for nearby spline probes. Pure."""
     near = obj_to_kn5._road_near(roads)
+    bounds, edges = {}, {}
+    for name, (_, pos, _, faces) in roads.items():
+        xz = pos[faces][:, :, XZ]
+        bounds[name] = xz.min(axis=1), xz.max(axis=1)
+        if name.startswith(ROAD_PREFIXES):
+            edge = pos[aicorridor.boundary_edges(faces)]
+            edges[name] = edge, edge[:, :, XZ].min(axis=1), edge[:, :, XZ].max(axis=1)
     cell = 8.0  # Share face patches across several 1.5 m samples without scanning a whole tile.
 
     @lru_cache(maxsize=128)
     def patches(ix, iz, margin):
         low = np.array([ix, iz]) * cell
-        picked = {}
-        for name, (mat, pos, uv, faces) in near(*(low + cell / 2), cell / 2 + margin).items():
-            triangles = pos[faces][:, :, XZ]
-            hit = ((triangles.min(axis=1) <= low + cell + margin) & (triangles.max(axis=1) >= low - margin)).all(axis=1)
+        picked = _RoadPatch()
+        barriers, boundaries = [], []
+        for name, (_, pos, _, faces) in near(*(low + cell / 2), cell / 2 + margin).items():
+            face_low, face_high = bounds[name]
+            hit = ((face_low <= low + cell + margin) & (face_high >= low - margin)).all(axis=1)
             if hit.any():
+                if name.startswith(aicorridor.BLOCKERS):
+                    barriers.append(pos[faces[hit]])
+                    continue
+                edge, e_low, e_high = edges[name]
+                nearby = ((e_low <= low + cell + margin) & (e_high >= low - margin)).all(axis=1)
+                if nearby.any():
+                    boundaries.append(edge[nearby])
                 used, indices = np.unique(faces[hit], return_inverse=True)
-                picked[name] = mat, pos[used], uv[used], indices.reshape(-1, 3)
+                picked[name] = None, pos[used], None, indices.reshape(-1, 3)
+        picked.edges = np.concatenate(boundaries) if boundaries else ()
+        picked.barriers = np.concatenate(barriers) if barriers else ()
+        if barriers:
+            floor = [pos[faces] for _, pos, _, faces in picked.values()]
+            picked.floor = np.concatenate(floor) if floor else np.empty((0, 3, 3))
         return picked
 
     return lambda x, z, margin: patches(math.floor(x / cell), math.floor(z / cell), margin)
@@ -375,13 +418,15 @@ def _section(road, p, transverse, metre):
     margin = 16
     while True:
         objects = road(x, z, margin)
-        span = obj_to_kn5._containing_span(obj_to_kn5._road_intervals(objects, p, side, own_level=True))
+        span = aicorridor.free_span(objects, p, side)
         if span is None:
             raise NoLine(f"no connected road width at route metre {metre:.1f} (X/Z {x:.2f}/{z:.2f})")
         lo, hi = span
         if max(-lo, hi) < margin:
             break
         margin *= 2
+    if min(-lo, hi) < CAR_HALF_WIDTH:
+        raise NoLine(f"no room for the car width at route metre {metre:.1f} (X/Z {x:.2f}/{z:.2f})")
     offsets = (max(lo / 2, -CAR_HALF_WIDTH), min(hi / 2, CAR_HALF_WIDTH))
     heights = []
     for offset in offsets:
@@ -512,6 +557,9 @@ def _records(xyz, stations, road, circuit, mapped_roads=()):
     tangent[reverse] = directions[reverse]
     forward = _unit(tangent)
     sides = _unit(np.cross(UP, forward))
+    for i in range(0 if circuit else 1, len(xyz)):
+        if not _fits_chord(road, xyz[i - 1], xyz[i], CAR_HALF_WIDTH):
+            raise NoLine(f"no room for the car width at route metre {stations[i]:.1f}")
     sections = np.array([_section(road, p, side, metre) for p, side, metre in zip(xyz, sides, stations)])
     normal = _unit(np.cross(forward, sides + sections[:, 2, None] * UP))
     curvature = _bend(xyz[:, XZ], circuit)
