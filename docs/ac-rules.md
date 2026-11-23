@@ -176,7 +176,12 @@ selected route and every chord, including the straight joins, must clear the col
 level. Mapped roundabouts and circular roads, including rings recognized from the mapped road geometry,
 keep their entry, circulation and exit even on a painted island. Separate fillets remain at distinct direction
 changes, when matching road widths are missing, or when the replacement fails.
-The grid and timing lines hold their original positions. Curvature measured along the rounded line sets radius and speed.
+The racing line minimises squared horizontal curvature by moving samples across the full closed carriageway.
+Each moved centre needs 1 m for the half-car plus 1.5 m tracking reserve on both sides. The reference line’s
+own measured sides and the selected route legs bound the move through junctions. Grid positions, timing
+crossings and circulating lanes stay pinned. Every final chord is checked on its driving level, and widths
+are measured again on the resulting line. Where a move fails, the original car-width-checked line resumes
+locally with a smooth transition. Curvature measured on the final line sets radius and speed.
 Mapped road widths also limit broad collision strips. At intersections and local width bulges the sides interpolate
 along the route, bounded by the free cross section.
 

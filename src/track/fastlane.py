@@ -10,7 +10,7 @@ from time import perf_counter
 
 import numpy as np
 
-from track import aibends, aicorridor, editorinfo, kn5, obj_to_kn5, route_race
+from track import aibends, aicorridor, airacing, editorinfo, kn5, obj_to_kn5, route_race
 
 FILE = Path("ai/fast_lane.ai")
 ROUTE = Path("data/map2lap_route.txt")
@@ -27,6 +27,7 @@ GRID_XZ_TOL = 0.02
 CAR_HALF_WIDTH = 1.0
 # Ten centimetres of extra clearance allow for the chord between adjacent spline samples on a typical road bend.
 FILLET_CLEARANCE = CAR_HALF_WIDTH + 0.10
+RACING_CLEARANCE = CAR_HALF_WIDTH + airacing.TRACKING_MARGIN
 # Look beyond the side opening of a typical junction. Larger plazas may need mapped junction data.
 WIDTH_NEIGHBORHOOD = 25.0
 # Estimate curvature over 15 m of line, roughly an input chord on a major road. A shorter window amplifies tiny joins;
@@ -106,8 +107,8 @@ def _at(path, metres, stations):
     return np.stack([np.interp(stations, metres, axis) for axis in path.T], axis=-1)
 
 
-def _gate(path, metres, points, name, *, last=False):
-    """Route metre of a forward crossing between the KN5 timing markers. Pure."""
+def _gate_crossings(path, points, name):
+    """Indices and fractions of forward crossings of a KN5 timing segment. Pure."""
     left, right = (np.array(points[f"{name}_{side}"]) for side in "LR")
     a, b = left[12:15][XZ], right[12:15][XZ]
     side = b - a
@@ -117,6 +118,12 @@ def _gate(path, metres, points, name, *, last=False):
     t = np.divide((a - path[:-1]) @ forward, advance, out=np.full(len(delta), -1.0), where=advance > 0)
     across = (path[:-1] + t[:, None] * delta - a) @ side
     valid = np.flatnonzero((t >= 0) & (t <= 1) & (across >= 0) & (across <= side @ side))
+    return valid, t
+
+
+def _gate(path, metres, points, name, *, last=False):
+    """Route metre of a forward crossing between the KN5 timing markers. Pure."""
+    valid, t = _gate_crossings(path, points, name)
     if not len(valid):
         raise NoLine(f"{name} does not cross the saved route in the driving direction")
     i = valid[-1 if last else 0]
@@ -319,7 +326,7 @@ def _group_arc(path, metres, ends, peak, angle, half, min_radius, heights, road)
     return None
 
 
-def _rounded(path, metres, fixed, heights, road, mapped=(), rings=()):
+def _rounded(path, metres, fixed, heights, road, mapped=(), rings=(), *, ownership=False, grouped=True):
     """Round free vertices without moving X/Z at pinned metres or overlapping adjacent fillets. Pure."""
     delta = np.diff(path, axis=0)
     length = np.diff(metres)
@@ -338,23 +345,41 @@ def _rounded(path, metres, fixed, heights, road, mapped=(), rings=()):
     for vertex, a, b, trim, angle, metre in zip(path[1:-1], before, after, trims, angles, metres[1:-1]):
         pieces.append(_corner(vertex, a, b, trim, angle, metre, heights, road))
     pieces.append(path[-1:])
+    last_vertex = np.arange(len(path))
+    grouped_turn = np.zeros(len(path))
     if mapped:
         half = _mapped_widths((path[:-1] + path[1:]) / 2, direction, mapped, half_only=True)
         protected = fixed | aibends.ring_vertices(path, rings)
         single = pieces.copy()
-        for i, j, peak, angle, width in aibends.groups(metres, angles, half, protected):
+        groups = aibends.groups(metres, angles, half, protected) if grouped else ()
+        for i, j, peak, angle, width in groups:
             radius = np.linalg.norm(single[peak][0] - path[peak]) / weight[peak]
             ends = single[i - 1][-1], single[j + 1][0]
             legs = slice(i - 1, j + 2)
             arc = _group_arc(path[legs], metres[legs], ends, peak - i + 1, angle, width, radius, heights, road)
             if arc is not None:
+                last_vertex[i] = j
+                grouped_turn[i] = -np.sign(angle)
                 pieces[i:j+1] = [arc] + [path[:0]] * (j - i)
     rounded = np.vstack(pieces)
     # Adjacent maximum-size fillets can meet exactly at a shared chord midpoint.
-    return rounded[np.r_[True, np.linalg.norm(np.diff(rounded, axis=0), axis=1) > 1e-8]]
+    keep = np.r_[True, np.linalg.norm(np.diff(rounded, axis=0), axis=1) > 1e-8]
+    if not ownership:
+        return rounded[keep]
+    # Carry the owning route leg through rounding. A global nearest-road search could
+    # switch to a parallel road, the other arm of a hairpin or the deck above a tunnel.
+    route_m = []
+    for i, piece in enumerate(pieces):
+        legs = np.arange(max(0, i-1), min(last_vertex[i]+1, len(direction)))
+        relative = piece[:, None] - path[legs]
+        along = np.clip((relative * direction[legs]).sum(axis=2), 0, length[legs])
+        nearest = ((relative - along[:, :, None]*direction[legs])**2).sum(axis=2).argmin(axis=1)
+        route_m.extend(metres[legs[nearest]] + along[np.arange(len(piece)), nearest])
+    turns = np.repeat(grouped_turn, [len(piece) for piece in pieces])[keep]
+    return rounded[keep], np.asarray(route_m)[keep], half if mapped else np.full(len(length), np.inf), turns
 
 
-def _sample(path, points, circuit, road, mapped=(), rings=()):
+def _sample(path, points, circuit, road, mapped=(), rings=(), *, ownership=False, grouped=True):
     """Sample a rounded track on its KN5 road while holding the timing lines and grid in place. Pure."""
     path = np.asarray(path, dtype=float)
     if path.ndim != 2 or path.shape[1] != 2 or not np.isfinite(path).all():
@@ -402,11 +427,38 @@ def _sample(path, points, circuit, road, mapped=(), rings=()):
     at, knots, fixed = at[keep], knots[keep], fixed[keep]
     raw = np.linspace(first, last, math.ceil((last - first) / SPACING) + 1)
     levels = _surface(raw, _at(at, knots, raw), road, height, circuit)[:, 1]
-    rounded = _rounded(at, knots, fixed, (raw, levels), road, mapped, rings)
+    rounded = _rounded(at, knots, fixed, (raw, levels), road, mapped, rings, ownership=ownership, grouped=grouped)
+    if ownership:
+        rounded, route_m, widths, turns = rounded
     length = _distances(rounded)
     steps = max(3 if circuit else 1, math.ceil(length[-1] / SPACING))
     along = np.linspace(0, length[-1], steps if circuit else steps + 1, endpoint=not circuit)
-    return first + along, _at(rounded, length, along), height
+    xz = _at(rounded, length, along)
+    result = first + along, xz, height
+    if not ownership:
+        return result
+    station = np.interp(along, length, route_m)
+    leg = np.clip(np.searchsorted(knots, station) - 1, 0, len(at)-2)
+    pin = ((station >= rear) if circuit else ((station <= start) | (station >= finish)))
+    pin[0] = True
+    lap_path = np.vstack((xz, xz[0])) if circuit else xz
+    for key in points:
+        if re.fullmatch(r"AC_TIME_\d+_L", key) and key[:-1] + "R" in points:
+            crossing, _ = _gate_crossings(lap_path, points, key[:-2])
+            pin[crossing] = pin[(crossing+1) % len(pin)] = True
+    ring = aibends.ring_vertices(at, rings)
+    pin |= aibends.ring_vertices(xz, rings) | (ring[leg] & ring[leg+1])
+    # Hold both ends of chords crossing a timing plane or a ring boundary, and the
+    # tangent across the circuit seam. Optimisation supplies the smooth approach.
+    pin = pin | np.roll(pin, 1) | np.roll(pin, -1)
+    # A grouped junction has already removed an artificial counterturn. Preserve
+    # its steering sign, including the straight approaches within a full curvature window.
+    groups = []
+    for ids in np.split(np.arange(len(turns)), np.flatnonzero(np.diff(turns)) + 1):
+        if turns[ids[0]]:
+            region = (along >= length[ids[0]]-2*CURVE_HALF_WINDOW) & (along <= length[ids[-1]]+2*CURVE_HALF_WINDOW)
+            groups.append((region, turns[ids[0]]))
+    return (*result, airacing.RouteRibbon(pin, at[leg], at[leg+1], widths[leg], station, groups))
 
 
 def _roads(model, meshes):
@@ -493,8 +545,8 @@ def _surface(stations, xz, road, height, circuit):
     return xyz
 
 
-def _section(road, p, transverse, metre):
-    """Width to each connected road edge and cross slope of the sampled level. Pure."""
+def _span(road, p, transverse, metre):
+    """Connected collision span and its local road patch on this level. Pure."""
     x, y, z = p
     side = transverse[XZ]
     # Start at a two-lane road plus shoulders on each side. Wide roads or intersecting arms expand this search.
@@ -506,8 +558,19 @@ def _section(road, p, transverse, metre):
             raise NoLine(f"no connected road width at route metre {metre:.1f} (X/Z {x:.2f}/{z:.2f})")
         lo, hi = span
         if max(-lo, hi) < margin:
-            break
+            return lo, hi, objects
         margin *= 2
+
+
+def _section(road, p, transverse, metre, *, known_span=None):
+    """Width to each connected road edge and cross slope of the sampled level. Pure."""
+    x, y, z = p
+    side = transverse[XZ]
+    if known_span is None:
+        lo, hi, objects = _span(road, p, transverse, metre)
+    else:
+        lo, hi = known_span
+        objects = road(x, z, math.ceil(CAR_HALF_WIDTH))
     if min(-lo, hi) < CAR_HALF_WIDTH:
         raise NoLine(f"no room for the car width at route metre {metre:.1f} (X/Z {x:.2f}/{z:.2f})")
     offsets = (max(lo / 2, -CAR_HALF_WIDTH), min(hi / 2, CAR_HALF_WIDTH))
@@ -568,43 +631,51 @@ def _speed(curvature, ds, circuit):
 
 
 def _mapped_widths(xz, forward, roads, *, half_only=False):
-    """Widths of the aligned mapped road containing each X/Z sample, or infinity without a match. Pure."""
+    """Widths of the nearest aligned map segment at each sample, or infinity without a match. Pure."""
     widths = np.full(len(xz) if half_only else (len(xz), 2), np.inf)
     nearest = np.full(len(xz), np.inf)
+    orders = [np.argsort(col) for col in xz.T]
+    coords = [xz[order, dim] for dim, order in enumerate(orders)]
     for line, width in roads:
         half = width / 2
-        # Tile facts already clip roads to the tile. Most spline points are outside each road's bounds.
-        hits = np.flatnonzero(((xz >= line.min(axis=0) - half) & (xz <= line.max(axis=0) + half)).all(axis=1))
-        if not len(hits):
+        # Enumerate just the points in each segment's bounding strip. A single mountain
+        # road feature can cover thousands of samples, most nowhere near a given segment.
+        dim = np.ptp(line, axis=0).argmax()
+        low = np.minimum(line[:-1], line[1:]) - half
+        high = np.maximum(line[:-1], line[1:]) + half
+        first = np.searchsorted(coords[dim], low[:, dim])
+        counts = np.searchsorted(coords[dim], high[:, dim], side="right") - first
+        seg = np.repeat(np.arange(len(first)), counts)
+        idx = orders[dim][np.arange(len(seg)) + np.repeat(first-np.cumsum(counts)+counts, counts)]
+        use = (xz[idx, 1-dim] >= low[seg, 1-dim]) & (xz[idx, 1-dim] <= high[seg, 1-dim])
+        idx, seg = idx[use], seg[use]
+        delta = line[seg+1] - line[seg]
+        length = np.linalg.norm(delta, axis=1)
+        axis = delta / np.where(length > 0, length, 1)[:, None]
+        along = np.clip(((xz[idx]-line[seg])*axis).sum(axis=1), 0, length)
+        miss = xz[idx] - (line[seg] + along[:, None]*axis)
+        distance = np.linalg.norm(miss, axis=1)
+        aligned = (forward[idx]*axis).sum(axis=1)
+        # A route-ownership match must be within a car half-width of the saved centre.
+        limit = min(half, CAR_HALF_WIDTH) if half_only else half
+        keep = np.flatnonzero((distance <= limit) & (distance < nearest[idx]) & (abs(aligned) >= math.sqrt(.5)))
+        if not len(keep):
             continue
-        for a, b in zip(line, line[1:]):
-            length = np.linalg.norm(b - a)
-            if length == 0:
-                continue
-            direction = (b - a) / length
-            projected = np.clip(((xz[hits] - a) * direction).sum(axis=1), 0, length)
-            delta = xz[hits] - (a + projected[:, None] * direction)
-            distance = np.linalg.norm(delta, axis=1)
-            aligned = (forward[hits] * direction).sum(axis=1)
-            # Choose a road whose bearing is closer to parallel than perpendicular to the spline tangent.
-            use = (distance <= half) & (distance < nearest[hits]) & (np.abs(aligned) >= math.sqrt(.5))
-            if half_only:
-                # A saved route and a mapped centreline can differ slightly after simplification.
-                # Beyond a car half-width the match could already be a neighbouring carriageway.
-                use &= distance <= CAR_HALF_WIDTH
-            sites = hits[use]
-            nearest[sites] = distance[use]
-            if half_only:
-                widths[sites] = half
-            else:
-                side = direction[::-1] * [1, -1]
-                offset = (delta[use] @ side) * np.sign(aligned[use])
-                span = (half + offset[:, None] * [-1, 1]) / np.abs(aligned[use, None])
-                widths[sites] = np.maximum(span, CAR_HALF_WIDTH)
+        order = keep[np.lexsort((distance[keep], idx[keep]))]
+        best = order[np.r_[True, np.diff(idx[order]) != 0]]
+        sites = idx[best]
+        nearest[sites] = distance[best]
+        if half_only:
+            widths[sites] = half
+        else:
+            side = axis[best, ::-1] * [1, -1]
+            offset = (miss[best]*side).sum(axis=1) * np.sign(aligned[best])
+            span = (half + offset[:, None]*[-1, 1]) / abs(aligned[best, None])
+            widths[sites] = np.maximum(span, CAR_HALF_WIDTH)
     return widths
 
 
-def _own_widths(xz, forward, widths, mapped_roads, circuit):
+def _own_widths(xz, forward, widths, mapped_roads, circuit, *, with_openings=False):
     """Interpolate across mapped junctions or short width bulges using the driven road's sides. Pure."""
     count = len(widths)
     i = np.arange(count)
@@ -619,18 +690,20 @@ def _own_widths(xz, forward, widths, mapped_roads, circuit):
     if circuit:
         before, after = (i[:, None] - np.arange(1, reach + 1)) % count, (i[:, None] + np.arange(1, reach + 1)) % count
     result = np.minimum(widths, _mapped_widths(xz, forward, mapped_roads))
+    openings = mapped.copy()
     for side, corridor in enumerate(result.T):
         neighbor = np.maximum(corridor[before].min(axis=1), corridor[after].min(axis=1))
         # A full car width of sudden extra room can admit a wrong turn. Gentle tapers remain measured.
         crossing = mapped | (corridor > neighbor + 2 * CAR_HALF_WIDTH)
+        openings |= crossing
         if crossing.any() and not crossing.all():
             estimated = np.interp(i, i[~crossing], corridor[~crossing], period=count if circuit else None)
             result[crossing, side] = np.minimum(widths[crossing, side], estimated[crossing])
-    return result
+    return (result, openings) if with_openings else result
 
 
-def _records(xyz, stations, road, circuit, mapped_roads=()):
-    """Version-7 records for the sampled positions, route metres, road widths and mapped junctions. Pure."""
+def _frame(xyz, circuit):
+    """Sample distances, forward and lateral unit vectors on the XYZ line. Pure."""
     steps = xyz - np.roll(xyz, 1, axis=0)
     ds = np.linalg.norm(steps, axis=1)
     distance = np.cumsum(ds) - ds[0]
@@ -643,22 +716,31 @@ def _records(xyz, stations, road, circuit, mapped_roads=()):
         tangent[0] = directions[1]
     else:
         tangent[-1] = directions[-1]
-    reverse = np.linalg.norm(tangent, axis=1) == 0
+    reverse = np.linalg.norm(tangent[:, XZ], axis=1) == 0
     tangent[reverse] = directions[reverse]
     forward = _unit(tangent)
     sides = _unit(np.cross(UP, forward))
-    for i in range(0 if circuit else 1, len(xyz)):
-        if not _fits_chord(road, xyz[i - 1], xyz[i], CAR_HALF_WIDTH):
-            raise NoLine(f"no room for the car width at route metre {stations[i]:.1f}")
-    sections = np.array([_section(road, p, side, metre) for p, side, metre in zip(xyz, sides, stations)])
+    return ds, distance, forward, sides
+
+
+def _records(xyz, stations, road, circuit, mapped_roads=(), *, checked_sections=None, widths=None):
+    """Version-7 records for the sampled positions, route metres, road widths and mapped junctions. Pure."""
+    ds, distance, forward, sides = _frame(xyz, circuit)
+    if checked_sections is None:
+        for i in range(0 if circuit else 1, len(xyz)):
+            if not _fits_chord(road, xyz[i - 1], xyz[i], CAR_HALF_WIDTH):
+                raise NoLine(f"no room for the car width at route metre {stations[i]:.1f}")
+        checked_sections = [_section(road, p, side, metre) for p, side, metre in zip(xyz, sides, stations)]
+    sections = np.asarray(checked_sections)
     normal = _unit(np.cross(forward, sides + sections[:, 2, None] * UP))
     curvature = _bend(xyz[:, XZ], circuit)
 
     points = np.zeros(len(xyz), POINT)
     points["pos"], points["length"], points["id"] = xyz, distance, np.arange(len(xyz))
     detail = np.zeros(len(xyz), DETAIL)
-    detail["left"], detail["right"] = _own_widths(xyz[:, XZ], _unit(forward[:, XZ]),
-                                                 sections[:, :2], mapped_roads, circuit).T
+    if widths is None:
+        widths = _own_widths(xyz[:, XZ], _unit(forward[:, XZ]), sections[:, :2], mapped_roads, circuit)
+    detail["left"], detail["right"] = widths.T
     detail["normal"], detail["forward"] = normal, forward
     detail["length"] = ds
     if not circuit:
@@ -673,6 +755,183 @@ def _records(xyz, stations, road, circuit, mapped_roads=()):
     return points, detail
 
 
+def _racing_offsets(base, stations, road, circuit, mapped, route, lap):
+    """Bound offsets by the reference spline's own sides and the selected route legs. Pure."""
+    _, _, forward, sides = _frame(base, circuit)
+    xz, side = base[:, XZ], sides[:, XZ]
+    spans = [_span(road, p, normal, m)[:2] for p, normal, m in zip(base, sides, stations)]
+    lo, hi = np.asarray(spans).T
+    widths, openings = _own_widths(xz, _unit(forward[:, XZ]), np.column_stack((hi, -lo)), mapped, circuit,
+                                   with_openings=True)
+    # Keep a further route-coordinate tolerance for the finite chords joining samples.
+    reserve = RACING_CLEARANCE + GRID_XZ_TOL
+    # Where there is no reliable map match, use the width of the reference line after
+    # side openings have been clipped. Grid/run-out stations carry the same pins.
+    half = np.where(np.isfinite(route.half_width), route.half_width, widths.sum(axis=1)/2)
+    lower, upper = airacing.route_bounds(xz, side, route.start, route.end, half, FILLET_CLEARANCE)
+    lower = np.maximum(lower, reserve - widths[:, 1])
+    upper = np.minimum(upper, widths[:, 0] - reserve)
+    # At a side opening an unmatched route leg has no trustworthy map-width bound.
+    # Retain its approach chord. A continuous unbranched road can use its measured width.
+    unowned = openings & ~np.isfinite(route.half_width)
+    pin = route.fixed | unowned | np.roll(unowned, 1) | np.roll(unowned, -1)
+    impossible = lower > upper
+    if impossible.any():
+        # A solitary forced zero between incompatible bounds creates a steering impulse.
+        # Keep the original bend around it and let the solver join it on both approaches.
+        pin |= airacing.restore_scale(stations, impossible, circuit, lap, 2*CURVE_HALF_WINDOW) < 1
+    lower[pin] = upper[pin] = 0
+    shift = airacing.offsets(xz, side, lower, upper, circuit)
+    # Across a junction a new heading can change which mapped boundary limits
+    # the saved side. Refine its offset bound before the expensive KN5 validation.
+    for _ in range(2):
+        estimate = base.copy()
+        estimate[:, XZ] = xz + side * shift[:, None]
+        if airacing.folded(estimate[:, XZ], xz, circuit).any():
+            break  # The final chord pass restores this local fold before measuring tangents.
+        _, _, tangent, _ = _frame(estimate, circuit)
+        physical = np.column_stack((hi-shift, shift-lo))
+        predicted = _own_widths(estimate[:, XZ], _unit(tangent[:, XZ]), physical, mapped, circuit)
+        short = (predicted.min(axis=1) < RACING_CLEARANCE) & (shift != 0)
+        if not short.any():
+            break
+        lower[short] = np.maximum(lower[short], (shift + reserve-predicted[:, 1])[short])
+        upper[short] = np.minimum(upper[short], (shift + predicted[:, 0]-reserve)[short])
+        conflict = lower > upper
+        lower[conflict] = upper[conflict] = 0
+        shift = airacing.offsets(xz, side, lower, upper, circuit)
+    # Sub-millimetre improvements are below the precision of the source route.
+    shift[abs(shift) < .001] = 0
+    return shift, lower, upper, half, side, spans
+
+
+def _move_on_surface(xyz, base, offset, side, dirty, road, failed):
+    """Update changed XYZ positions on their reference level and flag any unsupported point."""
+    xyz[dirty] = base[dirty]
+    for i in np.flatnonzero(dirty & (offset != 0)):
+        x, z = base[i, XZ] + offset[i]*side[i]
+        levels = obj_to_kn5.road_levels(road(x, z, 0), x, z)
+        y = min(levels, key=lambda h: abs(h-base[i, 1]), default=np.inf)
+        if abs(y - base[i, 1]) >= obj_to_kn5.LEVEL_GAP_M:
+            failed[i] = True
+        else:
+            xyz[i] = x, y, z
+
+
+def _steering_failures(curvature, original, moved, groups):
+    """Moved points that introduce a steering spike or unwind a grouped junction. Pure."""
+    # Minimum integrated curvature alone can trade a single steering spike for
+    # gains elsewhere. Retain the old track's peak steering demand at fixed joins.
+    spikes = abs(curvature) > abs(original).max() + 1e-8
+    failed = moved & (spikes | np.roll(spikes, 1) | np.roll(spikes, -1))
+    for region, sign in groups:
+        # The source is centimetre-rounded; ignore only steering below that
+        # positional resolution over a curvature window.
+        if np.any(sign*curvature[region] < np.minimum(0, sign*original[region])
+                  - GRID_XZ_TOL/CURVE_HALF_WINDOW**2):
+            failed |= region & moved
+    return failed
+
+
+def _check_racing_chords(xyz, dirty, moved, failed, route, half, road, circuit):
+    """Flag displaced chords outside their road ribbon or driving-level collision corridor."""
+    check = dirty | np.roll(dirty, 1)
+    if not circuit:
+        check[0] = False
+    # Test the entire displaced chord against its owning capsules, including a
+    # stationary endpoint beside a narrow junction and the handover between legs.
+    displaced = np.flatnonzero(check & (moved | np.roll(moved, 1)))
+    fits = airacing.joins_fit(xyz[:, XZ], displaced, route.start, route.end, half, FILLET_CLEARANCE)
+    invalid = displaced[~fits]
+    failed[invalid] = failed[invalid-1] = True
+    for i in np.flatnonzero(check):
+        if failed[i] or failed[i-1]:
+            continue
+        width = RACING_CLEARANCE if moved[i] or moved[i-1] else CAR_HALF_WIDTH
+        if (abs(xyz[i, 1] - xyz[i-1, 1]) >= obj_to_kn5.LEVEL_GAP_M
+                or not _fits_chord(road, xyz[i-1], xyz[i], width)):
+            if not (moved[i-1] or moved[i]):
+                raise NoLine(f"no room for the car width at route metre {route.metres[i]:.1f}")
+            failed[[i-1, i]] = True
+
+
+def _check_racing_sections(xyz, stations, road, circuit, dirty, moved, failed, spans, sections):
+    """Update measured widths and camber at samples whose position or tangent changed."""
+    _, _, new_forward, new_side = _frame(xyz, circuit)
+    turned = moved | np.roll(moved, -1) | np.roll(moved, 1)
+    for i in np.flatnonzero(dirty | np.roll(dirty, -1) | np.roll(dirty, 1)):
+        if failed[i]:
+            continue
+        try:
+            # Unchanged samples with unchanged tangents already have an exact span.
+            known = None if turned[i] else spans[i]
+            sections[i] = _section(road, xyz[i], new_side[i], stations[i], known_span=known)
+            if moved[i] and min(sections[i, :2]) < RACING_CLEARANCE:
+                failed[i] = True
+        except NoLine:
+            neighbours = np.arange(i-1, i+2) % len(xyz)
+            if not moved[neighbours].any():
+                raise
+            failed[neighbours] = True
+    return new_forward
+
+
+def _restore(stations, failed, circuit, lap, scale, name, route_m, log):
+    """Log failed bends and blend the offset back onto the reference on their approaches."""
+    # Return both ends of a failed chord to the old geometry. A steering transition
+    # two curvature windows long keeps a local repair from introducing a new kink.
+    starts = failed & ~np.r_[False, failed[:-1]]
+    log(f"AI line {name}: local return to reference at route metres "
+        + ", ".join(f"{m:.1f}" for m in route_m[starts]))
+    bend = airacing.restore_scale(stations, failed, circuit, lap, 2*CURVE_HALF_WINDOW) < 1
+    return np.minimum(scale, airacing.restore_scale(stations, bend, circuit, lap, 2*CURVE_HALF_WINDOW))
+
+
+def _racing_records(base, stations, road, circuit, mapped, route, name, log):
+    """Fit a racing line inside the reference carriageway and validate every stored chord."""
+    xz = base[:, XZ]
+    lap = stations[-1] - stations[0] + np.linalg.norm(xz[-1] - xz[0])
+    shift, lower, upper, half, side, spans = _racing_offsets(base, stations, road, circuit, mapped, route, lap)
+    xyz, sections = base.copy(), np.empty((len(base), 3))
+    dirty = np.ones(len(base), bool)
+    scale = np.ones(len(base))
+    original = _curvature(xz, 1, circuit)
+    energy = airacing.bending_energy(xz, original)
+    while True:
+        offset = scale * shift
+        moved = offset != 0
+        failed = moved & ((offset < lower-1e-8) | (offset > upper+1e-8))
+        _move_on_surface(xyz, base, offset, side, dirty, road, failed)
+        fold = airacing.folded(xyz[:, XZ], xz, circuit) & moved
+        if fold.any():
+            # Crossing normals in a very tight hairpin can collapse a chord. Restore
+            # it before taking a tangent, then check the complete resulting line.
+            scale = _restore(stations, fold, circuit, lap, scale, name, route.metres, log)
+            dirty[:] = True
+            continue
+        curvature = _curvature(xyz[:, XZ], 1, circuit)
+        failed |= _steering_failures(curvature, original, moved, route.groups)
+        _check_racing_chords(xyz, dirty, moved, failed, route, half, road, circuit)
+        new_forward = _check_racing_sections(xyz, stations, road, circuit, dirty, moved, failed, spans, sections)
+        if not failed.any():
+            widths = _own_widths(xyz[:, XZ], _unit(new_forward[:, XZ]), sections[:, :2], mapped, circuit)
+            failed = moved & (widths.min(axis=1) < RACING_CLEARANCE)
+            if not failed.any():
+                # Linearisation and local repairs need not reduce the true nonlinear
+                # objective. Keep a complete joined move only if it still does.
+                difference = airacing.bending_energy(xyz[:, XZ], curvature) - energy
+                rejected = airacing.worse_runs(moved, difference, circuit)
+                if not rejected.any():
+                    return _records(xyz, stations, road, circuit, checked_sections=sections, widths=widths)
+                dirty = rejected
+                scale[rejected] = 0
+                continue
+        reduced = _restore(stations, failed, circuit, lap, scale, name, route.metres, log)
+        # Also revisit chords skipped because their unchanged endpoint was flagged.
+        dirty = failed | ((scale != reduced) & (shift != 0))
+        scale = reduced
+
+
 def regenerate(model, *, circuit, log=print):
     """Replace the AI line from the completed KN5 and its saved route, or explain why no line can be written."""
     start = perf_counter()
@@ -684,11 +943,11 @@ def regenerate(model, *, circuit, log=print):
         scan = kn5.scan(model)
         road = _local_roads(_roads(model, scan["meshes"]))
         mapped, rings = aibends.lane_roads(editorinfo.archives(model), log)
-        def records(stations, xz, height):
+        def records(stations, xz, height, limits):
             xyz = _surface(stations, xz, road, height, circuit)
-            return _records(xyz, stations, road, circuit, mapped)
+            return _racing_records(xyz, stations, road, circuit, mapped, limits, model.stem, log)
 
-        preferred = _sample(path, scan["points"], circuit, road, mapped, rings)
+        preferred = _sample(path, scan["points"], circuit, road, mapped, rings, ownership=True)
         try:
             points, detail = records(*preferred)
         except NoLine:
@@ -696,7 +955,7 @@ def regenerate(model, *, circuit, log=print):
             # individually rounded line if the final 1.5 m samples cannot support the car.
             if not mapped:
                 raise
-            original = _sample(path, scan["points"], circuit, road)
+            original = _sample(path, scan["points"], circuit, road, mapped, rings, ownership=True, grouped=False)
             if np.array_equal(original[1], preferred[1]):
                 raise
             points, detail = records(*original)

@@ -95,7 +95,7 @@ class AILineTest(unittest.TestCase):
         self.assertFalse(self.lane.exists())
         self.assertRegex(log[-1], r"AI line skipped: .*at route metre \d+")
 
-    def counterbend(self, *, junction=None, obstacle=(), exit_x=62):
+    def counterbend(self, *, junction=None, obstacle=(), exit_x=62, rounded=False):
         # Three surveyed corners at one paved mouth. The street enters east and leaves almost due south.
         route = [(8, 10), (55, 10), (53.6, 18.8), (53.6, 23.8), (exit_x, 65), (8, 65), (8, 10)]
         self.write_track(route, circuit=True, strips=[(-10, 125, 0, 80)], obstacles=obstacle)
@@ -108,10 +108,18 @@ class AILineTest(unittest.TestCase):
         with ZipFile(tile, "w") as archive:
             archive.writestr("tile.json", json.dumps({"features": features}))
         editorinfo._publish(self.model, [("0_0", tile)])
-        log = self.generate(circuit=True)
-        self.assertTrue(self.lane.exists(), log)
-        points, _, _ = fastlane.read_lane(self.lane)
-        xz = points["pos"][:, [0, 2]].astype(float)
+        if rounded:
+            # Compare the grouping decision upstream of racing offsets. A tagged ring
+            # also pins the subsequent optimiser, so final positions can differ.
+            scan = kn5.scan(self.model)
+            road = fastlane._local_roads(fastlane._roads(self.model, scan["meshes"]))
+            mapped, rings = fastlane.aibends.lane_roads(editorinfo.archives(self.model), print)
+            _, xz, _ = fastlane._sample(route, scan["points"], True, road, mapped, rings)
+        else:
+            log = self.generate(circuit=True)
+            self.assertTrue(self.lane.exists(), log)
+            points, _, _ = fastlane.read_lane(self.lane)
+            xz = points["pos"][:, [0, 2]].astype(float)
         step = np.diff(xz, axis=0)
         heading = np.degrees(np.unwrap(np.arctan2(step[:, 1], step[:, 0])))
         bend = (xz[1:-1, 0] > 30) & (xz[1:-1, 1] < 30) & (heading[:-1] < 150)
@@ -131,13 +139,93 @@ class AILineTest(unittest.TestCase):
 
     def test_counterturns_stay_separate_at_a_real_offset_or_a_blocked_mouth(self):
         # A more easterly exit makes a real chicane on the same flat collision road.
-        np.testing.assert_array_equal(self.counterbend(exit_x=94),
-                                      self.counterbend(exit_x=94, junction="circular"))
+        np.testing.assert_array_equal(self.counterbend(rounded=True, exit_x=94),
+                                      self.counterbend(rounded=True, exit_x=94, junction="circular"))
         # This raised corner overlaps the replacement but leaves the single fillets free.
         walk = [(42, 9.2, 14), (51.8, 9.2, 14), (51.8, 9.2, 18), (42, 9.2, 18)]
         obstacle = [("1KERB_walkcol_mouth", walk)]
-        np.testing.assert_array_equal(self.counterbend(obstacle=obstacle),
-                                      self.counterbend(obstacle=obstacle, junction="roundabout"))
+        np.testing.assert_array_equal(self.counterbend(rounded=True, obstacle=obstacle),
+                                      self.counterbend(rounded=True, obstacle=obstacle, junction="roundabout"))
+
+    def racing_rectangle(self, *, obstacles=()):
+        # A closed 12 m road with square junction corners.
+        # Save the reference samples as well so movement near the gate can be measured exactly.
+        route = np.array([(0, 10), (100, 10), (100, 80), (0, 80), (0, 10)], float)
+        strips = [(-6, 106, 4, 16), (94, 106, 4, 86), (-6, 106, 74, 86), (-6, 6, 4, 86)]
+        self.write_track(route, circuit=True, strips=strips, obstacles=obstacles)
+        features = []
+        for i, (a, b) in enumerate(zip(route[:-1], route[1:])):
+            features.append({"id": str(i), "spec": {"kind": "paved", "width": 12},
+                             "geometry": [[a.tolist(), b.tolist()]]})
+        tile = self.folder / "tile.zip"
+        with ZipFile(tile, "w") as archive:
+            archive.writestr("tile.json", json.dumps({"features": features}))
+        editorinfo._publish(self.model, [("0_0", tile)])
+        scan = kn5.scan(self.model)
+        road = fastlane._local_roads(fastlane._roads(self.model, scan["meshes"]))
+        _, reference, _ = fastlane._sample(route, scan["points"], True, road)
+        self.assertTrue(fastlane.regenerate(self.model, circuit=True))
+        p, d, _ = fastlane.read_lane(self.lane)
+        return reference.astype("f4"), p["pos"][:, [0, 2]], d
+
+    def test_racing_corner_uses_outside_entry_inside_apex_and_outside_exit(self):
+        _, xz, _ = self.racing_rectangle()
+        entry = xz[(xz[:, 0] > 60) & (xz[:, 0] < 70) & (xz[:, 1] < 20)]
+        exit = xz[(xz[:, 1] > 42) & (xz[:, 1] < 49) & (xz[:, 0] > 90)]
+        self.assertLess(entry[:, 1].min(), 9)
+        self.assertGreater(exit[:, 0].max(), 101)
+        apex = xz[np.argmin(np.linalg.norm(xz - [94, 16], axis=1))]
+        self.assertGreater(100 - apex[0], 1)
+        self.assertGreater(apex[1] - 10, 1)
+        self.assertGreaterEqual(np.linalg.norm(apex - [94, 16]), 2.5 - 1e-4)
+        self.assertGreaterEqual(xz[:, 1].min(), 4 + 2.5 - 1e-4)
+
+    def test_racing_grid_and_timing_seam_stay_exact_while_free_approach_moves(self):
+        old, new, _ = self.racing_rectangle()
+        np.testing.assert_array_equal(old[:1], new[:1])
+        grid = (old[:, 1] == 10) & (old[:, 0] >= 1) & (old[:, 0] < 20)
+        self.assertTrue(grid.any())
+        np.testing.assert_array_equal(new[grid], old[grid])
+        self.assertGreater(np.max(abs(new - old)), 1)
+
+    def test_racing_painted_ring_keeps_circulation_while_other_bends_use_the_width(self):
+        # A painted, fully paved circle with a half-lap between its entry and exit.
+        # In AC's X/Z frame decreasing heading is counterclockwise on the map.
+        angle = np.linspace(np.pi/2, np.pi/2 - 2*np.pi, 33)
+        ring = [80, -5] + 15*np.column_stack((np.cos(angle), np.sin(angle)))
+        route = np.vstack(([0, 10], ring[:17], [15, -20], [0, -20], [0, 10]))
+        self.write_track(route, circuit=True, strips=[(-7, 105, -28, 18)])
+        features = [{"id": "ring", "spec": {"kind": "paved", "width": 8},
+                     "tags": {"junction": "roundabout"}, "geometry": [ring.tolist()]}]
+        for i in (0, 17, 18, 19):
+            features.append({"id": str(i), "spec": {"width": 12},
+                             "geometry": [route[i:i+2].tolist()]})
+        tile = self.folder / "tile.zip"
+        with ZipFile(tile, "w") as archive:
+            archive.writestr("tile.json", json.dumps({"features": features}))
+        editorinfo._publish(self.model, [("0_0", tile)])
+        scan = kn5.scan(self.model)
+        road = fastlane._local_roads(fastlane._roads(self.model, scan["meshes"]))
+        mapped, rings = fastlane.aibends.lane_roads(editorinfo.archives(self.model), print)
+        _, old, _ = fastlane._sample(route, scan["points"], True, road, mapped, rings)
+        self.assertTrue(fastlane.regenerate(self.model, circuit=True))
+        points, _, _ = fastlane.read_lane(self.lane)
+        new = points["pos"][:, [0, 2]]
+        inside = fastlane.aibends.ring_vertices(old, rings)
+        np.testing.assert_array_equal(new[inside], old[inside].astype("f4"))
+        radial = new[inside] - [80, -5]
+        heading = np.unwrap(np.arctan2(radial[:, 1], radial[:, 0]))
+        self.assertLess(heading[-1] - heading[0], -np.pi*.95)
+        self.assertGreater(np.max(abs(new[~inside] - old[~inside])), 1)
+
+    def test_racing_chord_returns_locally_at_a_thin_post_between_samples(self):
+        # The original approach is at z=10. The ideal entry swings towards a post
+        # between sample planes. The next corner remains free to use the full width.
+        post = [(77.5, 9, 7), (77.51, 9, 7), (77.51, 10, 7), (77.5, 10, 7)]
+        old, new, _ = self.racing_rectangle(obstacles=[("1WALL_post", post)])
+        beside = np.argmin(np.linalg.norm(old - [77.5, 10], axis=1))
+        np.testing.assert_array_equal(new[beside-1:beside+2], old[beside-1:beside+2])
+        self.assertGreater(np.max(abs(new[old[:, 1] > 40] - old[old[:, 1] > 40])), 1)
 
     def test_corner_is_rounded_with_room_for_both_sides_of_the_car(self):
         strips = [(-10, 60, 5, 15), (50, 60, 5, 50), (3, 60, 40, 50), (3, 13, 5, 50)]

@@ -18,14 +18,15 @@ def lane_roads(paths, log):
     import islands
     from roads import RING_JUNCTIONS
 
-    mapped, tagged, graph = [], set(), {}
+    mapped, tagged, graph = {}, set(), {}
     for geometry, width, feature in obj_to_kn5.mapped_road_features(paths, log):
-        mapped.append((geometry, width))
+        coords = geometry.tobytes()
+        mapped.setdefault((coords, width), (geometry, width))
         spec = feature["spec"]
         if spec.get("kind") not in ("paved", "cobble", "gravel", None):
             continue
         # Tile facts repeat whole features at borders. Retain distinct parts of multipart roads.
-        key = (str(feature.get("id", "")), geometry.tobytes())
+        key = (str(feature.get("id", "")), coords)
         if key in graph:
             continue
         tags = feature.get("tags") or {}
@@ -34,7 +35,7 @@ def lane_roads(paths, log):
         direction = SimpleNamespace(oneway=spec.get("oneway", False), dir=spec.get("dir", 0))
         graph[key] = key, direction, geometry, width
     rings = tagged.union(islands.ring_fids(graph.values())) if graph else tagged
-    return mapped, [(graph[key][2], graph[key][3]) for key in rings]
+    return list(mapped.values()), [(graph[key][2], graph[key][3]) for key in rings]
 
 
 def ring_vertices(path, rings):
