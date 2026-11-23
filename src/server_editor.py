@@ -1,6 +1,7 @@
 """Editor data HTTP endpoints; Handler supplies response, request and same-page helpers."""
 import json
 import os
+import struct
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -8,7 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 import generator
 import numpy as np
 from app import mytracks, settings, trackedits, trackinspect, trackview
-from track import ailinestate, editorinfo, fastlane
+from track import ailinestate, editorinfo, fastlane, route_race
 
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
 LANE_CHANGED = "The installed AI line changed. Reopen the tool to load its current revision."
@@ -43,23 +44,46 @@ def _lane_snapshot(path, revision):
         raise trackview.Unreadable(LANE_CHANGED)
     if not all(np.isfinite(records[field]).all() for records in (points, detail) for field in records.dtype.names):
         raise ValueError("The installed AI line contains invalid numbers.")
-    return len(points), _encode_lane(points, detail)
+    return points["pos"][:, [0, 2]], detail["speed"].copy(), _encode_lane(points, detail)
 
 
-def _lane_data(directory, revision=None):
+def _timed_speeds(xz, speed, markers):
+    """Range in m/s between both forward gate crossings, including interpolated endpoints. Pure."""
+    prefix = "AC" if all(k in markers for k in route_race.GATES) else "M2"
+    indices = np.arange(len(xz))
+    try:
+        start = fastlane._gate(xz, indices, markers, f"{prefix}_AB_START")
+        finish = fastlane._gate(xz, indices, markers, f"{prefix}_AB_FINISH", last=True)
+    except (KeyError, fastlane.NoLine):
+        return None      # A foreign or hand-replaced spline can miss a timing gate.
+    if finish <= start:
+        return None
+    timed = np.r_[np.interp([start, finish], indices, speed), speed[int(np.ceil(start)):int(np.ceil(finish))]]
+    return [float(timed.min()), float(timed.max())]
+
+
+def _lane_data(model, revision=None):
     """Return the installed line's status, or its bytes if revision still matches the file in directory."""
+    directory = model.parent
     path = directory / fastlane.FILE
     try:
         current = _lane_revision(path.stat())
         if revision is not None and revision != current:
             raise trackview.Unreadable(LANE_CHANGED)
-        count, data = _lane_snapshot(path, current)
+        xz, speed, data = _lane_snapshot(path, current)
         closed = mytracks.is_circuit(directory) if revision is None else None
         if _lane_revision(path.stat()) != current:
             raise trackview.Unreadable(LANE_CHANGED)
         if revision is not None:
             return data
-        return {"status": "ready", "message": None, "closed": closed, "revision": current, "count": count}
+        status = {"status": "ready", "message": None, "closed": closed, "revision": current, "count": len(xz)}
+        if not closed:
+            try:
+                markers = trackview._scan(str(model), trackview._revision(model.stat()))["points"]
+            except (AssertionError, OSError, ValueError, struct.error):
+                markers = {}
+            status["speedRange"] = _timed_speeds(xz, speed, markers)
+        return status
     except (OSError, ValueError, trackview.Unreadable) as error:
         if revision is not None:
             raise trackview.Unreadable(LANE_CHANGED) from error
@@ -218,7 +242,7 @@ class EditorHandlers:
         """The spline accompanying the installed KN5 of track name, independent of its source and draft."""
         try:
             model = trackview.kn5_path(settings.ac_path(), generator.slug(name))
-            data = _lane_data(Path(model).parent, revision)
+            data = _lane_data(Path(model), revision)
             if revision is None:
                 info = mytracks.load(Path(model).parent) or {}
                 data["canCalculate"] = not bool(info.get("area"))

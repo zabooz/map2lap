@@ -40,8 +40,10 @@ hook handles its own view marks but does not register another global click, pick
 
 ## AI line
 
-AI line (L) shows the installed `ai/fast_lane.ai` as a translucent speed band with pink braking marks and shows the route metre
-and point data on hover. The Editor keeps the geometry while the tool is off and checks for a new revision on reopening or after Save, so an unsaved
+AI line (L) shows the installed `ai/fast_lane.ai` as a translucent speed band with side limits and shows the route metre
+and point data on hover. Yellow is the lowest modelled speed and blue the highest. The legend spans the whole circuit
+or the stage from start gate to finish gate. Grid and runout colours clamp to this range. If an installed spline misses
+a timing gate, the legend spans the available samples. The Editor keeps the geometry while the tool is off and checks for a new revision on reopening or after Save, so an unsaved
 draft can differ from the displayed line. Recalculate AI line operates on the saved KN5 after pending edits have been saved.
 A lateral move is one undoable edit. Its offset tapers to zero over the Move range on each side (30 m by default).
 The recipe owns its route metre, local approach, departure, level and coordinate frame. A rebuilt copy resolves these on
@@ -58,7 +60,7 @@ route metre on hover. At an open finish the dashed continuation accepts the end 
 Build as copy carries the correction recipe and resolves it on the new geometry.
 A hand-replaced line is identified by its checksum and remains available for a test drive.
 
-`GET /api/editor/<track>/ai-line` returns the status as JSON with the file status, revision, point count, circuit flag, calculation availability and input validity. With
+`GET /api/editor/<track>/ai-line` returns the status as JSON with the file status, revision, point count, circuit flag, calculation availability and input validity. Open lines also report the timed speed range in m/s when available. With
 `?r=<revision>` it returns cacheable `application/octet-stream` or HTTP 409 when the installed revision changed. The binary
 contract is 23 consecutive columns of `count` little-endian values each, 92 bytes per sample including all columns. Each column
 is Float32 except `id` (Int32). In order they are `x, y, z, distance, id, speed, gas, brake, lat_g, radius, left, right,

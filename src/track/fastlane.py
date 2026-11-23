@@ -702,9 +702,15 @@ def _bend(xz, circuit):
 
 def _speed(curvature, ds, circuit):
     """Target speeds in m/s from curvature, sample distances and braking/acceleration limits. Pure."""
-    # Conservative road-car targets: 0.65 g lateral, 0.70 g braking, 0.25 g acceleration, 120 km/h.
+    # Nominal road-car model: allow 0.65 g of tyre grip for cornering and 0.70 g for braking.
+    # Engine power limits acceleration to an assumed 0.25 g. Grip varies by surface, and constant
+    # acceleration overestimates speed on long straights where drag and gearing matter.
     lateral, brake, gas = np.array([0.65, 0.70, 0.25]) * 9.81
-    limits = lateral / np.maximum(np.abs(curvature), lateral / (120 / 3.6)**2)
+    bend = np.abs(curvature)
+    limits = np.divide(lateral, bend, out=np.full(len(ds), np.inf), where=bend > 0)
+    # An entirely collinear closed input has no bend to set a finite speed. Use a standing lap start.
+    if circuit and not np.isfinite(limits).any():
+        limits[0] = 0.0
     if circuit:
         first = int(limits.argmin())
         ids = (first + np.arange(len(ds) + 1)) % len(ds)

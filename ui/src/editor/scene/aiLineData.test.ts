@@ -25,3 +25,12 @@ test("decode the little-endian columns without copying and read every field of a
   });
   expect(() => decodeAiLine(status, buffer.slice(0, -4))).toThrow("Invalid AI line data");
 });
+
+test("the timing gates set the stage colour scale without clipping the raw speed", () => {
+  const buffer = new ArrayBuffer(4 * 92);
+  new Float32Array(buffer, 5 * 4 * 4, 4).set([0, 12, 14, 40]);
+  const lane = decodeAiLine({...status, count: 4, closed: false, speedRange: [10, 18]}, buffer);
+  expect(lane.speeds).toEqual({slow: 10, fast: 18});
+  expect(Array.from(lane.speed)).toEqual([0, 12, 14, 40]);
+  expect(decodeAiLine({...status, count: 4}, buffer).speeds).toEqual({slow: 0, fast: 40});
+});

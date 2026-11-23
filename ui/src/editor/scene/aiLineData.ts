@@ -22,7 +22,7 @@ export interface AiLinePoint {
   grade: number;
 }
 
-export interface AiLineReady {status: "ready"; canCalculate?: boolean; validity?: string; message: string | null; closed: boolean; revision: string; count: number}
+export interface AiLineReady {speedRange?: [number, number] | null; status: "ready"; canCalculate?: boolean; validity?: string; message: string | null; closed: boolean; revision: string; count: number}
 interface AiLineUnavailable {status: "missing" | "invalid"; canCalculate?: boolean; validity?: string; message: string; closed: null; revision: null; count: 0}
 export interface AiLineHover {point: AiLinePoint; metre: number | null}
 export type InstalledAiLine = ReturnType<typeof decodeAiLine>;
@@ -35,7 +35,8 @@ export function decodeAiLine(status: AiLineReady, buffer: ArrayBuffer) {
   const column = (i: number) => words.subarray(i * count, (i + 1) * count);
   const speed = column(5);
   let slow = Infinity, fast = -Infinity;
-  for (const v of speed) { slow = Math.min(slow, v); fast = Math.max(fast, v); }
+  if (status.speedRange) [slow, fast] = status.speedRange;
+  else for (const v of speed) { slow = Math.min(slow, v); fast = Math.max(fast, v); }
   return {...status, speeds: {slow, fast}, x: column(0), y: column(1), z: column(2), distance: column(3),
     id: new Int32Array(buffer, 4 * count * Int32Array.BYTES_PER_ELEMENT, count), speed,
     gas: column(6), brake: column(7), lat_g: column(8), radius: column(9), left: column(10), right: column(11),
@@ -56,7 +57,8 @@ export async function fetchAiLine(name: string, known: InstalledAiLine | null, s
   const url = `/api/editor/${encodeURIComponent(name)}/ai-line`;
   const status = await fetchJson<AiLineReady | AiLineUnavailable>(url, signal);
   if (status.status !== "ready") return status;
-  if (known?.revision === status.revision && known.closed === status.closed && known.validity === status.validity && known.canCalculate === status.canCalculate) return known;
+  if (known?.revision === status.revision && known.closed === status.closed && known.validity === status.validity && known.canCalculate === status.canCalculate
+    && known.speedRange?.[0] === status.speedRange?.[0] && known.speedRange?.[1] === status.speedRange?.[1]) return known;
   const buffer = await fetchBytes(`${url}?r=${encodeURIComponent(status.revision)}`, signal);
   return decodeAiLine(status, buffer);
 }

@@ -11,7 +11,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from app import mytracks, settings
 from server_editor import EditorHandlers
-from track import fastlane
+from track import fastlane, obj_to_kn5
 
 
 class AiLineTransportTest(unittest.TestCase):
@@ -63,6 +63,27 @@ class AiLineTransportTest(unittest.TestCase):
         columns = [(i + .25, i + .5) for i in range(1, 24)]
         columns[4] = (16_777_217, -2)
         self.assertEqual(tuple(value for col in columns for value in col), values)
+
+    def test_stage_range_includes_interpolated_gate_speeds_and_excludes_runout(self):
+        mytracks.save(self.directory, {"kind": "route"})
+        points = np.zeros(6, dtype=fastlane.POINT)
+        points["pos"][:, 2] = np.arange(6) * 10
+        detail = np.zeros(6, dtype=fastlane.DETAIL)
+        detail["speed"] = [0, 10, 20, 19, 35, 0]
+        fastlane._write_lane(self.path, points, detail)
+        for prefix in ("AC", "M2"):
+            markers = {f"{prefix}_AB_{gate}_{side}": obj_to_kn5.empty("", (x, 0, z), (0, 0, 1)).matrix
+                       for gate, z in (("START", 15), ("FINISH", 35))
+                       for side, x in (("L", -3), ("R", 3))}
+            with mock.patch("server_editor.trackview._scan", return_value={"points": markers}):
+                self.assertEqual([15., 27.], self.request().args[1].get("speedRange"))
+
+    def test_readable_stage_line_remains_visible_without_readable_timing_markers(self):
+        mytracks.save(self.directory, {"kind": "route"})
+        self.write()
+        (_, status), _ = self.request()
+        self.assertEqual("ready", status["status"])
+        self.assertIsNone(status.get("speedRange"))
 
     def test_missing_and_invalid_file_return_status(self):
         for expected in ("missing", "invalid"):

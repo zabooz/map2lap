@@ -91,7 +91,7 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   const recalc = bar.getByRole("button", {name: "Recalculate AI line"});
   await expect(recalc).toBeEnabled();
   await recalc.click();
-  await expect(bar).toContainText("Braking");
+  await expect(bar).toContainText("Side limits");
   expect(await moves()).toHaveLength(1);
 });
 
@@ -125,7 +125,7 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   expect(stroke.points).toHaveLength(1);
   await saveTrack(page);
   await bar.getByRole("button",{name:"Recalculate AI line"}).click();
-  await expect(bar).toContainText("Braking");
+  await expect(bar).toContainText("Side limits");
   expect(await moves()).toEqual([stroke]);
   await bar.getByRole("button",{name:"Redraw",exact:true}).click();
   await page.mouse.move(...position(100));
@@ -151,7 +151,8 @@ test("L shows the installed AI line", async ({page, backend}) => {
   await deleteTree(page);
   await backend.post("/__test/ai-line", {name: "alpha"});
   await page.keyboard.press("l");
-  await expect(bar).toContainText("Braking");
+  await expect(bar).toContainText("Side limits");
+  await expect(bar).not.toContainText("Braking");
   await expect(bar).toContainText("Line from the last build or save");
   await expect(bar.getByRole("button", {name: "Recalculate AI line"})).toBeDisabled();
   await expect(bar.getByText("Save first.", {exact: true})).toBeVisible();
@@ -169,7 +170,7 @@ test("L shows the installed AI line", async ({page, backend}) => {
   await page.keyboard.press("l");
   await expect(bar).toHaveCount(0);
   await page.keyboard.press("l");
-  await expect(bar).toContainText("Braking");
+  await expect(bar).toContainText("Side limits");
   await expect(point).toContainText("Route metre");
   expect([statusReads, binaryReads]).toEqual([3, 1]);
 

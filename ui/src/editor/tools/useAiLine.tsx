@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from "react";
 import {post} from "../../api";
-import {BRAKE_COLOUR, EDGE_COLOUR, SPEED_COLOURS} from "../scene/aiLine";
+import {EDGE_COLOUR, SPEED_COLOURS} from "../scene/aiLine";
 import {fetchAiLine, type AiLineHover, type InstalledAiLine} from "../scene/aiLineData";
 import type {MoveGuide} from "../scene/aiGuide";
 import type {AiCorrection, TrackEdits} from "../state/edits";
@@ -35,7 +35,6 @@ function Legend({slow, fast}: {slow: number; fast: number}) {
     {slow === fast ? <span><i style={{background: SPEED_COLOURS[1]}} />{speed(fast)}</span>
       : <span>{value(slow * 3.6, 1)} <i className={styles.ramp} style={{background: `linear-gradient(to right, ${SPEED_COLOURS.join(", ")})`}} /> {speed(fast)}</span>}
     <span><i style={{background: EDGE_COLOUR}} /> Side limits</span>
-    <span><i className={styles.brakes} style={{color: BRAKE_COLOUR}} /> Braking</span>
   </span>;
 }
 

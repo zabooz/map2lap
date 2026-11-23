@@ -24,7 +24,7 @@ class LaneCodeVersionTest(unittest.TestCase):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (4, "0cb52c94f3939aacdbdf774670893771cfcbfa3931cd7b697c92fa0fe1dd3cda")
+        expected = (5, "2b042d327f215ecffd2926eeec0a48f676dd9999de27bbdb0a7b5810eeed661e")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments or refactors proven to preserve the generated line, update only the digest.")
@@ -613,6 +613,12 @@ class AILineTest(unittest.TestCase):
         self.assertTrue(self.lane.exists(), log)
         points, _, _ = fastlane.read_lane(self.lane)
         np.testing.assert_allclose(points["pos"][0, [0, 2]], [20, 34])
+
+    def test_long_straight_speed_follows_acceleration_and_braking(self):
+        ds = np.full(101, 10.)
+        v, _, _ = fastlane._speed(np.zeros(101), ds, False)
+        distance = np.arange(101) * 10.
+        np.testing.assert_allclose(v**2, 2 * 9.81 * np.minimum(.25 * distance, .70 * (1000 - distance)))
 
     def test_radius_and_speed_of_a_100_m_arc_with_15_m_chords(self):
         angle = np.linspace(0, 2 * np.pi, 42, endpoint=False)
