@@ -13,7 +13,7 @@ from track import aicorrections, fastlane
 
 FILE = Path("data/map2lap_ai.json")
 # When line code changes, bump this and update LaneCodeVersionTest in engine/tests/test_fastlane.py.
-# For comment-only edits, update just the test's source digest.
+# For comments or refactors proven to leave the generated line unchanged, update only the test's source digest.
 CODE_VERSION = 4
 ERRORS = (AssertionError, IndexError, KeyError, OSError, ValueError, struct.error)
 

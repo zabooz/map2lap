@@ -130,8 +130,8 @@ def bending_energy(xz, curvature):
     return curvature**2 * (edge + np.roll(edge, -1)) / 2
 
 
-def worse_runs(moved, difference, circuit):
-    """Moves that increase true bending energy over a connected modified stretch. Pure."""
+def move_runs(moved, circuit):
+    """Connected stretches including the adjoining curvature sample at either end. Pure."""
     affected = moved | np.roll(moved, 1) | np.roll(moved, -1)
     # Curvature at each end uses the adjoining point. Split only at unaffected
     # samples, where reverting the complete move preserves both joining chords.
@@ -139,8 +139,13 @@ def worse_runs(moved, difference, circuit):
     runs = np.split(indices, np.flatnonzero(np.diff(indices) > 1) + 1)
     if circuit and len(runs) > 1 and affected[0] and affected[-1]:
         runs = [np.r_[runs[-1], runs[0]], *runs[1:-1]]
+    return runs
+
+
+def worse_runs(moved, difference, circuit):
+    """Moves that increase true bending energy over a connected modified stretch. Pure."""
     rejected = np.zeros(len(moved), bool)
-    for run in runs:
+    for run in move_runs(moved, circuit):
         if difference[run].sum() > 0:
             rejected[run] = moved[run]
     return rejected

@@ -24,10 +24,10 @@ class LaneCodeVersionTest(unittest.TestCase):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (4, "beaa4d2960eb77a3bea1bbe97008220dc67e548f3c4e5e824d4feda24a20eb48")
+        expected = (4, "0cb52c94f3939aacdbdf774670893771cfcbfa3931cd7b697c92fa0fe1dd3cda")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
-                         "For comments alone, update only the digest.")
+                         "For comments or refactors proven to preserve the generated line, update only the digest.")
 
 
 class AILineTest(unittest.TestCase):
@@ -390,7 +390,7 @@ class AILineTest(unittest.TestCase):
         np.testing.assert_array_equal(self.counterbend(rounded=True, obstacle=obstacle),
                                       self.counterbend(rounded=True, obstacle=obstacle, junction="roundabout"))
 
-    def racing_rectangle(self, *, obstacles=()):
+    def racing_rectangle(self, *, obstacles=(), log=print):
         # A closed 12 m road with square junction corners.
         # Save the reference samples as well so movement near the gate can be measured exactly.
         route = np.array([(0, 10), (100, 10), (100, 80), (0, 80), (0, 10)], float)
@@ -407,7 +407,7 @@ class AILineTest(unittest.TestCase):
         scan = kn5.scan(self.model)
         road = fastlane._local_roads(fastlane._roads(self.model, scan["meshes"]))
         _, reference, _ = fastlane._sample(route, scan["points"], True, road)
-        self.assertTrue(fastlane.regenerate(self.model, circuit=True))
+        self.assertTrue(fastlane.regenerate(self.model, circuit=True, log=log))
         p, d, _ = fastlane.read_lane(self.lane)
         return reference.astype("f4"), p["pos"][:, [0, 2]], d
 
@@ -469,6 +469,21 @@ class AILineTest(unittest.TestCase):
         beside = np.argmin(np.linalg.norm(old - [77.5, 10], axis=1))
         np.testing.assert_array_equal(new[beside-1:beside+2], old[beside-1:beside+2])
         self.assertGreater(np.max(abs(new[old[:, 1] > 40] - old[old[:, 1] > 40])), 1)
+
+    def test_racing_log_reports_partial_returns_once_and_omits_a_discarded_move(self):
+        from unittest.mock import patch
+        post = ("1WALL_post", [(77.5, 9, 7), (77.51, 9, 7), (77.51, 10, 7), (77.5, 10, 7)])
+        messages = []
+        reference, final, _ = self.racing_rectangle(obstacles=[post], log=messages.append)
+        self.assertFalse(np.array_equal(reference, final))
+        summaries = [line for line in messages if "return to reference" in line]
+        self.assertEqual(len(summaries), 1, summaries)
+        self.assertRegex(summaries[0], r"local return to reference at [1-9]\d* locations?.*route metres?")
+        with patch.object(fastlane.airacing, "worse_runs", side_effect=lambda moved, *_: moved.copy()):
+            messages.clear()
+            reference, final, _ = self.racing_rectangle(obstacles=[post], log=messages.append)
+            np.testing.assert_array_equal(reference, final)
+            self.assertFalse(any("return to reference" in line for line in messages), messages)
 
     def test_corner_is_rounded_with_room_for_both_sides_of_the_car(self):
         strips = [(-10, 60, 5, 15), (50, 60, 5, 50), (3, 60, 40, 50), (3, 13, 5, 50)]

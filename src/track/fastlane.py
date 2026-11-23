@@ -970,18 +970,34 @@ def _check_racing_sections(xyz, stations, road, circuit, dirty, moved, failed, s
     return new_forward
 
 
-def _restore(stations, failed, circuit, lap, scale, name, route_m, log):
-    """Log failed bends and blend the offset back onto the reference on their approaches."""
+def _restore(stations, failed, circuit, lap, scale):
+    """Blend the offset back onto the reference around failed samples. Pure."""
     # Return both ends of a failed chord to the old geometry. A steering transition
     # two curvature windows long keeps a local repair from introducing a new kink.
-    starts = failed & ~np.r_[False, failed[:-1]]
-    log(f"AI line {name}: local return to reference at route metres "
-        + ", ".join(f"{m:.1f}" for m in route_m[starts]))
     bend = airacing.restore_scale(stations, failed, circuit, lap, 2*CURVE_HALF_WINDOW) < 1
     return np.minimum(scale, airacing.restore_scale(stations, bend, circuit, lap, 2*CURVE_HALF_WINDOW))
 
 
-def _racing_records(base, stations, road, circuit, mapped, route, name, log):
+def _return_metres(base, final, proposed, failed, metres, circuit):
+    """First route metre of each local return visible in a retained move. Pure."""
+    base, proposed = base.astype("f4"), proposed.astype("f4")
+    kept = np.any(final != base, axis=1)
+    if not failed.any() or not kept.any():
+        return []
+    # Compare positions at the precision actually written to AC. A discarded
+    # solver attempt can have many failing chords and leave no trace in the lane.
+    reduced = np.any(final != proposed, axis=1)
+    effective = np.zeros(len(base), bool)
+    for run in airacing.move_runs(np.any(proposed != base, axis=1), circuit):
+        if kept[run].any() and reduced[run].any():
+            effective[run] = failed[run]
+    starts = effective & ~np.roll(effective, 1)
+    if not circuit or effective.all():
+        starts[0] = effective[0]
+    return metres[starts]
+
+
+def _racing_records(base, stations, road, circuit, mapped, route, report_returns):
     """Fit a racing line inside the reference carriageway and validate every stored chord."""
     xz = base[:, XZ]
     lap = stations[-1] - stations[0] + np.linalg.norm(xz[-1] - xz[0])
@@ -989,6 +1005,7 @@ def _racing_records(base, stations, road, circuit, mapped, route, name, log):
     xyz, sections = base.copy(), np.empty((len(base), 3))
     dirty = np.ones(len(base), bool)
     scale = np.ones(len(base))
+    failures = np.zeros(len(base), bool)
     original = _curvature(xz, 1, circuit)
     energy = airacing.bending_energy(xz, original)
     while True:
@@ -1000,7 +1017,8 @@ def _racing_records(base, stations, road, circuit, mapped, route, name, log):
         if fold.any():
             # Crossing normals in a very tight hairpin can collapse a chord. Restore
             # it before taking a tangent, then check the complete resulting line.
-            scale = _restore(stations, fold, circuit, lap, scale, name, route.metres, log)
+            failures |= fold
+            scale = _restore(stations, fold, circuit, lap, scale)
             dirty[:] = True
             continue
         curvature = _curvature(xyz[:, XZ], 1, circuit)
@@ -1016,11 +1034,17 @@ def _racing_records(base, stations, road, circuit, mapped, route, name, log):
                 difference = airacing.bending_energy(xyz[:, XZ], curvature) - energy
                 rejected = airacing.worse_runs(moved, difference, circuit)
                 if not rejected.any():
-                    return _records(xyz, stations, road, circuit, checked_sections=sections, widths=widths)
+                    points, detail = _records(xyz, stations, road, circuit, checked_sections=sections, widths=widths)
+                    if failures.any():
+                        proposed = xz + side * shift[:, None]
+                        report_returns(_return_metres(xz, points["pos"][:, XZ], proposed, failures,
+                                                      route.metres, circuit))
+                    return points, detail
                 dirty = rejected
                 scale[rejected] = 0
                 continue
-        reduced = _restore(stations, failed, circuit, lap, scale, name, route.metres, log)
+        failures |= failed
+        reduced = _restore(stations, failed, circuit, lap, scale)
         # Also revisit chords skipped because their unchanged endpoint was flagged.
         dirty = failed | ((scale != reduced) & (shift != 0))
         scale = reduced
@@ -1046,14 +1070,14 @@ def lane_inputs(model, circuit, log, *, preview=False):
     return path, markers, _roads(model, scan["meshes"], free), mapped, rings, origin, corrections
 
 
-def move_reference(model, inputs, circuit, log):
+def move_reference(model, inputs, circuit, report_returns):
     """The validated automatic line and its exact sample-to-route correspondence for authoring."""
     path, markers, roads, mapped, rings, origin, _ = inputs
     road = _local_roads(roads)
 
     def records(stations, xz, height, limits):
         xyz = _surface(stations, xz, road, height, circuit)
-        points, detail = _racing_records(xyz, stations, road, circuit, mapped, limits, model.stem, log)
+        points, detail = _racing_records(xyz, stations, road, circuit, mapped, limits, report_returns)
         return points, detail, limits, stations, road, aicorrections.Route(path, origin, circuit)
 
     preferred = _sample(path, markers, circuit, road, mapped, rings, ownership=True)
@@ -1120,7 +1144,7 @@ def check_selected_road(xz, metres, ribbon, nearest, owned):
         raise NoLine(f"Outside the selected road at route metre {metres[owned[~fits][0]]:.1f}")
 
 
-def _drawn_reference(model, inputs, circuit, log, *, diagnostic=False):
+def _drawn_reference(model, inputs, circuit, report_returns, *, diagnostic=False):
     """Splice hand-drawn sections before a complete route ever needs to have a floor."""
     path, markers, meshes, mapped, rings, origin, corrections = inputs
     route = aicorrections.Route(path, origin, circuit)
@@ -1201,7 +1225,7 @@ def _drawn_reference(model, inputs, circuit, log, *, diagnostic=False):
         records, detail = np.zeros(len(xyz), POINT), np.zeros(len(xyz), DETAIL)
         records["pos"] = xyz
     else:
-        records, detail = _racing_records(xyz, along, queries, circuit, mapped, limits, model.stem, log)
+        records, detail = _racing_records(xyz, along, queries, circuit, mapped, limits, report_returns)
     return records, detail, limits, along, queries, route
 
 
@@ -1276,17 +1300,17 @@ def checked_moves(reference, moves, finish, wider=None):
     return (apply([]) if result is None else result), skipped
 
 
-def _reference_with_redraws(model, inputs, circuit, log, *, diagnostic=False):
+def _reference_with_redraws(model, inputs, circuit, report_returns, *, diagnostic=False):
     """Validate the replacements before sampling the original road inside their spans."""
     draws = [item for item in inputs[-1] if item["kind"] == "redraw"]
     def automatic():
         if diagnostic:
             return _diagnostic_reference(model, inputs, circuit)[0]
-        return move_reference(model, inputs, circuit, log)
+        return move_reference(model, inputs, circuit, report_returns)
     if not draws:
         return automatic(), {}
     def apply(items, provisional=diagnostic):
-        return _drawn_reference(model, (*inputs[:-1], items), circuit, log, diagnostic=provisional)
+        return _drawn_reference(model, (*inputs[:-1], items), circuit, report_returns, diagnostic=provisional)
     try:
         return apply(draws), {}
     except ValueError as first_error:
@@ -1319,38 +1343,47 @@ def calculate(model, inputs, circuit, lane, log):
     """Compute from already-read inputs and write the complete spline to lane."""
     start = perf_counter()
     needs_floor_check = False
+    reference_returns = set()
     try:
-        reference, skipped_draws = _reference_with_redraws(model, inputs, circuit, log)
+        reference, skipped_draws = _reference_with_redraws(model, inputs, circuit, reference_returns.update)
     except NoLine:
         if not any(item["kind"] == "move" for item in inputs[-1]):
             raise
         # An automatic floor failure can be inside the hand-drawn footprint.
         # Start from the same provisional guide the user could pick in the Editor.
-        reference, skipped_draws = _reference_with_redraws(model, inputs, circuit, log, diagnostic=True)
+        reference, skipped_draws = _reference_with_redraws(model, inputs, circuit, reference_returns.update, diagnostic=True)
         needs_floor_check = True
     points, detail, ribbon, stations, road, route = reference
 
     def finish(moved, fixed, queries):
         if not fixed.any() and not needs_floor_check:
-            return points, detail
+            return points, detail, reference_returns
+        returns = reference_returns.difference(ribbon.metres[fixed])
+        protected = ribbon.fixed | fixed
         if needs_floor_check:
             moved = _surface(ribbon.metres, moved[:, XZ], queries, moved[0,1], circuit)
-            limits = ribbon._replace(fixed=ribbon.fixed | fixed)
-            return _racing_records(moved, stations, queries, circuit, inputs[3], limits, model.stem, log)
-        # Refit the adjoining approaches over a curvature window. Other bends
-        # already have their validated optimum. The authored samples are immutable.
-        lap = stations[-1]-stations[0] + np.linalg.norm(moved[-1, XZ]-moved[0, XZ])
-        approach = airacing.restore_scale(stations, fixed, circuit, lap, CURVE_HALF_WINDOW) < 1
-        limits = ribbon._replace(fixed=ribbon.fixed | fixed | ~approach)
-        return _racing_records(moved, stations, queries, circuit, inputs[3], limits, model.stem, log)
+        else:
+            # Refit the adjoining approaches over a curvature window. Other bends
+            # already have their validated optimum. The authored samples are immutable.
+            lap = stations[-1]-stations[0] + np.linalg.norm(moved[-1, XZ]-moved[0, XZ])
+            approach = airacing.restore_scale(stations, fixed, circuit, lap, CURVE_HALF_WINDOW) < 1
+            protected |= ~approach
+        limits = ribbon._replace(fixed=protected)
+        records, details = _racing_records(moved, stations, queries, circuit, inputs[3], limits, returns.update)
+        return records, details, returns
 
     moves = [item for item in inputs[-1] if item["kind"] == "move"]
     wider = _local_roads(inputs[2], free=True) if any(item["free"] for item in moves) else None
-    (points, detail), skipped = checked_moves(reference, moves, finish, wider)
+    (points, detail, returns), skipped = checked_moves(reference, moves, finish, wider)
     skipped.update(skipped_draws)
     for reason in skipped.values():
         log(f"AI correction skipped: {reason}")
     _write_lane(lane, points, detail)
+    if returns:
+        shown = ", ".join(f"{m:.1f}" for m in sorted(returns)[:4])
+        suffix = ", …" if len(returns) > 4 else ""
+        noun = "location" if len(returns) == 1 else "locations"
+        log(f"AI line {model.stem}: local return to reference at {len(returns)} {noun} (route metres {shown}{suffix})")
     log(f"AI line: {len(points):,} points in {perf_counter() - start:.2f} s")
     return skipped
 
