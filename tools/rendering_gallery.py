@@ -56,7 +56,8 @@ def tree_variant(species, variant):
     ini = ini.replace('SUBSCATTERING=0.0', 'SUBSCATTERING=1.0').replace('SPHERE=0.0', 'SPHERE=1.0')
     for key in ('SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING', 'BRIGHTNESS'):
         if variant in (key, 'DIMMED'):
-            ini = ini.replace(key + '=1.0', key + ('=0.5' if key == 'BRIGHTNESS' else '=0.0'))
+            production = f'{treefx.BRIGHTNESS:.1f}' if key == 'BRIGHTNESS' else '1.0'
+            ini = ini.replace(f'{key}={production}', key + ('=0.5' if key == 'BRIGHTNESS' else '=0.0'))
     if variant in ('SPHERE', 'SPHERE_SUBSCATTERING'):
         # The backlight comparison isolates the dome-normal blend, then transmission too.
         # SPHERE_SUBSCATTERING matches needle shading; SUBSCATTERING matches rounded crowns.

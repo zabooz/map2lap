@@ -267,7 +267,8 @@ the log gives the reason and, for a surface failure, the route metre. Play keeps
 
 ## TreeFX needle lighting
 
-Owned trees and bushes use `SUBSCATTERING=0`, with `BRIGHTNESS`, `SPECULAR` and `REFLECTIVITY` at 1.
+Owned trees and bushes use `SUBSCATTERING=0` and `SPECULAR` and `REFLECTIVITY` at 1. `BRIGHTNESS` is 0.8
+(`treefx.BRIGHTNESS`) so the crowns keep their ratio to the ground's light values; Play refreshes it in installed tracks.
 Rounded leaf crowns, bushes and juniper use `SPHERE=1` to soften card lighting; needle and frond models use
 `SPHERE=0`. Owned trees set `AO_OPACITY=0.75` so enclosed trunks remain visible; bushes retain native AO.
 Spruce/larch cone normals and fir tips follow their surfaces. Format 16 refreshes owned models before

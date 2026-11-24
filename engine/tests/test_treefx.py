@@ -79,13 +79,15 @@ class MeshTest(unittest.TestCase):
 
 
 class BinTest(unittest.TestCase):
-    def test_generated_trees_keep_full_brightness_and_only_rounded_crown_smoothing(self):
+    def test_generated_trees_keep_the_ground_ratio_brightness_and_only_rounded_crown_smoothing(self):
+        self.assertEqual(.8, treefx.BRIGHTNESS)
+        expected = {'BRIGHTNESS': treefx.BRIGHTNESS, 'SPECULAR': 1., 'REFLECTIVITY': 1., 'SUBSCATTERING': 0.}
         for name in treefx.MODELS:
             ini = ini_of(treefx.tree_ini(name, *treefx.size(name), ['lod.mesh']))
             shading = ini['SHADING']
             self.assertEqual(float(ini['NORMALS']['SPHERE']), 1. if name in treefx.SMOOTH_CROWNS else 0.)
-            for term in ('BRIGHTNESS', 'SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING'):
-                self.assertEqual(float(shading[term]), 0. if term == 'SUBSCATTERING' else 1., (name, term))
+            for term, value in expected.items():
+                self.assertEqual(float(shading[term]), value, (name, term))
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()

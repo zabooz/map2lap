@@ -21,17 +21,19 @@ import numpy as np
 
 from track import editorinfo, groundmaterial, kn5, objectlist, parallel, route_race
 
-# Material values (set in AC by eye): ambient and sun balanced so the shadow sides are not too dark and the sunlit
-# sides not too bright
-DEFAULT = {"ksAmbient": 0.43, "ksDiffuse": 0.27, "ksSpecular": 0.05, "ksSpecularEXP": 20.0}
+# Material values, set in AC by eye under CSP's native weather: ksAmbient is the sky's share, ksDiffuse the direct sun's.
+# Grass and asphalt take 0.30 sky and 0.16 sun; the others keep their ratio to them. Higher values washed the ground out
+# to a pale green under Clear, where the direct sun is strongest. Lower sun values flatten slopes, whose shape
+# shows only through the sunlit and shaded sides.
+DEFAULT = {"ksAmbient": 0.31, "ksDiffuse": 0.16, "ksSpecular": 0.05, "ksSpecularEXP": 20.0}
 VALUES = {
-    "asphalt": {"ksAmbient": 0.41, "ksDiffuse": 0.27, "ksSpecular": 0.02, "ksSpecularEXP": 10.0},    # (like the terrain)
-    "cobble": {"ksAmbient": 0.39, "ksDiffuse": 0.23, "ksSpecular": 0.08, "ksSpecularEXP": 25.0},
-    "paint": {"ksAmbient": 0.45, "ksDiffuse": 0.31, "ksSpecular": 0.10, "ksSpecularEXP": 30.0},
-    "grass": {"ksAmbient": 0.41, "ksDiffuse": 0.27, "ksSpecular": 0.02, "ksSpecularEXP": 10.0},
+    "asphalt": {"ksAmbient": 0.30, "ksDiffuse": 0.16, "ksSpecular": 0.02, "ksSpecularEXP": 10.0},    # (like the terrain)
+    "cobble": {"ksAmbient": 0.28, "ksDiffuse": 0.14, "ksSpecular": 0.08, "ksSpecularEXP": 25.0},
+    "paint": {"ksAmbient": 0.33, "ksDiffuse": 0.18, "ksSpecular": 0.10, "ksSpecularEXP": 30.0},
+    "grass": {"ksAmbient": 0.30, "ksDiffuse": 0.16, "ksSpecular": 0.02, "ksSpecularEXP": 10.0},
     "wire": {"ksAmbient": 0.10, "ksDiffuse": 0.10, "ksSpecular": 0.05, "ksSpecularEXP": 20.0},
-    "water": {"ksAmbient": 0.55, "ksDiffuse": 0.30, "ksSpecular": 0.35, "ksSpecularEXP": 40.0},     # comic water
-    "foam": {"ksAmbient": 0.60, "ksDiffuse": 0.30, "ksSpecular": 0.10, "ksSpecularEXP": 20.0},
+    "water": {"ksAmbient": 0.40, "ksDiffuse": 0.18, "ksSpecular": 0.35, "ksSpecularEXP": 40.0},     # comic water
+    "foam": {"ksAmbient": 0.44, "ksDiffuse": 0.18, "ksSpecular": 0.10, "ksSpecularEXP": 20.0},
 }
 SMOOTH = {"grass", "asphalt", "cobble", "dirt", "ballast", "paint", "water", "foam", "edge_dirt", "arrows", "far"}
 # gravel edge and arrows (roadtex.py): frayed or cut-out shape through the alpha test
@@ -40,7 +42,7 @@ SIGN_LETTERS = ("bne_exit_letters", "bne_guide_letters", "bne_guide_letters_blac
 SHADERS.update({m: ("ksPerPixelAT", 1) for m in SIGN_LETTERS})
 SHADERS["fences"] = ("ksPerPixelAT_NS", 1)     # (fences.py: chain link, mesh, pickets cut out; upright quads like trees)
 SHADERS["leisure"] = ("ksPerPixelAT", 1)        # (leisure.py: the goals' and hoops' nets cut out)
-VALUES["trees"] = {"ksAmbient": 0.42, "ksDiffuse": 0.36, "ksSpecular": 0.0, "ksSpecularEXP": 1.0}     # (imported plant models: trackmodels)
+VALUES["trees"] = {"ksAmbient": 0.31, "ksDiffuse": 0.21, "ksSpecular": 0.0, "ksSpecularEXP": 1.0}     # (imported plant models: trackmodels)
 VALUES["edge_dirt"] = VALUES["grass"]
 VALUES["far"] = VALUES["grass"]
 VALUES["arrows"] = VALUES["paint"]

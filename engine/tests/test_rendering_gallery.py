@@ -62,7 +62,8 @@ class RenderingGalleryTest(unittest.TestCase):
                 with zipfile.ZipFile(io.BytesIO(raw)) as archive:
                     ini = treefx._ini(archive.read('tree.ini').decode())
                     for key in ('SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING', 'BRIGHTNESS'):
-                        expected = (.5 if key == 'BRIGHTNESS' else 0.) if variant in (key, 'DIMMED') else 1.
+                        production = treefx.BRIGHTNESS if key == 'BRIGHTNESS' else 1.
+                        expected = (.5 if key == 'BRIGHTNESS' else 0.) if variant in (key, 'DIMMED') else production
                         if variant == 'SPHERE_SUBSCATTERING' and key == 'SUBSCATTERING':
                             expected = 0.
                         self.assertEqual(float(ini['SHADING'][key]), expected)

@@ -773,13 +773,18 @@ def png(img):
     return b.getvalue()
 
 
+# TreeFX crowns at 0.8 of CSP's full brightness keep the ratio to the ground's light values (obj_to_kn5.VALUES):
+# at 1.0 the trees stood out brighter than the darker meadow under Clear.
+BRIGHTNESS = 0.8
+
+
 def tree_ini(name, H, W, meshes):
     """tree.ini of a model H m high and W wide whose LOD meshes are named meshes, finest first. Pure."""
     # Keep transmission off. Rounded leaf crowns retain dome smoothing, while needle cones
     # use their surface normals to avoid the bright upper crown seen in the backlight comparison.
     sphere = 1.0 if name in SMOOTH_CROWNS else 0.0
     ini = [f"[BASIC]\nHEIGHT={H:.4f}\nWIDTH={W:.4f}\nCACHE_RESOLUTION=256,512\nVERTICAL_OFFSET=0\n",
-           "[SHADING]\nSPECULAR=1.0\nSUBSCATTERING=0.0\nREFLECTIVITY=1.0\nBRIGHTNESS=1.0\nUSE_AO_CHANNEL=0\n",
+           f"[SHADING]\nSPECULAR=1.0\nSUBSCATTERING=0.0\nREFLECTIVITY=1.0\nBRIGHTNESS={BRIGHTNESS:.1f}\nUSE_AO_CHANNEL=0\n",
            f"[NORMALS]\nBOOST=0.9\nSPHERE={sphere:.1f}\n", "[LEAVES]\nMULT=20.0\nOFFSET=0.0\n", "[FAKE_SHADOW]\nSIZE=1.0\nOPACITY=1.0\n"]
     if name not in BUSHES:
         # Keep at least quarter visibility when opaque needle tiers enclose the trunk.

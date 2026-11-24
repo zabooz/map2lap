@@ -43,7 +43,7 @@ class SeasonTest(unittest.TestCase):
             with zipfile.ZipFile(runtime) as archive:
                 shading = treefx._ini(archive.read('tree.ini').decode())['SHADING']
             for key in ('BRIGHTNESS', 'SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING'):
-                self.assertEqual(float(shading[key]), 0. if key == 'SUBSCATTERING' else 1.)
+                self.assertEqual(float(shading[key]), {'BRIGHTNESS': treefx.BRIGHTNESS, 'SUBSCATTERING': 0.}.get(key, 1.))
             self.assertEqual((trees / 'trees.txt').read_text(), listing)
 
     def test_play_isolates_season_cache_and_preserves_baked_models_on_return(self):
