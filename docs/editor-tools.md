@@ -47,14 +47,16 @@ a timing gate, the legend spans the available samples. The Editor keeps the geom
 draft can differ from the displayed line. Recalculate AI line operates on the saved KN5 after pending edits have been saved.
 A lateral move is one undoable edit. Its offset tapers to zero over the Move range on each side (30 m by default).
 The recipe owns its route metre, local approach, departure, level and coordinate frame. A rebuilt copy resolves these on
-its own route. An ambiguous anchor, overlap, fixed grid or timing point, or insufficient clearance gives a located error.
+its own route. An ambiguous anchor, overlap, fixed grid or finish point, or insufficient clearance gives a located error.
 The target is the lateral distance from the route centre at the anchor. Its along-route component preserves a drop on
 a skewed approach. The taper joins the current automatic line. A rejected move stays in the recipe with its reason
 visible in the Editor. Other valid moves still apply. Legacy moves store only a delta from an unknown automatic line;
 they are skipped until redrawn. The racing-line solver holds the moved samples fixed. The saved corrections also enter the line fingerprint.
 
 Redraw starts and ends with a click on the line in driving order. Intermediate ground clicks shape the curve.
-Escape discards a draft. Right-click a saved correction to remove it. Free mode belongs to each new correction.
+The preview shows the collision cross-sections and mapped side limits along the edited line.
+Shift switches Road/Free, Ctrl switches Move/Redraw and Alt + wheel adjusts the move range.
+Changing modes or pressing Escape discards an unfinished stroke. Right-click a saved correction to remove it. Free mode belongs to each new correction.
 Yellow marks off-road segments supported by a driving surface. Red marks an invalid section, with its reason and
 route metre on hover. At an open finish the dashed continuation accepts the end click for a free runout.
 Build as copy carries the correction recipe and resolves it on the new geometry.

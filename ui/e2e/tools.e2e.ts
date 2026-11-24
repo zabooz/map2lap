@@ -66,7 +66,12 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   const result = await (await guide).json();
   expect(result.error).toBeUndefined();
   const bar = page.locator("#edit-ai-line-set");
-  await expect(bar.getByRole("slider", {name: /Move range/})).toHaveValue("30");
+  const range = bar.getByRole("spinbutton", {name: /Move range/});
+  await expect(range).toHaveValue("30");
+  await wheelWith(page, ["Alt"], -100);
+  await expect(range).toHaveValue("31");
+  await wheelWith(page, ["Control"], -100);
+  await expect(bar.getByRole("button",{name:"Move",exact:true})).toHaveAttribute("aria-pressed","true");
   const bounds = (await scene(page).boundingBox())!;
   const row = result.rows.find((r: number[]) => r[3] > 104);
   // Initial camera looks from 45 m behind and 22 m above AC_START_0.
@@ -88,7 +93,7 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   await page.keyboard.press("Control+z");
   await expect.poll(moves).toHaveLength(1);
   await saveTrack(page);
-  const recalc = bar.getByRole("button", {name: "Recalculate AI line"});
+  const recalc = page.locator("#edit-bar").getByRole("button", {name: "Recalculate AI line"});
   await expect(recalc).toBeEnabled();
   await recalc.click();
   await expect(bar).toContainText("Side limits");
@@ -102,8 +107,10 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   await page.keyboard.press("l");
   const guide = await (await response).json();
   const bar = page.locator("#edit-ai-line-set");
-  await bar.getByRole("checkbox",{name:"Free mode"}).check();
-  await bar.getByRole("button",{name:"Redraw",exact:true}).click();
+  await page.keyboard.press("Shift");
+  await expect(bar.getByRole("button",{name:"Free",exact:true})).toHaveAttribute("aria-pressed","true");
+  await page.keyboard.press("Control");
+  await expect(bar.getByRole("button",{name:"Redraw",exact:true})).toHaveAttribute("aria-pressed","true");
   const bounds=(await scene(page).boundingBox())!, three=await import("three");
   const camera=new three.PerspectiveCamera(55,bounds.width/bounds.height,.5,10000);
   camera.position.set(128,22,5); camera.lookAt(128,0,-40); camera.updateMatrixWorld();
@@ -114,6 +121,8 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   };
   const click = (metre:number, off=0) => page.mouse.click(...position(metre,off));
   const moves=async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiCorrections;
+  await click(105);
+  await page.keyboard.press("Control"); await page.keyboard.press("Control");
   await click(105); await click(91);
   await expect(bar).toContainText("End precedes the start");
   await page.keyboard.press("Escape");
@@ -124,10 +133,10 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   expect(stroke.kind).toBe("redraw"); expect(stroke.free).toBe(true);
   expect(stroke.points).toHaveLength(1);
   await saveTrack(page);
-  await bar.getByRole("button",{name:"Recalculate AI line"}).click();
+  await page.locator("#edit-bar").getByRole("button",{name:"Recalculate AI line"}).click();
   await expect(bar).toContainText("Side limits");
   expect(await moves()).toEqual([stroke]);
-  await bar.getByRole("button",{name:"Redraw",exact:true}).click();
+  await bar.getByRole("button",{name:"Move",exact:true}).click();
   await page.mouse.move(...position(100));
   await expect(page.getByRole("region",{name:"AI line point"})).toContainText("Route metre");
 });
@@ -144,7 +153,7 @@ test("L shows the installed AI line", async ({page, backend}) => {
   const c = await keysOnView(page);
   await page.keyboard.press("l");
   const ai = page.getByRole("heading", {name: "AI", exact: true}).locator("..");
-  await expect(ai.getByRole("button", {name: "AI line"})).toHaveAttribute("aria-pressed", "true");
+  await expect(ai.getByRole("button", {name: "AI line", exact: true})).toHaveAttribute("aria-pressed", "true");
   const bar = page.locator("#edit-ai-line-set");
   await expect(bar).toContainText("No AI line is installed");
   await page.keyboard.press("Escape");
@@ -154,8 +163,8 @@ test("L shows the installed AI line", async ({page, backend}) => {
   await expect(bar).toContainText("Side limits");
   await expect(bar).not.toContainText("Braking");
   await expect(bar).toContainText("Line from the last build or save");
-  await expect(bar.getByRole("button", {name: "Recalculate AI line"})).toBeDisabled();
-  await expect(bar.getByText("Save first.", {exact: true})).toBeVisible();
+  await expect(page.locator("#edit-bar").getByRole("button", {name: "Recalculate AI line"})).toBeDisabled();
+  await expect(ai.getByText("Save first.", {exact: true})).toBeVisible();
   await page.mouse.move(c.x, c.y + 10);
   const point = page.getByRole("region", {name: "AI line point"});
   await expect(point).toContainText("Route metre");
@@ -511,7 +520,7 @@ test("AI line button reports a saved track's calculation error in the Editor", a
   await page.keyboard.press("l");
   const bar = page.locator("#edit-ai-line-set");
   const answer = page.waitForResponse("**/api/editor/alpha/ai-line/recalculate");
-  await bar.getByRole("button", {name: "Recalculate AI line"}).click();
+  await page.locator("#edit-bar").getByRole("button", {name: "Recalculate AI line"}).click();
   const {error} = await (await answer).json();
   expect(error).toBeTruthy();
   await expect(bar.getByRole("alert")).toHaveText(error);

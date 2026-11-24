@@ -517,10 +517,27 @@ def _sample(path, points, circuit, road, mapped=(), rings=(), *, ownership=False
     pin = ((station >= rear) if circuit else ((station <= start) | (station >= finish)))
     pin[0] = True
     lap_path = np.vstack((xz, xz[0])) if circuit else xz
+    hard = pin.copy()
+    splits = []
     for key in points:
         if re.fullmatch(r"AC_TIME_\d+_L", key) and key[:-1] + "R" in points:
-            crossing, _ = _gate_crossings(lap_path, points, key[:-2])
+            name = key[:-2]
+            crossing, _ = _gate_crossings(lap_path, points, name)
+            if name == "AC_TIME_0":
+                hard[crossing] = hard[(crossing+1) % len(pin)] = True
+            else:
+                # Locate the sector on the saved route even if a rounded corner misses the markers.
+                gate_hits, t = _gate_crossings(at, points, name)
+                if len(gate_hits):
+                    i = gate_hits[0]
+                    metre = knots[i] + t[i]*(knots[i+1]-knots[i])
+                else:
+                    marker = np.array(points[key])[12:15][XZ]
+                    metre, _ = _project(at, knots, marker)
+                splits.append((name, points, metre))
             pin[crossing] = pin[(crossing+1) % len(pin)] = True
+    # Keep both ends of the grid and finish chords fixed, including a gate between samples.
+    hard = hard | np.roll(hard, 1) | np.roll(hard, -1)
     ring = aibends.ring_vertices(at, rings)
     pin |= aibends.ring_vertices(xz, rings) | (ring[leg] & ring[leg+1])
     # Hold both ends of chords crossing a timing plane or a ring boundary, and the
@@ -533,7 +550,8 @@ def _sample(path, points, circuit, road, mapped=(), rings=(), *, ownership=False
         if turns[ids[0]]:
             region = (along >= length[ids[0]]-2*CURVE_HALF_WINDOW) & (along <= length[ids[-1]]+2*CURVE_HALF_WINDOW)
             groups.append((region, turns[ids[0]]))
-    return (*result, airacing.RouteRibbon(pin, at[leg], at[leg+1], widths[leg], station, groups))
+    return (*result, airacing.RouteRibbon(pin, at[leg], at[leg+1], widths[leg], station, groups, hard, tuple(splits),
+                                        None if circuit else finish))
 
 
 FREE_FLOORS = ("1GRASS_", "1KERB_")
@@ -777,19 +795,29 @@ def _mapped_widths(xz, forward, roads, *, half_only=False):
 
 def _own_widths(xz, forward, widths, mapped_roads, circuit, *, with_openings=False):
     """Interpolate across mapped junctions or short width bulges using the driven road's sides. Pure."""
+    areas = obj_to_kn5._junction_geometry(mapped_roads)[0] if mapped_roads else ()
+    result = np.minimum(widths, _mapped_widths(xz, forward, mapped_roads))
+    return _junction_widths(widths, result, _in_junctions(xz, areas), circuit, with_openings)
+
+
+def _in_junctions(xz, areas):
+    """Which points lie in mapped junction mouths. Pure."""
+    mapped = np.zeros(len(xz), dtype=bool)
+    for x, z, radius_sq in areas:
+        mapped |= ((xz - [x, z])**2).sum(axis=1) <= radius_sq
+    return mapped
+
+
+def _junction_widths(widths, result, mapped, circuit, with_openings=False):
+    """Limit side openings using the surrounding route in driving order. Pure."""
     count = len(widths)
     i = np.arange(count)
     reach = min(round(WIDTH_NEIGHBORHOOD / SPACING), count // 2)
-    mapped = np.zeros(count, dtype=bool)
-    areas = obj_to_kn5._junction_geometry(mapped_roads)[0] if mapped_roads else ()
-    for x, z, radius_sq in areas:
-        mapped |= ((xz - [x, z])**2).sum(axis=1) <= radius_sq
     # A side opening is wider than its nearby widths on both sides of the crossing. Each side is independent.
     before = np.maximum(0, i[:, None] - np.arange(1, reach + 1))
     after = np.minimum(count - 1, i[:, None] + np.arange(1, reach + 1))
     if circuit:
         before, after = (i[:, None] - np.arange(1, reach + 1)) % count, (i[:, None] + np.arange(1, reach + 1)) % count
-    result = np.minimum(widths, _mapped_widths(xz, forward, mapped_roads))
     openings = mapped.copy()
     for side, corridor in enumerate(result.T):
         neighbor = np.maximum(corridor[before].min(axis=1), corridor[after].min(axis=1))
@@ -1003,7 +1031,7 @@ def _return_metres(base, final, proposed, failed, metres, circuit):
     return metres[starts]
 
 
-def _racing_records(base, stations, road, circuit, mapped, route, report_returns):
+def _racing_records(base, stations, road, circuit, mapped, route, report_returns, *, preview_sections=None):
     """Fit a racing line inside the reference carriageway and validate every stored chord."""
     xz = base[:, XZ]
     lap = stations[-1] - stations[0] + np.linalg.norm(xz[-1] - xz[0])
@@ -1041,6 +1069,8 @@ def _racing_records(base, stations, road, circuit, mapped, route, report_returns
                 rejected = airacing.worse_runs(moved, difference, circuit)
                 if not rejected.any():
                     points, detail = _records(xyz, stations, road, circuit, checked_sections=sections, widths=widths)
+                    if preview_sections is not None:
+                        preview_sections.append((base, sections.copy()))
                     if failures.any():
                         proposed = xz + side * shift[:, None]
                         report_returns(_return_metres(xz, points["pos"][:, XZ], proposed, failures,
@@ -1076,14 +1106,14 @@ def lane_inputs(model, circuit, log, *, preview=False):
     return path, markers, _roads(model, scan["meshes"], free), mapped, rings, origin, corrections
 
 
-def move_reference(model, inputs, circuit, report_returns):
+def move_reference(model, inputs, circuit, report_returns, *, preview_sections=None):
     """The validated automatic line and its exact sample-to-route correspondence for authoring."""
     path, markers, roads, mapped, rings, origin, _ = inputs
     road = _local_roads(roads)
 
     def records(stations, xz, height, limits):
         xyz = _surface(stations, xz, road, height, circuit)
-        points, detail = _racing_records(xyz, stations, road, circuit, mapped, limits, report_returns)
+        points, detail = _racing_records(xyz, stations, road, circuit, mapped, limits, report_returns, preview_sections=preview_sections)
         return points, detail, limits, stations, road, aicorrections.Route(path, origin, circuit)
 
     preferred = _sample(path, markers, circuit, road, mapped, rings, ownership=True)
@@ -1108,10 +1138,10 @@ def check_click_levels(section, xyz, route):
             raise NoLine(f"Wrong driving level at route metre {section.metres[i]:.1f}")
 
 
-def preview_reference(model, inputs, circuit):
+def preview_reference(model, inputs, circuit, *, preview_sections=None):
     """An editable route guide even where the automatic line has no connected surface."""
     try:
-        return move_reference(model, inputs, circuit, lambda _: None), {}
+        return move_reference(model, inputs, circuit, lambda _: None, preview_sections=preview_sections), {}
     except NoLine:
         return _diagnostic_reference(model, inputs, circuit)
 
@@ -1139,6 +1169,22 @@ def nearest_stations(stations, metres):
     nearest = np.clip(np.searchsorted(stations, metres), 0, len(stations)-1)
     prev = np.maximum(nearest-1, 0)
     return np.where(abs(metres-stations[prev]) < abs(metres-stations[nearest]), prev, nearest)
+
+
+def check_splits(xyz, splits, circuit):
+    """A corrected passage must cross each sector segment forwards on its driving level. Pure."""
+    if not splits:
+        return
+    lap = np.vstack((xyz, xyz[0])) if circuit else xyz
+    for name, markers, metre in splits:
+        hits, t = _gate_crossings(lap[:, XZ], markers, name)
+        heights = lap[hits, 1] + t[hits]*(lap[hits+1, 1]-lap[hits, 1])
+        left, right = (np.asarray(markers[f"{name}_{side}"])[12:15] for side in "LR")
+        side = right[XZ] - left[XZ]
+        cuts = lap[hits][:, XZ] + t[hits,None]*(lap[hits+1][:, XZ]-lap[hits][:, XZ])
+        level = left[1] + ((cuts-left[XZ]) @ side)/(side @ side)*(right[1]-left[1])
+        if not np.any(abs(heights-level) < obj_to_kn5.LEVEL_GAP_M):
+            raise NoLine(f"Misses timing gate {name} at route metre {metre:.1f}")
 
 
 def check_selected_road(xz, metres, ribbon, nearest, owned):
@@ -1183,19 +1229,18 @@ def _drawn_reference(model, inputs, circuit, report_returns, *, diagnostic=False
         if section.start < stations[0] or (not is_tail and section.end > stations[-1]):
             raise NoLine(f"End outside the available line at route metre {section.end:.1f}")
         inside = (stations >= section.start) & (stations <= section.end)
-        fixed = inside & ribbon.fixed
+        fixed = inside & ribbon.hard
         if is_tail:
             # The automatic solver pins its whole runout. Only the timing plane
             # and timed approach must remain fixed when the user draws a new tail.
-            finish = _route_path(path, markers, _grid(markers))[4]
-            fixed &= stations <= finish + GRID_XZ_TOL
+            fixed &= stations <= ribbon.finish + GRID_XZ_TOL
         if fixed.any():
             delta = section.positions(stations[fixed])[:, XZ] - xz[fixed]
             if np.any(np.linalg.norm(delta, axis=1) > GRID_XZ_TOL):
                 raise NoLine(f"Fixed AI line point at route metre {stations[fixed][0]:.1f}")
         retain &= ~inside
     retain &= stations <= tail_end
-    xz, joined = airedraw.join_approaches(xz, stations, ribbon.fixed, sections, 2*CURVE_HALF_WINDOW, GRID_XZ_TOL)
+    xz, joined = airedraw.join_approaches(xz, stations, ribbon.hard, sections, 2*CURVE_HALF_WINDOW, GRID_XZ_TOL)
     metres = np.concatenate([stations[retain], *[part.metres for part in sections]])
     points = np.concatenate([xz[retain], *[part.xyz[:, XZ] for part in sections]])
     order = np.argsort(metres)
@@ -1210,6 +1255,7 @@ def _drawn_reference(model, inputs, circuit, report_returns, *, diagnostic=False
             free |= inside
     queries = _per_point(road, wider, free)
     xyz = _surface(metres, points, queries, height, circuit, diagnostic=diagnostic)
+    check_splits(xyz, ribbon.splits, circuit)
     for part in sections:
         check_click_levels(part, xyz[(metres >= part.start) & (metres <= part.end)], route)
     authored = manual | joined[nearest]
@@ -1225,17 +1271,19 @@ def _drawn_reference(model, inputs, circuit, report_returns, *, diagnostic=False
                 or min(_section(q, xyz[i], sides[i], metres[i])[:2]) < FILLET_CLEARANCE):
             raise NoLine(f"Insufficient clearance at route metre {metres[i]:.1f}")
     limits = airacing.RouteRibbon(ribbon.fixed[nearest] | authored, ribbon.start[nearest], ribbon.end[nearest],
-                                  ribbon.half_width[nearest], metres, [(m[nearest], v) for m,v in ribbon.groups])
+                                  ribbon.half_width[nearest], metres, [(m[nearest], v) for m,v in ribbon.groups],
+                                  ribbon.hard[nearest] | authored, ribbon.splits, ribbon.finish)
     along = _distances(points)
     if diagnostic:
         records, detail = np.zeros(len(xyz), POINT), np.zeros(len(xyz), DETAIL)
         records["pos"] = xyz
     else:
         records, detail = _racing_records(xyz, along, queries, circuit, mapped, limits, report_returns)
+        check_splits(records["pos"], limits.splits, circuit)
     return records, detail, limits, along, queries, route
 
 
-def moved_line(reference, corrections, wider=None):
+def moved_line(reference, corrections, wider=None, measured=None):
     """Apply recipe moves to the automatic reference and validate their seams and cross-sections."""
     points, detail, ribbon, stations, road, route = reference
     xyz = points["pos"].astype(float)
@@ -1260,6 +1308,7 @@ def moved_line(reference, corrections, wider=None):
         if abs(height-y) >= obj_to_kn5.LEVEL_GAP_M:
             raise NoLine(f"No driveable surface at route metre {ribbon.metres[i]:.1f}")
         moved[i, 1] = height
+    check_splits(moved, ribbon.splits, route.circuit)
     joins = mask | np.roll(mask, 1)
     if not route.circuit:
         joins[0] = False
@@ -1276,17 +1325,20 @@ def moved_line(reference, corrections, wider=None):
         m = ribbon.metres[i]
         if not _fits_chord(queries[i], moved[i-1], moved[i], FILLET_CLEARANCE):
             raise NoLine(f"Insufficient clearance at route metre {m:.1f}")
-        if min(_section(queries[i], moved[i], side[i], m)[:2]) < FILLET_CLEARANCE:
+        section = _section(queries[i], moved[i], side[i], m)
+        if measured is not None:
+            measured[i] = section
+        if min(section[:2]) < FILLET_CLEARANCE:
             raise NoLine(f"Insufficient clearance at route metre {m:.1f}")
     return moved, mask, queries
 
 
-def checked_moves(reference, moves, finish, wider=None):
+def checked_moves(reference, moves, finish, wider=None, measured=None):
     """Try the complete recipe, isolating failed edits in recipe order if necessary."""
     original = reference[0]["pos"].astype(float)
     empty = np.zeros(len(original), bool)
     def apply(items):
-        return finish(*moved_line(reference, items, wider)) if items else finish(original, empty, reference[4])
+        return finish(*moved_line(reference, items, wider, measured)) if items else finish(original, empty, reference[4])
     try:
         return apply(moves), {}
     except ValueError:
@@ -1376,6 +1428,7 @@ def calculate(model, inputs, circuit, lane, log):
             protected |= ~approach
         limits = ribbon._replace(fixed=protected)
         records, details = _racing_records(moved, stations, queries, circuit, inputs[3], limits, returns.update)
+        check_splits(records["pos"], ribbon.splits, circuit)
         return records, details, returns
 
     moves = [item for item in inputs[-1] if item["kind"] == "move"]

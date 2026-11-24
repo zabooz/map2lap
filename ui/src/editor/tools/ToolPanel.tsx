@@ -40,7 +40,7 @@ export function FileButtons({edits, view, saving, onLibrary}: {edits: TrackEdits
 
 /** The Editor's tools, by groups: undo and redo with the tools that change nothing, those of the ground and the road, those of objects, the help of the one on; one tool at a time as in an
     image editor. tool: the one on. onTool: one was pressed. */
-export function ToolPanel({state, edits, view, tool, onTool, onModels}: {state: EditState; edits: TrackEdits; view: TrackView; tool: Tool; onTool: (tool: Tool) => void; onModels?: () => void}) {
+export function ToolPanel({aiPanel, state, edits, view, tool, onTool, onModels}: {aiPanel: ReactNode; state: EditState; edits: TrackEdits; view: TrackView; tool: Tool; onTool: (tool: Tool) => void; onModels?: () => void}) {
   const editable = edits.canEdit();
   const then = (action: () => void) => thenView(view, action);
   const shownTool = editable || TOOLS.some(t => t.tool === tool && t.free) ? tool : "select";
@@ -64,7 +64,7 @@ export function ToolPanel({state, edits, view, tool, onTool, onModels}: {state: 
         {buttons("general")}
       </Section>
       <Section title="Road">{buttons("road")}</Section>
-      <Section title="AI">{buttons("ai")}</Section>
+      <Section title="AI">{buttons("ai")}{aiPanel}</Section>
       <Section title="Terrain">{buttons("terrain")}</Section>
       <Section title="Objects">{buttons("objects")}</Section>
       <Help tool={shownTool} />

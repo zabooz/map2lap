@@ -131,8 +131,8 @@ class Route:
             affected = d < extent
             if not affected.any() or abs(xyz[d.argmin(), 1]-level) >= level_gap:
                 raise ValueError(f"Unresolved driving level at route metre {centre:.1f}")
-            if np.any(ribbon.fixed & affected):
-                raise ValueError(f"Fixed AI line point at route metre {ribbon.metres[ribbon.fixed & affected][0]:.1f}")
+            if np.any(ribbon.hard & affected):
+                raise ValueError(f"Fixed AI line point at route metre {ribbon.metres[ribbon.hard & affected][0]:.1f}")
             weight = (1 + np.cos(np.pi*d[affected]/extent))/2
             context = self.context(centre)
             tangent = context[2] - context[0]

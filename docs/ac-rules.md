@@ -188,6 +188,9 @@ own measured sides and the selected route legs bound the move through junctions.
 crossings and circulating lanes stay pinned. Every final chord is checked on its driving level, and widths
 are measured again on the resulting line. Where a move fails, the original car-width-checked line resumes
 locally with a smooth transition. Curvature measured on the final line sets radius and speed.
+Manual corrections may change the path through roundabouts and sector splits. The corrected line must cross
+each split between its markers in the driving direction on the same level. The grid and finish stay fixed;
+the dashed continuation allows a free runout after the finish.
 Hand-drawn sections replace the route before checking its floor. Authored samples stay fixed during optimisation
 and require 1.1 m of clearance on each side. A free correction can also use grass and kerb surfaces on its level.
 Walls and building collision still block it. The recipe keeps invalid corrections for inspection; where possible

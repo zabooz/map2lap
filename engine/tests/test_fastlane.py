@@ -24,7 +24,7 @@ class LaneCodeVersionTest(unittest.TestCase):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (5, "2b042d327f215ecffd2926eeec0a48f676dd9999de27bbdb0a7b5810eeed661e")
+        expected = (6, "a94a64a607085fe3f6a7e22cb32b4b53e231dca8e1cce899e503afda50880d4d")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments or refactors proven to preserve the generated line, update only the digest.")
@@ -38,14 +38,14 @@ class AILineTest(unittest.TestCase):
         self.lane = self.folder / "ai/fast_lane.ai"
 
     def write_track(self, route, *, circuit=False, road_start=-10, road_end=120, prefix="AC", height=9,
-                    strips=None, grid=None, obstacles=()):
+                    strips=None, grid=None, obstacles=(), splits=()):
         forward = (1, 0, 0)
         root = obj_to_kn5.empty("root", (0, 0, 0), (0, 0, 1))
         grid = grid or [(x, 10, forward) for x in (17, 9, 1)]
         for i, (x, z, direction) in enumerate(grid):
             root.children.append(obj_to_kn5.empty(f"AC_START_{i}", (x, height + .15, z), direction))
         gates = (("AC_TIME_0", 20),) if circuit else ((f"{prefix}_AB_START", 20), (f"{prefix}_AB_FINISH", 80))
-        for gate, x in gates:
+        for gate, x in (*gates, *splits):
             for side, z in (("L", 5), ("R", 15)):
                 root.children.append(obj_to_kn5.empty(f"{gate}_{side}", (x, height + .15, z), forward))
         strips = strips or [(road_start, road_end, 0, 55)]
@@ -167,7 +167,7 @@ class AILineTest(unittest.TestCase):
         path = np.array([[0,0],[60,0]])
         route = aicorrections.Route(path, [0,0], False)
         m = np.arange(61)
-        ribbon = airacing.RouteRibbon(np.zeros(61,bool), None, None, None, m, [])
+        ribbon = airacing.RouteRibbon(np.zeros(61,bool), None, None, None, m, [], np.zeros(61,bool), ())
         move = dict(id="a", kind="move", free=False, range=10, routeOffset=4,
                     anchor=dict(metre=30, level=0, origin=[0,0], context=route.context(30).tolist()))
         for z in (0, -2):
@@ -450,11 +450,13 @@ class AILineTest(unittest.TestCase):
         scan = kn5.scan(self.model)
         road = fastlane._local_roads(fastlane._roads(self.model, scan["meshes"]))
         mapped, rings = fastlane.aibends.lane_roads(editorinfo.archives(self.model), print)
-        _, old, _ = fastlane._sample(route, scan["points"], True, road, mapped, rings)
+        _, old, _, limits = fastlane._sample(route, scan["points"], True, road, mapped, rings, ownership=True)
         self.assertTrue(fastlane.regenerate(self.model, circuit=True))
         points, _, _ = fastlane.read_lane(self.lane)
         new = points["pos"][:, [0, 2]]
         inside = fastlane.aibends.ring_vertices(old, rings)
+        self.assertTrue(limits.fixed[inside].all())
+        self.assertFalse(limits.hard[inside].any())
         np.testing.assert_array_equal(new[inside], old[inside].astype("f4"))
         radial = new[inside] - [80, -5]
         heading = np.unwrap(np.arctan2(radial[:, 1], radial[:, 0]))

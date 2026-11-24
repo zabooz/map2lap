@@ -61,23 +61,24 @@ export class ShiftAlone {
   }
 }
 
-/** Alt pressed and let go by itself, as a key of its own (Select's Alt place). Another key, a click or the wheel while it is held make it
-    a modifier: other() says so; AltGr (Ctrl and Alt) and a window switch (Alt+Tab) never count. */
-export class AltAlone {
+/** A modifier tap belongs to the tool only until another key, pointer action or focus change. */
+class ModifierAlone {
   private armed = false;
+  constructor(private key: "Alt" | "Control") {}
 
-  down(e: KeyOfEvent) {
-    if (e.key === "Alt" && e.repeat) return;
-    this.armed = e.key === "Alt" && !e.ctrlKey && !e.shiftKey && !e.metaKey;
+  down(e: KeyOfEvent & {altKey?: boolean; inField?: boolean}) {
+    if (e.key === this.key && e.repeat) return;
+    this.armed = e.key === this.key && !e.metaKey && !e.shiftKey && !e.inField &&
+      (this.key === "Control" ? !e.altKey : !e.ctrlKey);
   }
-
   other() { this.armed = false; }
-
-  /** Whether this key's release is Alt let go by itself. */
-  up(e: KeyOfEvent) {
-    if (e.key !== "Alt") return false;
+  up(e: Pick<KeyboardEvent, "key">) {
+    if (e.key !== this.key) return false;
     const alone = this.armed;
     this.armed = false;
     return alone;
   }
 }
+
+export class AltAlone extends ModifierAlone { constructor() { super("Alt"); } }
+export class CtrlAlone extends ModifierAlone { constructor() { super("Control"); } }

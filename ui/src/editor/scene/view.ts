@@ -1130,6 +1130,9 @@ export class TrackView {
         this.picker.setFromCamera(mouse, this.camera);
         const ray = this.picker.ray;
         return this.groundAlong(ray.origin, ray.direction)?.point ?? null;
+      }, active => {
+        if (active) this.showAiLinePoint(null);
+        this.aiLineDraw.show(!active && this.onAiLinePoint !== null);
       });
   }
 

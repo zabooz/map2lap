@@ -1,4 +1,5 @@
 """Hand-drawn AI segments select a continuous physics surface before sampling the automatic route."""
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -26,6 +27,45 @@ class RedrawTest(unittest.TestCase):
 
     def save(self, edit):
         (self.folder / "data/map2lap.json").write_text(json.dumps({"edits": {"aiCorrections": [edit]}}))
+
+    def test_move_and_redraw_can_cross_a_split_off_centre_but_cannot_miss_it(self):
+        from server_editor import _move_preview
+        self.write_track([(20,10),(80,10)], splits=[("AC_TIME_1",50)])
+        self.generate()
+        automatic = self.lane.read_bytes()
+        # The same unedited KN5 exported with lane code version 5.
+        self.assertEqual("12e9dd84907c2e41c88d7f6472ca8965812f61f1e73c74a7ca883d0bf57a9bd3",
+                         hashlib.sha256(automatic).hexdigest())
+        for offset in (2, 8):
+            edits = [dict(id="side", kind="move", free=False, range=10, routeOffset=-offset,
+                          anchor=self.anchor(30)), self.redraw(20,40,[[50,9,10+offset]])]
+            for edit in edits:
+                with self.subTest(offset=offset, kind=edit["kind"]):
+                    self.save(edit)
+                    preview = _move_preview(self.model, {"aiCorrections":[edit]})
+                    log = self.generate()
+                    if offset == 2:
+                        self.assertFalse(preview["skipped"], preview["skipped"])
+                        self.assertFalse(any("skipped" in line for line in log), log)
+                        self.assertNotEqual(automatic, self.lane.read_bytes())
+                    else:
+                        self.assertRegex(preview["skipped"][edit["id"]], r"AC_TIME_1.*route metre 30")
+                        self.assertEqual(automatic, self.lane.read_bytes())
+
+    def test_preview_side_edges_match_the_saved_line_at_the_drawn_samples(self):
+        from server_editor import _move_preview
+        self.write_track([(20,10),(20,10),(80,10)], strips=[(-10,120,0,25)])
+        for edit in (self.redraw(20,40,[[50,9,11]]),
+                     dict(id="side",kind="move",free=False,range=10,routeOffset=-1,anchor=self.anchor(30))):
+            self.save(edit)
+            preview = _move_preview(self.model, {"aiCorrections":[edit]})
+            rows = preview["ink"]["ink"] if edit["kind"] == "redraw" else [r[1:] for r in preview["samples"]]
+            self.generate()
+            pts, detail, _ = fastlane.read_lane(self.lane)
+            for x,y,z,yellow,lx,ly,lz,rx,ry,rz in rows[1:-1]:
+                i = np.linalg.norm(pts["pos"]-[x,y,z],axis=1).argmin()
+                self.assertAlmostEqual(detail["left"][i], np.hypot(lx-x,lz-z),delta=.01)
+                self.assertAlmostEqual(detail["right"][i], np.hypot(rx-x,rz-z),delta=.01)
 
     def test_free_redraw_replaces_a_hole_before_the_first_surface_check(self):
         grass = ("1GRASS_ground", [(43, 9, 0), (58, 9, 0), (58, 9, 25), (43, 9, 25)])
@@ -89,7 +129,13 @@ class RedrawTest(unittest.TestCase):
         self.save(edit)
         log = self.generate()
         self.assertTrue(self.lane.is_file(),log)
-        xyz = fastlane.read_lane(self.lane)[0]["pos"].astype(float)
+        from server_editor import _move_preview
+        points, detail, _ = fastlane.read_lane(self.lane)
+        xyz = points["pos"].astype(float)
+        preview = _move_preview(self.model, {"aiCorrections":[edit]})["ink"]["ink"]
+        for sample in (preview[0], preview[-1]):
+            i = np.linalg.norm(xyz-sample[:3],axis=1).argmin()
+            self.assertAlmostEqual(np.hypot(sample[4]-sample[0], sample[6]-sample[2]), detail["left"][i],delta=.02)
         for x in (44,61):
             i = np.linalg.norm(xyz-[x,9,12.5],axis=1).argmin()
             np.testing.assert_allclose(xyz[i], [x,9,12.5], atol=.01)

@@ -12,9 +12,10 @@ import type {SelectionRectangle} from "./scene/marquee";
 /** The track name in 3D; built: when it was built, built again it loads again (a Save leaves it: the view shows the track's
     source). title: its title, taken: the other tracks'. visible: its tab is open. controls: how it moves. fileHost, toolsHost, notesHost: where in the sidebar its buttons are drawn.
     onStatus gets what is loading; onSaved the track saved, by its name (a copy: another one); onDelete: its Delete was pressed. */
-export default function EditorScene({name, title, timedMode, taken, built, visible, controls, fileHost, savedHost, toolsHost, notesHost, onStatus, onSaved, onDelete}: {
+export default function EditorScene({name, title, routeTrack, timedMode, taken, built, visible, controls, fileHost, savedHost, toolsHost, notesHost, onStatus, onSaved, onDelete}: {
   name: string;
   title: string;
+  routeTrack: boolean;
   timedMode?: TimedMode;
   taken: string[];
   built: number | null;
@@ -59,7 +60,7 @@ export default function EditorScene({name, title, timedMode, taken, built, visib
         {rectangle && <div className={styles.rectangle} aria-label="Selection rectangle"
           style={{left: rectangle.x, top: rectangle.y, width: rectangle.width, height: rectangle.height}} />}
         {view && name && <PointerInfo hovered={hovered} inspectorCollapsed={inspectorCollapsed} />}
-      {view && name && <EditTools key={`${name} ${built}`} name={name} title={title} timedMode={timedMode} visible={visible} taken={taken} view={view} scene={scene} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost} elevationSpeed={controls.elevationSpeed}
+      {view && name && <EditTools routeTrack={routeTrack} key={`${name} ${built}`} name={name} title={title} timedMode={timedMode} visible={visible} taken={taken} view={view} scene={scene} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost} elevationSpeed={controls.elevationSpeed}
                                   inspectorHost={inspectorHost}
                                   inspectorWidth={inspectorWidth} onInspectorWidth={setInspectorWidth}
                                   inspectorCollapsed={inspectorCollapsed} onInspectorCollapsed={setInspectorCollapsed}

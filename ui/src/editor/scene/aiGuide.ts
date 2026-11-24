@@ -1,6 +1,6 @@
 export type Row = [number, number, number, number, number, number, number, number, number];
 export interface MoveGuide {rows: Row[]; path: number[][]; key: string; origin: number[]; closed: boolean; length: number; tail: Row[]; errors: Record<number,string>}
-export interface Checked {ends?: Record<string,number>; ink: Record<string, number[][]>; yellow: number[]; skipped: Record<string, string>; samples: [number, number, number, number][]; centres: Record<string, number>}
+export interface Checked {ends?: Record<string,number>; ink: Record<string, number[][]>; yellow: number[]; skipped: Record<string, string>; samples: [number, ...number[]][]; centres: Record<string, number>}
 
 export const at = (guide: MoveGuide, metre: number) => {
   let s = guide.closed ? ((metre % guide.length) + guide.length) % guide.length : Math.max(0, metre);

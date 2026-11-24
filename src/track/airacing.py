@@ -10,12 +10,15 @@ TRACKING_MARGIN = 1.5
 
 class RouteRibbon(NamedTuple):
     """The original route leg, ownership limits and protected steering at each spline sample."""
-    fixed: np.ndarray
+    fixed: np.ndarray  # Constraints on the automatic optimiser.
     start: np.ndarray
     end: np.ndarray
     half_width: np.ndarray
     metres: np.ndarray
     groups: list
+    hard: np.ndarray  # Samples that an authored edit must preserve.
+    splits: tuple
+    finish: float | None = None  # The actual stage gate can precede the end of the saved route.
 
 
 def _curvature(a, b, c):

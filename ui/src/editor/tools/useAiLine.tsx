@@ -8,7 +8,7 @@ import {MeshFetchError} from "../scene/requests";
 import type {TrackView} from "../scene/view";
 import type {Place} from "../types";
 import type {ToolController} from "./toolHost";
-import {ToolOptions} from "./ToolOptions";
+import {thenView, ToolChoice, ToolNumber, ToolOptions} from "./ToolOptions";
 import styles from "./AiLine.module.css";
 
 const value = (n: number, digits = 3) => Number(n.toFixed(digits)).toString();
@@ -41,9 +41,9 @@ function Legend({slow, fast}: {slow: number; fast: number}) {
 type AiLineAnswer = Awaited<ReturnType<typeof fetchAiLine>> | {status: "error"; message: string};
 
 /** Check the installed revision when the tool opens, after recalculation and after Save. Visibility does not affect a transfer. */
-export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, editable}: {
-  name: string; view: TrackView; enabled: boolean; writes: number; unsaved: boolean; edits: TrackEdits; moves: AiCorrection[]; editable: boolean;
-}): ToolController {
+export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, editable, routeTrack}: {
+  name: string; view: TrackView; enabled: boolean; writes: number; unsaved: boolean; edits: TrackEdits; moves: AiCorrection[]; editable: boolean; routeTrack: boolean;
+}) {
   const [pen, setPen] = useState(false);
   const [free, setFree] = useState(false);
   const [working, setWorking] = useState(false);
@@ -106,34 +106,50 @@ export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, e
     });
     return () => { current = false; };
   }, [canEdit, url, revision]);
+  const dragRange = pen ? 0 : range;
   useEffect(() => {
     if (!canEdit || guide?.revision !== revision) return;
-    return view.editAiMoves(guide.data, url, moves, range, !lane, free, pen,
+    return view.editAiMoves(guide.data, url, moves, dragRange, !lane, free, pen,
       move => edits.addAiCorrection(move), id => edits.removeAiCorrection(id), setError);
-  }, [canEdit, guide, revision, url, moves, range, lane, free, pen, edits, view]);
+  }, [canEdit, guide, revision, url, moves, dragRange, lane, free, pen, edits, view]);
 
-  return {
+  const setMoveRange = (value: number) => setRange(Math.max(1, Math.min(100, Math.round(value))));
+  const controller: ToolController = {
+    toggleMode: () => { if (canEdit) setFree(value => !value); },
+    ctrlAction: () => { if (canEdit) setPen(value => !value); },
+    takesWheel: !!canEdit,
+    wheel: (keys, by) => { if (keys === "alt") setMoveRange(range + by); },
     activate: () => { setError(""); setAttempt(value => value + 1); },
     clear: () => { setHovered(null); setPen(false); },
     options: <>
       <ToolOptions id="edit-ai-line-set" title="AI line" note={unsaved ? "Line from the last build or save" : undefined}
+        options={canEdit ? {
+          shift: <span>
+            <ToolChoice label="Road" on={!free} hint="Stay on the selected road" onClick={thenView(view, () => setFree(false))} />
+            <ToolChoice label="Free" on={free} hint="Allow driveable surfaces off the road" onClick={thenView(view, () => setFree(true))} />
+          </span>,
+          ctrl: <span>
+            <ToolChoice label="Move" on={!pen} hint="Drag the line sideways" onClick={thenView(view, () => setPen(false))} />
+            <ToolChoice label="Redraw" on={pen} hint="Draw a replacement section" onClick={thenView(view, () => setPen(true))} />
+          </span>,
+          alt: <ToolNumber label="Move range" unit="m" hint="Blend distance on each side (Alt + wheel)"
+            min={1} max={100} value={range} onChange={setMoveRange} />,
+        } : undefined}
         actions={<>
-          {canEdit && <>
-            <button type="button" aria-pressed={pen} onClick={() => setPen(value => !value)}>Redraw</button>
-            <label><input type="checkbox" checked={free} onChange={e => setFree(e.target.checked)} /> Free mode</label>
-          </>}
-          {canEdit && <label>Move range <input type="range" min="1" max="100" step="1" value={range}
-            onChange={e => setRange(Number(e.target.value))} /> {range} m</label>}
-          {answer && "canCalculate" in answer && answer.canCalculate && <button type="button" disabled={unsaved || working}
-            title={unsaved ? "Save first." : undefined} onClick={() => void recalculate()}>Recalculate AI line</button>}
-          {unsaved && <span>Save first.</span>}
           {answer && "validity" in answer && answer.validity === "manual" && <span>Manually replaced</span>}
           {lane?.validity === "pending" && <span>Unverified installed line</span>}
           {error && <span role="alert">{error}</span>}
-          {working && <span role="status">Calculating AI line …</span>}
           {lane ? <Legend {...lane.speeds} />
           : <span role="status">{answer?.message ?? "Loading the installed AI line …"}</span>}</>} />
       {hover && <PointDetails hover={hover} />}
     </>,
   };
+  const panel = (answer && "canCalculate" in answer ? answer.canCalculate : routeTrack) && <>
+    <button type="button" disabled={unsaved || working} title={unsaved ? "Save first." : undefined}
+      onClick={thenView(view, () => void recalculate())}>Recalculate AI line</button>
+    {unsaved && <span>Save first.</span>}
+    {working && <span role="status">Calculating AI line …</span>}
+    {!enabled && error && <span role="alert">{error}</span>}
+  </>;
+  return {controller, panel};
 }

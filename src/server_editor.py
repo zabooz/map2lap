@@ -95,12 +95,55 @@ def _lane_data(model, revision=None):
         return {"status": status, "message": message, "closed": None, "revision": None, "count": 0}
 
 
+class _PreviewBand:
+    """Reuse the reference cross-sections and mapped road facts between pointer events."""
+
+    def __init__(self, reference, mapped, sections):
+        points, _, ribbon, _, road, route = reference
+        xyz = points["pos"].astype(float)
+        forward, side = fastlane._frame(xyz, route.circuit)[2:]
+        if sections:
+            self.reference, measured = sections[0]
+            self.physical = measured[:, :2]
+        else:
+            self.reference = xyz
+            # A diagnostic guide can have holes. Its other road widths still bound nearby junction openings.
+            self.physical = np.zeros((len(xyz), 2))
+            for i, point in enumerate(xyz):
+                try:
+                    self.physical[i] = fastlane._section(road, point, side[i], ribbon.metres[i])[:2]
+                except fastlane.NoLine:
+                    continue
+        self.roads = mapped
+        self.bounds = np.array([(line.min(axis=0)-w/2, line.max(axis=0)+w/2) for line,w in mapped]).reshape(-1,2,2)
+        self.areas = fastlane.obj_to_kn5._junction_geometry(mapped)[0]
+        self.mapped = fastlane._mapped_widths(xyz[:,fastlane.XZ], fastlane._unit(forward[:,fastlane.XZ]), mapped)
+        self.junctions = fastlane._in_junctions(xyz[:,fastlane.XZ], self.areas)
+        self.closed = route.circuit
+
+    def rows(self, xyz, indices, source, sections, yellow, forward, side):
+        """XYZ, colour flag and both banked edge positions, with the final record width rules."""
+        pts = xyz[indices]
+        xz = pts[:,fastlane.XZ]
+        near = (self.bounds[:,0] <= xz.max(axis=0)).all(axis=1) & (self.bounds[:,1] >= xz.min(axis=0)).all(axis=1)
+        roads = [self.roads[i] for i in np.flatnonzero(near)]
+        physical, mapped, junctions = self.physical[source], self.mapped[source], self.junctions[source]
+        physical[indices] = sections[:,:2]
+        mapped[indices] = fastlane._mapped_widths(xz, fastlane._unit(forward[indices][:,fastlane.XZ]), roads)
+        junctions[indices] = fastlane._in_junctions(xz, self.areas)
+        widths = fastlane._junction_widths(physical, np.minimum(physical,mapped), junctions, self.closed)[indices]
+        transverse = side[indices] + sections[:,2,None]*fastlane.UP
+        return np.column_stack((pts, yellow, pts + transverse*widths[:,0,None], pts - transverse*widths[:,1,None]))
+
+
 @lru_cache(maxsize=1)
 def _move_reference(model, circuit, revision):
     """Keep the automatic reference across pointer gestures on the same installed geometry."""
     inputs = fastlane.lane_inputs(model, circuit, lambda _: None, preview=True)
-    reference, invalid = fastlane.preview_reference(model, inputs, circuit)
-    return reference, invalid, fastlane._local_roads(inputs[2], free=True)
+    sections = []
+    reference, invalid = fastlane.preview_reference(model, inputs, circuit, preview_sections=sections)
+    band = _PreviewBand(reference, inputs[3], sections)
+    return reference, invalid, fastlane._local_roads(inputs[2], free=True), band
 
 
 def _runout_guide(ref, wider):
@@ -120,16 +163,21 @@ def _runout_guide(ref, wider):
     return tail
 
 
-def _ink_preview(ref, wider, item, section):
+def _ink_preview(ref, wider, item, section, band):
     """Full-width check and road/off-road colours for a pencilled replacement. Pure."""
     points, _, ribbon, _, road, route = ref
+    if route.circuit and section.start < ribbon.metres[0]:
+        section.start += route.length
+        section.end += route.length
+        section.metres += route.length
     is_tail = "tail" in item
     if is_tail and (route.circuit or abs(item["end"]["metre"]-route.length) > fastlane.GRID_XZ_TOL):
         raise ValueError(f"Invalid runout endpoint at route metre {section.end:.1f}")
     inside = (ribbon.metres >= section.start) & (ribbon.metres <= section.end)
-    fixed = inside & ribbon.fixed
+    fixed = inside & ribbon.hard
     if is_tail:
-        fixed &= ribbon.metres <= route.length
+        # The saved route may continue along the runout beyond the finish gate.
+        fixed &= ribbon.metres <= ribbon.finish + fastlane.GRID_XZ_TOL
     if fixed.any() and np.any(np.linalg.norm(section.positions(ribbon.metres[fixed])[:,[0,2]]-
                                                points["pos"][fixed][:,[0,2]],axis=1) > fastlane.GRID_XZ_TOL):
         raise ValueError(f"Fixed AI line point at route metre {ribbon.metres[fixed][0]:.1f}")
@@ -143,16 +191,47 @@ def _ink_preview(ref, wider, item, section):
         nearest = fastlane.nearest_stations(ribbon.metres, stations)
         fastlane.check_selected_road(xyz[:,fastlane.XZ], section.metres, ribbon, nearest,
                                      np.arange(1,len(xyz)))
-    sides = fastlane._frame(xyz,False)[3]
-    yellow = []
-    for i in range(len(xyz)):
-        previous = xyz[max(0,i-1)]
-        m = section.metres[i]
-        if (not fastlane._fits_chord(floor,previous,xyz[i],fastlane.FILLET_CLEARANCE)
-                or min(fastlane._section(floor,xyz[i],sides[i],m)[:2]) < fastlane.FILLET_CLEARANCE):
-            raise ValueError(f"Insufficient clearance at route metre {m:.1f}")
-        yellow.append(item["free"] and not fastlane._fits_chord(road,previous,xyz[i],fastlane.FILLET_CLEARANCE))
-    return np.column_stack((xyz,yellow)).tolist()
+    # Include the adjoining chords for endpoint tangents and the rest of the lap for junction interpolation.
+    before = np.flatnonzero(ribbon.metres < section.start)
+    after = np.flatnonzero(ribbon.metres > section.end)
+    joins, changed = fastlane.airedraw.join_approaches(
+        band.reference[:,fastlane.XZ], ribbon.metres, ribbon.hard, [section],
+        2*fastlane.CURVE_HALF_WINDOW, fastlane.GRID_XZ_TOL)
+    outside = points["pos"].astype(float)
+    for i in np.flatnonzero(changed):
+        x,z = joins[i]
+        levels = fastlane.obj_to_kn5.road_levels(road(x,z,0), x, z)
+        y = min(levels, key=lambda h: abs(h-band.reference[i,1]), default=np.inf)
+        if abs(y-band.reference[i,1]) >= fastlane.obj_to_kn5.LEVEL_GAP_M:
+            raise ValueError(f"No driveable approach at route metre {ribbon.metres[i]:.1f}")
+        outside[i] = [x,y,z]
+    full = np.vstack((outside[before], xyz, outside[after]))
+    indices = len(before) + np.arange(len(xyz))
+    source = np.r_[before, np.zeros(len(xyz), int), after]
+    metres = np.r_[ribbon.metres[before], section.metres, ribbon.metres[after]]
+    fastlane.check_splits(full, ribbon.splits, route.circuit)
+    forward, sides = fastlane._frame(full,route.circuit)[2:]
+    edited = np.r_[changed[before], np.ones(len(xyz),bool), changed[after]]
+    dirty = edited.copy()
+    dirty[1:] |= edited[:-1]
+    dirty[:-1] |= edited[1:]
+    if route.circuit:
+        dirty[[0,-1]] |= edited[[-1,0]]
+    measured = np.flatnonzero(dirty)
+    sections, yellow = [], []
+    for i in measured:
+        authored = indices[0] <= i <= indices[-1]
+        query = floor if authored else road
+        previous = full[i-1] if i or route.circuit else full[i]
+        measure = fastlane._section(query,full[i],sides[i],metres[i])
+        sections.append(measure)
+        if (edited[i] and (not fastlane._fits_chord(query,previous,full[i],fastlane.FILLET_CLEARANCE)
+                           or min(measure[:2]) < fastlane.FILLET_CLEARANCE)):
+            raise ValueError(f"Insufficient clearance at route metre {metres[i]:.1f}")
+        yellow.append(authored and item["free"] and
+                      not fastlane._fits_chord(road,previous,full[i],fastlane.FILLET_CLEARANCE))
+    rows = band.rows(full, measured, source, np.asarray(sections), yellow, forward, sides)
+    return rows[np.searchsorted(measured, indices)].tolist()
 
 
 def _move_preview(model, body):
@@ -160,12 +239,12 @@ def _move_preview(model, body):
     files = [model, model.parent / fastlane.ROUTE, *map(Path, editorinfo.archives(model))]
     revision = tuple((path.name, _lane_revision(path.stat())) for path in files)
     circuit = mytracks.is_circuit(model.parent)
-    ref, errors, wider = _move_reference(model, circuit, revision)
+    ref, errors, wider, band = _move_reference(model, circuit, revision)
     points, detail, ribbon, _, road, route = ref
     if body.get("guide"):
         xyz = points["pos"].astype(float)
         side = fastlane._frame(xyz, circuit)[3]
-        rows = np.column_stack((xyz, ribbon.metres, side[:, 0], side[:, 2], detail["left"], detail["right"], ribbon.fixed))
+        rows = np.column_stack((xyz, ribbon.metres, side[:, 0], side[:, 2], detail["left"], detail["right"], ribbon.hard))
         return {"rows": rows.tolist(), "path": route.path.tolist(), "key": route.key, "errors": errors,
                 "origin": route.origin, "closed": circuit, "length": route.length, "tail": _runout_guide(ref,wider)}
     items = body["aiCorrections"]
@@ -184,7 +263,7 @@ def _move_preview(model, body):
             if any(start < b and end > a for a,b in spans):
                 raise ValueError(f"Overlapping correction at route metre {centre:.1f}")
             if item["kind"] == "redraw":
-                ink[key] = _ink_preview(ref,wider,item,part)
+                ink[key] = _ink_preview(ref,wider,item,part,band)
                 ends[key] = end
             else:
                 moves.append(item)
@@ -192,7 +271,8 @@ def _move_preview(model, body):
             centres[key] = centre
         except ValueError as error:
             skipped[key] = str(error)
-    (moved, mask, queries), rejected = fastlane.checked_moves(ref, moves, lambda *result: result, wider)
+    measured = {}
+    (moved, mask, queries), rejected = fastlane.checked_moves(ref, moves, lambda *result: result, wider, measured)
     skipped.update(rejected)
     record = ailinestate._record(model.parent)
     if record.get("skipped") and record.get("corrections") == items:
@@ -200,7 +280,14 @@ def _move_preview(model, body):
             skipped.update(record["skipped"])
     yellow = [int(i) for i in np.flatnonzero(mask) if fastlane._query(queries,i) is wider and
               not fastlane._fits_chord(road,moved[i-1],moved[i],fastlane.FILLET_CLEARANCE)]
-    return {"samples": np.column_stack((np.flatnonzero(mask), moved[mask])).tolist(), "ink": ink, "yellow": yellow,
+    indices = np.flatnonzero(mask)
+    samples = []
+    if len(indices):
+        forward, sides = fastlane._frame(moved, circuit)[2:]
+        rows = band.rows(moved, indices, np.arange(len(moved)), np.array([measured[i] for i in indices]),
+                         np.isin(indices,yellow), forward, sides)
+        samples = np.column_stack((indices,rows)).tolist()
+    return {"samples": samples, "ink": ink, "yellow": yellow,
             "skipped": skipped, "centres": centres, "ends": ends}
 
 

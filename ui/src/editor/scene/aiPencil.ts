@@ -2,11 +2,12 @@ import * as THREE from "three";
 import {post} from "../../api";
 import type {AiAnchor, AiCorrection, AiRedraw} from "../state/edits";
 import {at, type Checked, type MoveGuide, type Row} from "./aiGuide";
+import {disposeStroke, previewBand, PREVIEW_LIFT, previewColour, PreviewQueue} from "./aiPreviewBand";
 import {screenPoint} from "./pointer";
 
 type Stroke = {line: THREE.Line; points: number[][]; from: number; to: number; id: string; error?: string};
 type Site = {row: Row; tail: boolean};
-const lift = .38;
+const lift = PREVIEW_LIFT;
 
 function anchor(guide: MoveGuide, row: Row): AiAnchor {
   const metre = guide.closed ? row[3] % guide.length : Math.min(guide.length, row[3]);
@@ -22,12 +23,13 @@ function anchor(guide: MoveGuide, row: Row): AiAnchor {
 
 function stroke(points: number[][], error?: string, dashed = false) {
   const positions = points.flatMap(p => [p[0],p[1]+lift,p[2]]);
-  const colors = points.flatMap(p => new THREE.Color(error ? 0xff3939 : p[3] ? 0xffd23b : 0x51de94).toArray());
+  const colors = points.flatMap(p => (error ? new THREE.Color(0xff3939) : previewColour(p[3])).toArray());
   const g = new THREE.BufferGeometry().setAttribute("position",new THREE.Float32BufferAttribute(positions,3))
     .setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
   const line = new THREE.Line(g, dashed ? new THREE.LineDashedMaterial({dashSize: 1, gapSize: 1,color: 0xdde2e6})
                                        : new THREE.LineBasicMaterial({vertexColors:true}));
   if (dashed) line.computeLineDistances();
+  else if (!error && points.length > 1 && points.every(p => p.length === 10)) line.add(previewBand(points));
   line.renderOrder = 13;
   return line;
 }
@@ -39,10 +41,11 @@ export class Pencil {
   private hoverSite: Site | null = null;
   private ghost: THREE.Line | null = null;
   private extension: THREE.Line | null = null;
-  private timer?: ReturnType<typeof setTimeout>;
+  private queue = new PreviewQueue();
   private serial = 0;
   private done = false;
   private finishing = false;
+  private awaitingBand = false;
   private stop = new AbortController();
 
   constructor(private el: HTMLCanvasElement, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera,
@@ -64,16 +67,16 @@ export class Pencil {
 
   private drop(line: THREE.Line | null) {
     if (!line) return;
-    this.scene.remove(line); line.geometry.dispose();
-    (line.material as THREE.Material).dispose();
+    disposeStroke(line);
   }
   private reset() {
-    ++this.serial; clearTimeout(this.timer); this.finishing = false;
+    ++this.serial; this.queue.clear(); this.finishing = false; this.awaitingBand = false;
     this.drop(this.ghost); this.ghost = null; this.draft = null; this.hoverSite = null;
     this.note(""); this.el.title = "";
   }
   dispose() {
-    this.done = true; this.stop.abort(); clearTimeout(this.timer);
+    if (this.draft) this.note("");
+    this.done = true; this.stop.abort(); this.queue.clear();
     this.drop(this.ghost); this.drop(this.extension);
     for (const s of this.strokes.values()) this.drop(s.line);
   }
@@ -124,10 +127,15 @@ export class Pencil {
     this.drop(this.ghost); this.ghost = stroke(points,why); this.scene.add(this.ghost);
     this.el.title=why; this.note(why); this.draw();
   }
-  private async check(site: Site, commit: boolean) {
+  private async check(site: Site, commit: boolean, provisional = false) {
     const serial=++this.serial, edit=this.edit(site);
+    if (provisional && edit.points.length) {
+      const last = edit.points[edit.points.length-1], end = site.row;
+      if (Math.hypot(last[0]-end[0],last[2]-end[2]) < .01) edit.points = edit.points.slice(0,-1);
+    }
+    const draft = this.draft;
     const answer=await post<Checked>(this.url,{aiCorrections:[...this.edits,edit]});
-    if (this.done || !this.draft || this.serial!==serial) return;
+    if (this.done || !this.draft || this.draft!==draft || (this.serial!==serial && (commit || this.finishing || !this.awaitingBand))) return;
     this.finishing=false;
     const why=answer.error ?? answer.skipped?.[edit.id] ?? "";
     const points=answer.ink?.[edit.id] ?? [this.draft.start.row.slice(0,3),...edit.points,site.row.slice(0,3)];
@@ -149,7 +157,7 @@ export class Pencil {
     if (!this.draft) {
       if (site && !site.tail) this.draft={id:crypto.randomUUID(),start:site,points:[]};
     } else if (site) {
-      clearTimeout(this.timer);
+      this.queue.clear();
       if (site.row[3] <= this.draft.start.row[3]) this.hover(e);
       else { this.finishing=true; void this.check(site,true); }
     } else {
@@ -166,14 +174,27 @@ export class Pencil {
       return false;
     }
     if (this.finishing) return true;
-    ++this.serial; clearTimeout(this.timer);
+    ++this.serial; this.queue.clear();
     const site=this.site(e), start=this.draft.start.row;
     const q=site?.row.slice(0,3) ?? this.ground(screenPoint(e,this.el))?.toArray();
     this.hoverSite=site;
     if (q) {
       const why=site && site.row[3]<=start[3] ? `End precedes the start at route metre ${site.row[3].toFixed(1)}` : "";
-      this.preview([start.slice(0,3),...this.draft.points,q],why);
-      if (site && !why) this.timer=setTimeout(() => { void this.check(site,false); },80);
+      // A ground hover is a provisional end. Only a click on the line can finish the stroke.
+      let end = site;
+      if (!end) {
+        let nearest = start, best = Infinity;
+        for (const row of this.guide.rows) {
+          const d = (row[0]-q[0])**2 + (row[1]-q[1])**2 + (row[2]-q[2])**2;
+          if (d < best) { nearest=row; best=d; }
+        }
+        const row: Row = [...nearest];
+        [row[0], row[1], row[2]] = q;
+        end = {row,tail:false};
+      }
+      if (why || !this.ghost || end.row[3] <= start[3]) this.preview([start.slice(0,3),...this.draft.points,q],why);
+      this.awaitingBand = !why && end.row[3] > start[3];
+      if (this.awaitingBand) this.queue.put(() => this.check(end,false,!site));
     }
     return true;
   }
