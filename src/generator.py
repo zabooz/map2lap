@@ -47,9 +47,14 @@ WARN_TILES = 150
 FINISH_AFTER_M, RUNOUT_M = 50.0, 100.0
 # Routes that return to the start still use lap timing, so an A–B finish cannot land on the start's runout.
 LOOP_M = 100.0
-# Progress phases (build(progress=...), shown by the generator page): route, road tiles, terrain/trees/houses
-# (make_obj), distant view (farview), kn5, tidying up (map data cache, temporary data)
-PHASES = ("route", "tiles", "scenery", "distant", "kn5", "clean")
+PHASES = ("route", "tiles", "scenery", "distant", "kn5", "ai_line", "clean")
+AREA_PHASES = tuple(phase for phase in PHASES if phase not in ("route", "ai_line"))
+
+
+def build_progress(phase, done, total, *, area):
+    """Number the current phase for a route, circuit or area build. Pure."""
+    phases = AREA_PHASES if area else PHASES
+    return {"phase": phase, "done": done, "total": total, "step": phases.index(phase) + 1, "steps": len(phases)}
 
 
 @dataclass(frozen=True)
@@ -675,6 +680,7 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
         info["edits"] = {"aiCorrections": anc["aiCorrections"]}
     mytracks.save(root, info)
     if not area:
+        progress("ai_line", 0, 0)
         fastlane.regenerate(kn5_path, circuit=circuit, log=log)
     progress("clean", 0, 0)
     if cache_gb is not None:
@@ -713,7 +719,7 @@ def main():
     progress = None
     if a.result:                # (for server.py: one line PROGRESS <json> per step, not into the log)
         def progress(phase, done, total):
-            print("PROGRESS " + json.dumps({"phase": phase, "done": done, "total": total}), flush=True)
+            print("PROGRESS " + json.dumps(build_progress(phase, done, total, area=bool(a.area))), flush=True)
     line, timing = _saved_circuit(a.circuit_source) if a.circuit_source else (None, None)
     moves = aicorrections.recipe(Path(make_track_folder.AC) / "content" / "tracks" / slug(a.ai_source)) if a.ai_source else []
     res = build(pts, a.width, a.name, a.title, clean=a.clean, area=a.area, progress=progress, line=line, circuit_timing=timing, ai_corrections=moves,

@@ -8,8 +8,7 @@ import styles from "./StatusCard.module.css";
 
 const PHASES: Record<string, string> = {route: "Calculating route", tiles: "Building road tiles",
                                         scenery: "Terrain, trees & buildings", distant: "Distant terrain",
-                                        kn5: "Writing track file", clean: "Cleaning up"};
-const ORDER = Object.keys(PHASES);
+                                        kn5: "Writing track file", ai_line: "Generating AI line …", clean: "Cleaning up"};
 
 const BADGES = {run: styles.run, ok: styles.ok, bad: styles.bad, warn: styles.warn, "": ""};
 
@@ -20,16 +19,18 @@ interface Shown {
 }
 
 function Progress({status}: {status: BuildStatus}) {
-  const p = status.progress ?? {phase: "route", done: 0, total: 0};
-  const step = Math.max(1, ORDER.indexOf(p.phase) + 1);
-  const part = p.total ? p.done / p.total : null;
-  const note = p.phase === "tiles" && !p.done ? "Downloading map data for new areas …"
-    : p.total ? `${p.done} / ${p.total} ${p.phase === "tiles" ? "tiles" : "parts"}` : " ";
+  const p = status.progress;
+  const part = p?.total ? p.done / p.total : null;
+  const note = p?.phase === "tiles" && !p.done ? "Downloading map data for new areas …"
+    : p?.total ? `${p.done} / ${p.total} ${p.phase === "tiles" ? "tiles" : "parts"}` : " ";
   return (
     <>
-      <div className={styles.phase}>{PHASES[p.phase] ?? p.phase}<span>step {step} of {ORDER.length}</span></div>
+      <div className={styles.phase} data-testid="build-phase">
+        {p ? PHASES[p.phase] ?? p.phase : "Starting build"}
+        {p?.steps && <span>step {p.step} of {p.steps}</span>}
+      </div>
       <div className={`${styles.bar}${part === null ? ` ${styles.indet}` : ""}`}><i style={{width: `${part === null ? 30 : (100 * part).toFixed(1)}%`}} /></div>
-      <p className="small muted">{note}</p>
+      <p data-testid="build-progress-note" className="small muted">{note}</p>
     </>
   );
 }
@@ -112,7 +113,7 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
   }
   if (a.showResult && s.state === "error") {
     return {badge: ["Error", "bad"], time: fmtTime(s.elapsed), body: (
-      <><p className={styles.err}>{s.error || "The build failed"}</p><p className="small muted">See the Build log.</p></>)};
+      <><p className={styles.err}>{s.error || "The build failed"}</p><p data-testid="build-error-hint" className="small muted">See the Build log.</p></>)};
   }
   if (a.showResult && s.state === "stopped") {
     return {badge: ["Stopped", "bad"], time: fmtTime(s.elapsed),
@@ -166,7 +167,7 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
 export function PlayButton({title, disabled, starting, onClick}: {title: string; disabled: boolean; starting: boolean;
                                                                   onClick: () => void}) {
   return (
-    <button className={styles.play} title={title} disabled={disabled} onClick={onClick}>
+    <button data-testid="play-track" className={styles.play} title={title} disabled={disabled} onClick={onClick}>
       {starting ? "Starting …" : "▶ Play"}
     </button>
   );

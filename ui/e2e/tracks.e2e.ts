@@ -20,13 +20,13 @@ test("a build shows its progress and ends with Play", async ({page, backend}) =>
   await card(page).getByRole("button", {name: "▶ Play"}).click();
   await startDriving(page);
   await expect.poll(backend.calls).toContainEqual(["play", "fresh_one"]);
-  await expect(page.locator("#t-mine")).toContainText("4");
+  await expect(page.getByTestId("nav-my-tracks")).toContainText("4");
 });
 
 test("My tracks Play asks for this drive's car and weather before starting", async ({page, backend}) => {
   await page.goto("/");
   const defaultCar = ((await (await page.request.get("/api/settings")).json()) as {car: string | null}).car;
-  await page.locator("#t-mine").click();
+  await page.getByTestId("nav-my-tracks").click();
   await page.locator("#actions").getByRole("button", {name: "▶ Play"}).click();
   const dialog = page.getByRole("dialog", {name: "Play"});
   await expect(dialog).toBeVisible();
@@ -61,8 +61,8 @@ test("a failed build says so, a new selection takes the card back", async ({page
 
 test("My tracks: the list, a picked track on the card, its code, old ones marked", async ({page}) => {
   await page.goto("/");
-  await expect(page.locator("#t-mine")).toContainText("3");
-  await page.locator("#t-mine").click();
+  await expect(page.getByTestId("nav-my-tracks")).toContainText("3");
+  await page.getByTestId("nav-my-tracks").click();
   const list = page.locator("#pane-mine").getByRole("button");
   await expect(list).toHaveCount(3);
   await expect(card(page)).toContainText("Alpha Test");
@@ -79,7 +79,7 @@ test("My tracks: the list, a picked track on the card, its code, old ones marked
 
 test("My tracks: rebuild, copy, Play and delete", async ({page, backend}) => {
   await page.goto("/");
-  await page.locator("#t-mine").click();
+  await page.getByTestId("nav-my-tracks").click();
   const list = page.locator("#pane-mine").getByRole("button");
   await expect(button(page, "Rebuild")).toBeEnabled();
   await list.filter({hasText: "Beta Test"}).click();
@@ -105,17 +105,17 @@ test("My tracks: rebuild, copy, Play and delete", async ({page, backend}) => {
 
 test("My tracks automatically picks the first track on entry and refresh, retaining a manual choice across tabs", async ({page}) => {
   await page.goto('/');
-  await page.locator('#t-mine').click();
+  await page.getByTestId('nav-my-tracks').click();
   const list = page.locator('#pane-mine').getByRole('button');
   await expect(card(page)).toContainText('Alpha Test');
   await expect(page.getByRole('slider', {name: 'Corridor each side', exact: true})).toBeEnabled();
   await list.filter({hasText: 'Beta Test'}).click();
   await page.getByRole('button', {name: 'Edited', exact: true}).click();
-  await expect(page.getByRole('tab', {name: 'Build options', exact: true})).toHaveCount(0);
+  await expect(page.getByTestId('build-options')).toHaveCount(0);
   await page.getByRole('button', {name: 'Built', exact: true}).click();
   await expect(card(page)).toContainText('Beta Test');
-  await page.locator('#t-new').click();
-  await page.locator('#t-mine').click();
+  await page.getByTestId('nav-new-track').click();
+  await page.getByTestId('nav-my-tracks').click();
   await expect(card(page)).toContainText('Beta Test');
   await page.reload();
   await expect(card(page)).toContainText('Alpha Test');
@@ -125,9 +125,9 @@ test("My tracks automatically picks the first track on entry and refresh, retain
 test("an empty Built list has no build options", async ({page}) => {
   for (const name of ['alpha', 'beta', 'gamma']) expect((await page.request.post('/api/delete', {data: {name}})).ok()).toBe(true);
   await page.goto('/');
-  await page.locator('#t-mine').click();
+  await page.getByTestId('nav-my-tracks').click();
   await expect(card(page)).toContainText('No tracks yet');
-  await expect(page.getByRole('tab', {name: 'Build options', exact: true})).toHaveCount(0);
+  await expect(page.getByTestId('build-options')).toHaveCount(0);
   await expect(page.locator('#go')).toBeDisabled();
 });
 

@@ -35,9 +35,9 @@ test("the buttons stand in the sidebar, gone with its tab, back as they were; wh
   await set.getByLabel("Radius").fill("7");
   await expect(page.locator("aside #edit-elevation")).toBeVisible();
   await expect(page.locator("#scene #edit-elevation-set")).toBeVisible();
-  await page.locator("#t-new").click();
+  await page.getByTestId("nav-new-track").click();
   await expect(page.locator("#edit-elevation")).toBeHidden();
-  await page.locator("#t-edit").click();
+  await page.getByTestId("nav-editor").click();
   expect(await pressed(page, "#edit-elevation")).toBe("true");
   await expect(set.getByLabel("Radius")).toHaveValue("7");
 });
@@ -129,7 +129,7 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   const afterSave = await moves();
   let checks = 0;
   page.on("request", r => { if (r.url().endsWith("/move-preview")) checks++; });
-  await page.locator("#t-edit").focus();
+  await page.getByTestId("nav-editor").focus();
   await page.keyboard.press("Control");
   await expect(bar.getByRole("button",{name:"Redraw",exact:true})).toHaveAttribute("aria-pressed","true");
   await expect.poll(async () => (await page.screenshot({clip:patch})).equals(before)).toBe(true);
@@ -142,7 +142,7 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   await page.mouse.move(x+15,y); await page.mouse.down(); await page.mouse.move(x+20,y); await page.mouse.up();
   await expect.poll(async () => (await moves())[0]?.routeOffset).not.toBe(afterSave[0].routeOffset);
   expect(await moves()).toMatchObject([{id:initial.id}]);
-  await page.locator("#t-edit").focus();
+  await page.getByTestId("nav-editor").focus();
   await page.keyboard.press("Escape");
   await expect(bar).toHaveCount(0);
   await expect(scene(page)).not.toHaveCSS("cursor","crosshair");
@@ -296,7 +296,7 @@ test("each tool has its key, one is on at a time, Esc goes back to Select from e
   await page.keyboard.press("h");
   await page.locator("#edit-elevation-set").getByLabel("Height").press("Escape");
   await expect(page.locator("#edit-elevation")).toHaveAttribute("aria-pressed","true");
-  await page.locator("#t-edit").focus(); await page.keyboard.press("Escape");
+  await page.getByTestId("nav-editor").focus(); await page.keyboard.press("Escape");
   await expect(page.locator("#edit-select")).toHaveAttribute("aria-pressed", "true");
   await page.locator("#edit-elevation").focus();
   await page.keyboard.press("x");

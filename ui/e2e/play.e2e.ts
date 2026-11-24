@@ -13,7 +13,7 @@ test("Play switches between Hotlap and a Race grid without moving the dialog", a
     await route.fulfill({response, json: {...await response.json(), max_opponents: 5}});
   });
   await page.goto("/");
-  await page.locator("#t-mine").click();
+  await page.getByTestId("nav-my-tracks").click();
   await page.locator("#actions").getByRole("button", {name: "▶ Play"}).click();
 
   const dialog = page.getByRole("dialog", {name: "Play"});
@@ -86,7 +86,7 @@ test("Play asks before using a manual line or starting a failed Race solo", asyn
     return route.fulfill({json: n ? {lane: "failed", error: "No driveable road at route metre 74.9"} : {ok: true}});
   });
   await page.goto("/");
-  await page.locator("#t-mine").click();
+  await page.getByTestId("nav-my-tracks").click();
   const dialog = page.getByRole("dialog", {name: "Play"});
   for (const action of ["Cancel", "Start without opponents", "Use installed line", "Recalculate"]) {
     await page.locator("#actions").getByRole("button", {name: "▶ Play"}).click();

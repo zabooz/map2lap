@@ -17,7 +17,7 @@ interface Cars {
 }
 
 function Group({title, children}: {title: string; children: ReactNode}) {
-  return <div className={styles.group}><h3>{title}</h3>{children}</div>;
+  return <div className={styles.group}><h3 data-testid="settings-group-title">{title}</h3>{children}</div>;
 }
 
 function Installation({settings: s, release, patch}: {settings: ReturnType<typeof useSettings>; release: ReturnType<typeof useRelease>;
@@ -42,7 +42,7 @@ function Installation({settings: s, release, patch}: {settings: ReturnType<typeo
                onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }} />
         <button onClick={() => void s.browse()}>Browse …</button>
       </div>
-      <p id="ac-status" className={`small ${s.ac?.ok ? styles.good : styles.fault}`}>{s.ac?.text}</p>
+      <p id="ac-status" data-testid="settings-ac-status" className={`small ${s.ac?.ok ? styles.good : styles.fault}`}>{s.ac?.text}</p>
       {s.settings?.ac_ok && <CspSettings key={s.settings.ac_path} path={s.settings.ac_path} patch={patch} />}
     </Group>
   );
@@ -311,15 +311,15 @@ export function SettingsDialog({settings, release, patch, focusTarget, busy, con
   }, [onClose]);
 
   return (
-    <div id="settings-back" className={styles.back} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <section ref={dialog} id="settings" className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div id="settings-back" data-testid="settings-backdrop" className={styles.back} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <section ref={dialog} id="settings" data-testid="settings-dialog" className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className={styles.head}>
           <b id="settings-title">Settings</b>
-          <button id="settings-close" className={styles.close} title="Close" aria-label="Close settings" onClick={onClose}>×</button>
+          <button id="settings-close" data-testid="settings-close" className={styles.close} title="Close" aria-label="Close settings" onClick={onClose}>×</button>
         </div>
         <nav className={`tabs ${styles.tabs}`} role="tablist">
           {TABS.map(([id, text]) => (
-            <button key={id} id={`set-${id}`} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""}
+            <button key={id} id={`set-${id}`} data-testid={`settings-tab-${id}`} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""}
                     onClick={() => setTab(id)}>{text}</button>
           ))}
         </nav>

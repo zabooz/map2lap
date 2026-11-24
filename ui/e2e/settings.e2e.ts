@@ -126,11 +126,11 @@ test("updates: up to date, then a newer one shows in the head and links its note
   await page.goto("/");
   await openSettings(page);
   await expect(page.locator("#upd-status")).toContainText("Up to date");
-  await expect(page.locator("#t-set").getByText("!", {exact: true})).toHaveCount(0);
+  await expect(page.getByTestId("nav-settings").getByText("!", {exact: true})).toHaveCount(0);
   await backend.post("/__test/release", {version: "99.0.0", url: "https://example.invalid/notes", archive: null});
   await page.getByRole("button", {name: "Check for updates"}).click();
   await expect(page.locator("#upd-status")).toContainText("Map2Lap 99.0.0 is out");
-  await expect(page.locator("#t-set").getByText("!", {exact: true})).toBeVisible();
+  await expect(page.getByTestId("nav-settings").getByText("!", {exact: true})).toBeVisible();
   await expect(page.locator("#upd-status").getByRole("link")).toHaveAttribute("href", "https://example.invalid/notes");
   await page.keyboard.press("Escape");
   await page.getByRole("button", {name: "v99.0.0 available"}).click();

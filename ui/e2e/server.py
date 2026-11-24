@@ -458,13 +458,14 @@ def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=
     server.running["proc"] = SimpleNamespace(pid=0)
     server.job.update(state="running", log=[f"Terrain grid: {terrain_cell_m} m"], result=None, error=None, progress=None, started=time.time(), ended=None)
     threading.Thread(target=_build, args=(name, title, terrain_cell_m, parked_cars, tree_spacing_m, width, ground_quality),
-                     kwargs={"kind": kind, "points": points}, daemon=True).start()
+                     kwargs={"kind": kind, "points": points, "area": bool(area)}, daemon=True).start()
     return 200, {"ok": True}
 
 
-def _build(name, title, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, width=100, ground_quality="sd", *, kind, points):
-    for k, phase in enumerate(("route", "tiles", "scenery", "kn5")):
-        server.job["progress"] = {"phase": phase, "done": k, "total": 4}
+def _build(name, title, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, width=100, ground_quality="sd", *, kind, points, area):
+    phases = generator.AREA_PHASES if area else generator.PHASES
+    for k, phase in enumerate(phases):
+        server.job["progress"] = generator.build_progress(phase, 0, 0, area=area)
         server.job["log"].append(f"step {k}")
         if stopped.wait(BUILD_STEP_S):
             server.job.update(state="stopped", ended=time.time())

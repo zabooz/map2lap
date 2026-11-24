@@ -1,7 +1,8 @@
-import {lazy, Suspense, useCallback, useState, type ReactNode} from "react";
+import {lazy, Suspense, useCallback, useLayoutEffect, useRef, useState, type ReactNode} from "react";
 import {post} from "./api";
 import styles from "./App.module.css";
-import {BuildPanel, type BuildTab} from "./components/BuildPanel";
+import {BuildPanel} from "./components/BuildPanel";
+import {BuildLog} from "./components/BuildLog";
 import {EditorPanel} from "./components/EditorPanel";
 import {ErrorBoundary} from "./components/ErrorBoundary";
 import {InstallationToast} from "./components/InstallationToast";
@@ -11,7 +12,7 @@ import {loadingToast} from "./editor/editorToasts";
 import type {Say} from "./editor/scene/view";
 import {installationNotice, type InstallationTarget} from "./components/installationNotice";
 import {activeInstallation, settingsAttention} from "./components/settingsAttention";
-import {GearIcon} from "./components/icons";
+import {EditorIcon, GearIcon, MyTracksIcon, NewTrackIcon} from "./components/icons";
 import {groupOf, MyTracksPane} from "./components/MyTracksPane";
 import {NewTrackPane} from "./components/NewTrackPane";
 import {SettingsDialog} from "./components/SettingsDialog";
@@ -47,6 +48,15 @@ const HINTS: Record<Mode | Exclude<Tab, "new">, string> = {
 
 export function App() {
   const [tab, setTab] = useStored<Tab>("map2lap.tab", "new", TABS);
+  const panelBody = useRef<HTMLDivElement>(null);
+  const previousTab = useRef(tab);
+  useLayoutEffect(() => {
+    if (tab === previousTab.current) return;
+    previousTab.current = tab;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const fade = panelBody.current?.animate([{opacity: 0.55}, {opacity: 1}], {duration: 140, easing: "ease-out"});
+    return () => fade?.cancel();
+  }, [tab]);
   const [editorSeen, setEditorSeen] = useState(tab === "edit");
   const [group, setGroup] = useStored<TrackGroup>("map2lap.myTracks", "built", GROUPS);
   const [editTrack, setEditTrack] = useStored<string>("map2lap.editTrack", "");
@@ -64,8 +74,7 @@ export function App() {
   const [picks, setPicks] = useState<Record<TrackGroup, string | null>>({built: null, edited: null});
   const [showResult, setShowResult] = useState(true);   // false: the selection is newer than the last build's result
   const [move, setMove] = useState<MapMove | null>(null);
-  const [buildTab, setBuildTab] = useState<BuildTab>("options");
-  const [focusLog, setFocusLog] = useState(0);
+  const buildLog = useRef<HTMLPreElement>(null);
   const [rebuildOptions, setRebuildOptions] = useState<Record<string, Partial<BuildOptions & {width: number}>>>({});
 
   const {tracks, car, reload} = useTracks();
@@ -95,7 +104,7 @@ export function App() {
   const picked = mine ? tracks.find(t => t.name === picks[group] && groupOf(t) === group)
     ?? tracks.find(t => groupOf(t) === group) : undefined;
   const pick = picked?.name ?? null;
-  const hasRebuildPanel = mine && group === "built" && !!picked;
+  const showBuildOptions = tab === "new" || (mine && group === "built" && !!picked);
   const options: BuildOptions = mine ? {terrain_cell_m: picked?.terrain_cell_m ?? 2, parked_cars: picked?.parked_cars ?? true,
     tree_spacing_m: picked?.tree_spacing_m ?? 0, ground_quality: picked?.ground_quality ?? "sd", ...(picked ? rebuildOptions[picked.name] : {})} : track.options;
   const setOptions = (value: Partial<BuildOptions>) => {
@@ -130,7 +139,7 @@ export function App() {
   const start = async (url: string, body: unknown) => {
     const refused = await build.start(url, body);
     if (refused && /Settings/.test(refused)) setSettingsOpen(true);
-    if (!refused) { setBuildTab("log"); setFocusLog(k => k + 1); }
+    if (!refused) buildLog.current?.focus({preventScroll: true});
     return refused;
   };
 
@@ -176,79 +185,89 @@ export function App() {
     <PlayButton title={playTitle(kind)} disabled={!acOk || starting} starting={starting} onClick={() => void startPlay(name, kind, abTiming)} />
   );
 
-  const tabButton = (t: Tab, text: string, extra?: ReactNode) => (
-    <button id={`t-${t}`} className={tab === t ? "on" : ""} onClick={() => chooseTab(t)}>{text}{extra}</button>
+  const workspaceButton = (t: Tab, name: string, testId: string, icon: ReactNode, detail?: string) => (
+    <button type="button" data-testid={testId} className={styles.destination}
+            aria-label={name} aria-description={detail} title={detail ? `${name} · ${detail}` : name}
+            aria-current={tab === t ? "page" : undefined} onClick={() => chooseTab(t)}>
+      {icon}
+    </button>
   );
 
   const hint = HINTS[tab === "new" ? track.mode : tab];
 
   return (
     <>
+      <nav data-testid="workspace-nav" className={styles.rail} aria-label="Workspaces" inert={settingsOpen}>
+        <div data-testid="nav-logo" className={styles.mark} aria-hidden="true" />
+        <div className={styles.workspaces} data-active={tab}>
+          {workspaceButton("new", "New track", "nav-new-track", <NewTrackIcon />)}
+          {workspaceButton("mine", "My tracks", "nav-my-tracks", <>
+            <MyTracksIcon />
+            {tracks.length > 0 && <span aria-hidden="true" className={`${styles.count}${outdated ? ` ${styles.warn}` : ""}`}>{tracks.length}</span>}
+          </>, `${tracks.length} ${tracks.length === 1 ? "track" : "tracks"}${outdated ? " · Some tracks were built with an older version" : ""}`)}
+          {workspaceButton("edit", "Editor", "nav-editor", <EditorIcon />)}
+          <span className={styles.indicator} data-testid="nav-indicator" aria-hidden="true" />
+        </div>
+        <button type="button" data-testid="nav-settings" className={`${styles.destination} ${styles.gear}`}
+                aria-label="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}
+                title={attention ?? "Settings"} onClick={() => setSettingsOpen(true)}>
+          <GearIcon />
+          {attention && <span className={styles.attention} aria-hidden="true">!</span>}
+        </button>
+      </nav>
       <aside className={styles.sidebar} inert={settingsOpen}>
         <div className={styles.head}>
-          <div className={styles.mark} />
           <div className={styles.brand}>
             <b>Map2Lap</b>
-            <span>Real roads for Assetto Corsa{version && ` · v${version}`}</span>
+            <span data-testid="app-version">Real roads for Assetto Corsa{version && ` · v${version}`}</span>
           </div>
           {release.newer && (
             <button className={styles.update} title={`Map2Lap ${release.newer} is out (you have ${version}): open Settings`}
                     onClick={() => setSettingsOpen(true)}>v{release.newer} available</button>
           )}
-          <button id="t-set" className={`${styles.gear}${settingsOpen ? ` ${styles.on}` : ""}`} title={attention ?? "Settings"}
-                  aria-label="Settings" onClick={() => setSettingsOpen(true)}><GearIcon />
-            {attention && <span className={styles.attention} aria-hidden="true">!</span>}
-          </button>
         </div>
 
-        <nav className="tabs">
-          {tabButton("new", "New track")}
-          {tabButton("mine", "My tracks ", tracks.length > 0 && (
-            <span className={`${styles.count}${outdated ? ` ${styles.warn}` : ""}`}
-                  title={outdated ? "Some tracks were built with an older version" : undefined}>{tracks.length}</span>
-          ))}
-          {tabButton("edit", "Editor")}
-        </nav>
+        <div ref={panelBody} className={styles.panelBody} data-testid="workspace-panel">
+          <EditorPanel tracks={tracks} choice={shownEditTrack} status={editStatus} hidden={tab !== "edit"} fileRef={setFileHost} savedRef={setSavedHost} toolsRef={setToolsHost} onChoose={setEditTrack} />
 
-        <EditorPanel tracks={tracks} choice={shownEditTrack} status={editStatus} hidden={tab !== "edit"} fileRef={setFileHost} savedRef={setSavedHost} toolsRef={setToolsHost} onChoose={setEditTrack} />
+          <div id="work" className="view" hidden={tab === "edit"}>
+            <div className={`${styles.panes}${mine ? ` ${styles.mine}` : ""}`}>
+              <NewTrackPane track={track} off={tab !== "new"} busy={busy} onMove={setMove} />
+              {mine && <MyTracksPane tracks={tracks} group={group} pick={pick}
+                onGroup={value => { setGroup(value); setShowResult(false); }} onPick={pickTrack} />}
+            </div>
 
-        <div id="work" className={`view${hasRebuildPanel ? ` ${styles.rebuildView}` : ""}`} hidden={tab === "edit"}>
-          <div className={`${styles.panes}${mine ? ` ${styles.mine}` : ""}`}>
-            <NewTrackPane track={track} off={tab !== "new"} busy={busy} onMove={setMove} />
-            {mine && <MyTracksPane tracks={tracks} group={group} pick={pick}
-              onGroup={value => { setGroup(value); setShowResult(false); }} onPick={pickTrack} />}
+            {showBuildOptions && <BuildPanel options={options} onOptions={setOptions}
+                        corridor={(mine ? picked && !picked.area : track.mode !== "area") ? {width, onWidth: setWidth} : undefined}
+                        disabled={busy} />}
+
+            <div id="actions" className={`${styles.actions}${mine ? ` ${group === "edited" ? styles.edited : styles.mine}` : ""}`}>
+              {mine && group === "built" && (
+                <button title={acOk ? "Keep this track and build a new one next to it" : NO_AC}
+                        disabled={busy || !picked || !acOk}
+                        onClick={() => {      // (the new one is a build: it will stand under Built)
+                          if (picked) void start("/api/rebuild", {name: picked.name, copy: true, ...options,
+                            ...(picked.area ? {} : {width})}).then(refused => { if (!refused) setGroup("built"); });
+                        }}>Build as copy</button>
+              )}
+              <button data-testid="build-action" id="go" className={busy ? styles.danger : styles.primary} title={goTitle} disabled={goDisabled} onClick={onGo}>{goText}</button>
+              {mine && (
+                <button className={styles.playAct} title={playTitle(picked?.kind)} onClick={() => { if (picked) void startPlay(picked.name, picked.kind, picked.ab_timing); }}
+                        disabled={busy || !picked?.kn5_bytes || starting || !acOk}>{starting ? "Starting …" : "▶ Play"}</button>
+              )}
+            </div>
+
           </div>
-
-          {(!mine || hasRebuildPanel) && <BuildPanel tab={buildTab} onTab={setBuildTab} options={options} onOptions={setOptions}
-                      corridor={(mine ? picked && !picked.area : track.mode !== "area") ? {width, onWidth: setWidth} : undefined}
-                      separated={hasRebuildPanel} disabled={busy || (mine && !picked)} busy={busy} text={build.log} started={status.started} focusLog={focusLog} />}
-
-          <div id="actions" className={`${styles.actions}${mine ? ` ${group === "edited" ? styles.edited : styles.mine}` : ""}`}>
-            {mine && group === "built" && (
-              <button title={acOk ? "Keep this track and build a new one next to it" : NO_AC}
-                      disabled={busy || !picked || !acOk}
-                      onClick={() => {      // (the new one is a build: it will stand under Built)
-                        if (picked) void start("/api/rebuild", {name: picked.name, copy: true, ...options,
-                          ...(picked.area ? {} : {width})}).then(refused => { if (!refused) setGroup("built"); });
-                      }}>Build as copy</button>
-            )}
-            <button id="go" className={busy ? styles.danger : styles.primary} title={goTitle} disabled={goDisabled} onClick={onGo}>{goText}</button>
-            {mine && (
-              <button className={styles.playAct} title={playTitle(picked?.kind)} onClick={() => { if (picked) void startPlay(picked.name, picked.kind, picked.ab_timing); }}
-                      disabled={busy || !picked?.kn5_bytes || starting || !acOk}>{starting ? "Starting …" : "▶ Play"}</button>
-            )}
-          </div>
-
+          {tab === "edit" && <ThemeSwitch />}
         </div>
-        {tab === "edit" && <ThemeSwitch />}
       </aside>
 
       <main className={`${styles.main}${tab !== "edit" ? ` ${styles.withDetails}` : ""}`} inert={settingsOpen}>
         <div className={styles.mapSpace}>
           <TrackMap tab={tab} track={track} picked={picked} move={move} />
-          {hint && <div className={styles.hint}>{hint}</div>}
+          {hint && <div data-testid="map-hint" className={styles.hint}>{hint}</div>}
         </div>
-        {tab !== "edit" && <aside className={styles.details} aria-label="Track details">
+        {tab !== "edit" && <aside data-testid="track-details" className={styles.details} aria-label="Track details">
           <ThemeSwitch top />
           <StatusCard status={status} showResult={showResult} tab={tab} mode={track.mode} group={group} picked={picked}
                       installed={installed} title={track.title.trim()} selection={track.selection} width={track.width}
@@ -256,6 +275,7 @@ export function App() {
                       playButton={playButton} footer={!busy && !result && picked && (
             <CardCode code={picked.edited ? null : picked.code ?? ""} onDelete={() => void deleteTrack(picked)} />
           )} />
+          {showBuildOptions && <BuildLog box={buildLog} text={build.log} started={status.started} />}
         </aside>}
         {editorSeen && (
           <ErrorBoundary message="The 3D view could not start">

@@ -21,7 +21,7 @@ async function hoverCentre(page: import("@playwright/test").Page) {
 test("a track chosen shows in 3D; the map comes back on New track", async ({page}) => {
   await openEditor(page);
   await expect(page.locator("#scene")).toBeVisible();
-  await page.locator("#t-new").click();
+  await page.getByTestId("nav-new-track").click();
   await expect(page.locator("#scene")).toBeHidden();
   await expect(page.locator(".leaflet-container")).toBeVisible();
 });
@@ -177,7 +177,7 @@ test("zoomed below where the ground comes later: when it comes the camera is ove
     await route.continue();
   });
   await page.goto("/");
-  await page.locator("#t-edit").click();
+  await page.getByTestId("nav-editor").click();
   await page.locator("#edit-track").selectOption("alpha");
   await expect(page.locator("#edit-status")).toContainText(/Loading|Reading/);
   const c = await centre(scene(page));
@@ -387,7 +387,7 @@ test("a late fault of the track left does not overwrite the new track's status",
     }) as typeof fetch;
   });
   await page.goto("/");
-  await page.locator("#t-edit").click();
+  await page.getByTestId("nav-editor").click();
   await page.locator("#edit-track").selectOption("alpha");
   await expect(page.locator("#edit-status")).toHaveText(/Loading|Reading/);
   await page.locator("#edit-track").selectOption("beta");
@@ -418,14 +418,14 @@ test("a track built again loads again, the same build does not", async ({page, b
   await openEditor(page);
   let asked = 0;
   page.on("request", r => { if (r.url().endsWith("/api/editor/alpha/index")) asked++; });
-  await page.locator("#t-new").click();
-  await page.locator("#t-edit").click();
+  await page.getByTestId("nav-new-track").click();
+  await page.getByTestId("nav-editor").click();
   await expect(page.locator("#edit-track")).toHaveValue("alpha");
   await page.waitForLoadState("networkidle");
   expect(asked).toBe(0);
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test"});
-  await page.locator("#t-new").click();
-  await page.locator("#t-edit").click();
+  await page.getByTestId("nav-new-track").click();
+  await page.getByTestId("nav-editor").click();
   await expect.poll(() => asked).toBe(1);
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
 });
@@ -433,7 +433,7 @@ test("a track built again loads again, the same build does not", async ({page, b
 test("a track file cut off by a build says so, the next track still loads", async ({page, backend, faultsAllowed}) => {
   faultsAllowed.on = true;
   await page.goto("/");
-  await page.locator("#t-edit").click();
+  await page.getByTestId("nav-editor").click();
   await backend.post("/__test/cut", {name: "beta"});
   await page.locator("#edit-track").selectOption("beta");
   await expect(page.locator("#edit-status")).toContainText("being written or has changed");
@@ -448,7 +448,7 @@ test("a file changing under a loading track says so instead of drawing rubbish",
     await route.continue();
   });
   await page.goto("/");
-  await page.locator("#t-edit").click();
+  await page.getByTestId("nav-editor").click();
   await page.locator("#edit-track").selectOption("alpha");
   await expect(page.locator("#edit-status")).toContainText("being written or has changed");
 });
@@ -462,7 +462,7 @@ test("loaded includes the textures, and a texture failure is shown", async ({pag
     await route.fulfill({status: 409, json: {error: "The texture changed during the build"}});
   });
   await page.goto("/");
-  await page.locator("#t-edit").click();
+  await page.getByTestId("nav-editor").click();
   const requested = page.waitForRequest("**/api/editor/alpha/texture/**");
   await page.locator("#edit-track").selectOption("alpha");
   await requested;
@@ -482,7 +482,7 @@ test("a track finishing behind Settings cannot take the keyboard focus", async (
   const ready = new Promise<void>(ok => { release = ok; });
   await page.route("**/api/editor/alpha/index", async route => { await ready; await route.continue(); });
   await page.goto("/");
-  await page.locator("#t-edit").click();
+  await page.getByTestId("nav-editor").click();
   const requested = page.waitForRequest("**/api/editor/alpha/index");
   await page.locator("#edit-track").selectOption("alpha");
   await requested;

@@ -5,7 +5,7 @@ import type {Page} from "@playwright/test";
 import {centre, dragMouse, expect, openEditor as loadEditor, scene, stillView, test} from "./fixtures";
 
 // Keep the reference canvas at 1140 × 900; the docked inspector has its own 325 px beside it.
-test.use({viewport: {width: 1825, height: 900}});
+test.use({viewport: {width: 1925, height: 900}});
 
 async function openEditor(page: Page, name = "alpha") {
   await loadEditor(page, name);

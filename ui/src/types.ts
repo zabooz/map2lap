@@ -39,6 +39,8 @@ export interface Progress {
   phase: string;
   done: number;
   total: number;
+  step: number;
+  steps: number;
 }
 
 export interface BuildResult {

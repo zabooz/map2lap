@@ -93,7 +93,7 @@ export async function centre(locator: Locator) {
 /** The Editor tab with the track name loaded. */
 export async function openEditor(page: Page, name = "alpha") {
   await page.goto("/");
-  await page.locator("#t-edit").click();
+  await page.getByTestId("nav-editor").click();
   await page.locator("#edit-track").selectOption(name);
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(scene(page)).toBeVisible();
@@ -101,7 +101,7 @@ export async function openEditor(page: Page, name = "alpha") {
 
 /** The Settings popup on the tab named, from a closed one. */
 export async function openSettings(page: Page, tab: "General" | "Map2Lap" | "Editor" = "General") {
-  await page.locator("#t-set").click();
+  await page.getByTestId("nav-settings").click();
   await page.getByRole("tab", {name: tab}).click();
 }
 

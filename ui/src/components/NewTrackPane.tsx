@@ -95,25 +95,23 @@ export function NewTrackPane({track, off, busy, onMove}: {track: NewTrack; off: 
       <Seg choices={MODES} value={mode} onChoose={track.setMode} />
       <div className="field">
         <div className="label-row"><span>Track name</span></div>
-        <input id="title" type="text" value={track.title} spellCheck={false} aria-label="Track name"
+        <input id="title" data-testid="track-name" type="text" value={track.title} spellCheck={false} aria-label="Track name"
                onChange={e => track.setTitle(e.target.value)} />
       </div>
       <div className="field">
         <label className="label-row" htmlFor={codeId}>Track code</label>
         <CodeField id={codeId} code={track.code} onPaste={track.pasteCode} />
       </div>
-      <div className={styles.stack}>
-        <div className={styles.block} hidden={mode === "area"}>
-          <Stops track={track} disabled={nothing} />
-        </div>
-        <div className={styles.block} hidden={mode !== "area"}>
-          <div className="field">
-            <div className="label-row"><span>Area</span></div>
-            <FindPlace onMove={onMove} />
-            <p className="small muted">Everything inside the rectangle is built. The car starts on the road nearest to the
-              middle.</p>
-            <button className="add-stop clear" disabled={nothing} onClick={track.clear}>Clear area</button>
-          </div>
+      <div className={styles.block} hidden={mode === "area"}>
+        <Stops track={track} disabled={nothing} />
+      </div>
+      <div className={styles.block} hidden={mode !== "area"}>
+        <div className="field">
+          <div className="label-row"><span>Area</span></div>
+          <FindPlace onMove={onMove} />
+          <p className="small muted">Everything inside the rectangle is built. The car starts on the road nearest to the
+            middle.</p>
+          <button className="add-stop clear" disabled={nothing} onClick={track.clear}>Clear area</button>
         </div>
       </div>
     </div>

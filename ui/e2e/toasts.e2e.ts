@@ -1,4 +1,4 @@
-import {expect, openEditor, openSettings, startDriving, test} from "./fixtures";
+import {card, clickMap, expect, openEditor, openSettings, startDriving, test} from "./fixtures";
 
 const missing = {status: "missing", version: null, build: null, enabled: null, stage: "idle", done: 0,
   total: 0, busy: false, can_install: true, linux: false, website: "https://acstuff.club/patch/", error: null};
@@ -13,7 +13,7 @@ test("an untested preview warns without replacing CSP or blocking Play", async (
   await expect(warning).toContainText("Untested CSP version");
   await expect(warning).toContainText("0.3.1-preview1");
   await expect(warning).toContainText("0.2.11");
-  await expect(page.locator("#t-set").getByText("!", {exact: true})).toBeVisible();
+  await expect(page.getByTestId("nav-settings").getByText("!", {exact: true})).toBeVisible();
   await expect(page.getByRole("button", {name: "Install CSP"})).toHaveCount(0);
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();
@@ -22,10 +22,10 @@ test("an untested preview warns without replacing CSP or blocking Play", async (
   expect(installs).toBe(0);
   await warning.getByRole("button", {name: "Dismiss notification"}).click();
   await expect(warning).toBeHidden();
-  await expect(page.locator("#t-set").getByText("!", {exact: true})).toHaveCount(0);
+  await expect(page.getByTestId("nav-settings").getByText("!", {exact: true})).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(page.locator("#t-set").getByText("!", {exact: true})).toHaveCount(0);
+  await expect(page.getByTestId("nav-settings").getByText("!", {exact: true})).toHaveCount(0);
 });
 
 test("CSP is checked once at startup, manually and for another AC path; closing the server causes no periodic warning", async ({page}) => {
@@ -49,7 +49,7 @@ test("CSP is checked once at startup, manually and for another AC path; closing 
   await expect(path).toHaveValue(originalPath);
   await expect.poll(() => checks).toBe(4);
   await expect(page.locator("#csp-settings").getByRole("status")).toContainText("CSP 0.2.11 installed");
-  await expect(page.locator("#t-set").getByText("!", {exact: true})).toHaveCount(0);
+  await expect(page.getByTestId("nav-settings").getByText("!", {exact: true})).toHaveCount(0);
   await page.getByRole("button", {name: "Close settings"}).click();
   offline = true;
   await page.clock.runFor(6500);
@@ -88,7 +88,7 @@ test("missing CSP slides down at the top, opens its settings and never installs 
   await page.goto("/");
   const warning = page.getByRole("alert");
   await expect(warning).toContainText("CSP is not installed");
-  await expect(page.locator("#t-set").getByText("!", {exact: true})).toBeVisible();
+  await expect(page.getByTestId("nav-settings").getByText("!", {exact: true})).toBeVisible();
   await expect(warning.getByRole("button", {name: "Install CSP"})).toBeVisible();
   await expect(page.getByRole("dialog", {name: "Settings"})).toBeHidden();
   await page.screenshot({path: testInfo.outputPath("warning-toast.png"), animations: "disabled"});
@@ -103,7 +103,7 @@ test("missing CSP slides down at the top, opens its settings and never installs 
   expect(installs).toBe(1);
 });
 
-test("missing AC takes priority and its toast opens the folder field", async ({page}) => {
+test("missing AC blocks a valid route build and its warning opens the folder field before CSP is checked", async ({page}) => {
   let cspChecks = 0;
   await page.route("**/api/settings", async route => {
     const response = await route.fetch();
@@ -111,12 +111,23 @@ test("missing AC takes priority and its toast opens the folder field", async ({p
   });
   await page.route("**/api/csp", route => { cspChecks++; return route.fulfill({json: missing}); });
   await page.goto("/");
-  const warning = page.getByRole("alert");
+  const warning = page.getByTestId("toast-ac-missing");
+  const build = page.getByTestId("build-action");
+  const settings = page.getByTestId("settings-dialog");
+  await expect(warning).toHaveRole("alert");
   await expect(warning).toContainText("Assetto Corsa folder not found");
-  await expect(page.locator("#t-set").getByText("!", {exact: true})).toBeVisible();
-  await expect(page.getByRole("dialog", {name: "Settings"})).toBeHidden();
-  await warning.getByRole("button", {name: "Choose folder"}).click();
+  await expect(page.getByTestId("nav-settings").getByText("!", {exact: true})).toBeVisible();
+  await clickMap(page, 0.3, 0.3);
+  await clickMap(page, 0.6, 0.6);
+  await expect(card(page)).toContainText("1.00 km");
+  await expect(build).toBeDisabled();
+  await expect(settings).toBeHidden();
+  await warning.getByTestId("toast-action").click();
   await expect(page.getByLabel("Assetto Corsa folder", {exact: true})).toBeFocused();
+  await expect(settings.getByTestId("settings-ac-status")).toContainText("No Assetto Corsa folder there");
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  await expect(build).toBeDisabled();
   expect(cspChecks).toBe(0);
 });
 

@@ -17,7 +17,7 @@ export function MyTracksPane({tracks, group, pick, onGroup, onPick}: {tracks: Tr
   return (
     <div className={styles.pane}>
       <Seg choices={GROUPS} value={group} onChoose={onGroup} />
-      <div id="pane-mine" className={styles.list}>
+      <div id="pane-mine" data-testid="my-tracks-list" className={styles.list}>
         {shown.length ? shown.map(t => (
           <button key={t.name} className={`${styles.track}${t.name === pick ? ` ${styles.on}` : ""}`} aria-pressed={t.name === pick} onClick={() => onPick(t)}>
             <b title={t.title}>{t.title}</b>

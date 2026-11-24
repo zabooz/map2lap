@@ -138,14 +138,19 @@ class CircuitBuildTest(unittest.TestCase):
             Path(kn5).write_bytes(b"kn5")
             return kn5
 
+        progress = mock.Mock()
+        def regenerate_line(*args, **kwargs):
+            progress.assert_called_with("ai_line", 0, 0)
+
         with (mock.patch.object(generator.farview, "build", return_value=None),
               mock.patch.object(generator, "where", return_value=("", "")),
               mock.patch.object(generator.settings, "load", return_value={"debug_app": False}),
               mock.patch.object(generator.make_track_folder, "make", return_value=str(self.installed)) as make,
               mock.patch.object(generator.obj_to_kn5, "convert", side_effect=convert),
-              mock.patch("track.fastlane.regenerate") as regenerate):
+              mock.patch("track.fastlane.regenerate", side_effect=regenerate_line) as regenerate):
             result = generator._finish("test", "Test", self.work, anchor, np.asarray(anchor["route"]), COORDS, [], (0, 0, 0),
-                                       0, lambda msg: None, lambda *progress: None, False, None)
+                                       0, lambda msg: None, progress, False, None)
+        progress.assert_has_calls([mock.call("kn5", 0, 0), mock.call("ai_line", 0, 0), mock.call("clean", 0, 0)])
         self.assertEqual(regenerate.call_args.args, (result["kn5"],))
         self.assertTrue(regenerate.call_args.kwargs["circuit"])
         self.assertEqual("circuit", result["kind"])
@@ -156,6 +161,13 @@ class CircuitBuildTest(unittest.TestCase):
         self.assertEqual(info["timing"], {**SAVED_TIMING, "sector_m": [241.0]})
         self.assertEqual(trackcode.decode(info["code"])["kind"], "circuit")
         self.assertEqual(info["route_end"], len(COORDS) - 1)
+
+    def test_build_progress_counts_only_phases_for_this_build(self):
+        for area, phase, step, steps in [(False, "ai_line", 6, 7), (False, "clean", 7, 7),
+                                         (True, "tiles", 1, 5), (True, "clean", 5, 5)]:
+            with self.subTest(area=area, phase=phase):
+                self.assertEqual(generator.build_progress(phase, 0, 0, area=area),
+                                 {"phase": phase, "done": 0, "total": 0, "step": step, "steps": steps})
 
     def test_refused_start_finish_keeps_the_installed_track(self):
         anchor = {"kind": "circuit", "route": [[0., 0.], [0., 100.], [50., 50.], [0., 0.]], "lat": 46.65, "lon": 14.62,

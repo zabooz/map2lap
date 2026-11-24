@@ -1,4 +1,4 @@
-// The terrain toggle belongs to the build, and options/log share one fixed panel.
+// Build settings, the resulting track and the live build log.
 import {card, clickMap, expect, openEditor, test} from "./fixtures";
 import {deleteTree, meshes, saved, saveTrack, stored, treeCount} from "./edit-helpers";
 
@@ -11,7 +11,7 @@ test("new builds start at 2 m tree spacing with half-metre steps from Original t
     await spacing.press("ArrowLeft");
     await expect(spacing).toHaveValue(value);
   }
-  await expect(page.getByRole("tabpanel", {name: "Build options", exact: true})).toContainText("Original");
+  await expect(page.getByTestId("build-options")).toContainText("Original");
   await spacing.press("End");
   await expect(spacing).toHaveValue("20");
   await spacing.press("ArrowRight");
@@ -36,19 +36,23 @@ test("terrain toggle follows codes, builds and rebuilds while the log remains ac
     await route.fulfill({response, json: status});
   });
   await page.goto("/");
-  const options = page.getByRole("tab", {name: "Build options", exact: true});
-  const log = page.getByRole("tab", {name: "Build log", exact: true});
-  const toggle = page.getByRole("switch", {name: "1 m terrain grid"});
-  await expect(options).toHaveAttribute("aria-selected", "true");
+  const workspace = page.getByTestId("workspace-panel");
+  const options = workspace.getByTestId("build-options");
+  const heading = options.getByTestId("build-options-title");
+  await expect(heading).toHaveRole("heading");
+  await expect(heading).toHaveText("Build options");
+  await expect(options).toHaveCSS("border-top-width", "0px");
+  const log = page.getByTestId("track-details").getByTestId("build-log");
+  await expect(log).toBeVisible();
+  await expect(log).toHaveCSS("border-style", "solid");
+  const toggle = options.getByRole("switch", {name: "1 m terrain grid"});
   await expect(toggle).not.toBeChecked();
-  const panel = page.getByRole("tabpanel", {name: "Build options", exact: true});
-  await expect(panel.getByLabel("Corridor each side")).toBeVisible();
-  const details = (await page.getByRole("region", {name: "Build details", exact: true}).boundingBox())!;
-  expect((await page.locator("#go").boundingBox())!.y).toBeGreaterThanOrEqual(details.y + details.height);
-  const before = (await page.locator("#go").boundingBox())!;
-  await log.click();
-  await options.click();
-  expect((await page.locator("#go").boundingBox())!.y).toBe(before.y);
+  const panel = (await options.boundingBox())!;
+  expect(panel.width).toBeGreaterThanOrEqual(340);
+  const build = workspace.getByTestId("build-action");
+  const gap = (await build.boundingBox())!.y - (panel.y + panel.height);
+  expect(gap).toBeGreaterThanOrEqual(0);
+  expect(gap).toBeLessThan((await build.boundingBox())!.height);
 
   await page.getByRole("switch", {name: "HD ground textures"}).click();
   await toggle.click();
@@ -68,10 +72,8 @@ test("terrain toggle follows codes, builds and rebuilds while the log remains ac
   const requested = page.waitForRequest(r => r.url().endsWith("/api/build"));
   await page.locator("#go").click();
   expect((await requested).postDataJSON()).toMatchObject({terrain_cell_m: 1, parked_cars: false, tree_spacing_m: 5.5, ground_quality: "hd"});
-  await expect(log).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("tabpanel", {name: "Build log", exact: true})).toBeFocused();
-  await expect(page.locator("#log")).toContainText("Terrain grid: 1 m");
-  await options.click();
+  await expect(log).toBeFocused();
+  await expect(log).toContainText("Terrain grid: 1 m");
   await expect(toggle).toBeDisabled();
   await expect(page.getByRole("switch", {name: "HD ground textures"})).toBeDisabled();
   await expect(page.locator("#go")).toHaveText("Stop build");
@@ -79,9 +81,8 @@ test("terrain toggle follows codes, builds and rebuilds while the log remains ac
   await expect(card(page)).toContainText("Installed in Assetto Corsa.");
   await expect(toggle).toBeEnabled();
 
-  await page.locator("#t-mine").click();
+  await page.getByTestId("nav-my-tracks").click();
   await page.locator("#pane-mine").getByRole("button").filter({hasText: "Grid trial"}).click();
-  await options.click();
   await expect(toggle).toBeChecked();
   await expect(page.getByRole("switch", {name: "HD ground textures"})).toBeChecked();
   await expect(page.getByRole("switch", {name: "Parked cars", exact: true})).not.toBeChecked();
@@ -100,16 +101,15 @@ test("terrain toggle follows codes, builds and rebuilds while the log remains ac
 test("My tracks shares space between the list and build controls; Edited has no build controls", async ({page}) => {
   await page.setViewportSize({width: 1500, height: 1280});
   await page.goto('/');
-  await page.locator('#t-mine').click();
+  await page.getByTestId('nav-my-tracks').click();
   await page.locator('#pane-mine button', {hasText: 'Alpha Test'}).click();
   const list = (await page.locator('#pane-mine').boundingBox())!;
-  const panel = (await page.getByRole('region', {name: 'Build details', exact: true}).boundingBox())!;
+  const panel = (await page.getByTestId('build-options').boundingBox())!;
   expect(list.height).toBeGreaterThan(panel.height);
-  expect(panel.height / list.height).toBeGreaterThan(0.6);
   expect(panel.y).toBeGreaterThanOrEqual(list.y + list.height);
   await page.getByRole('button', {name: 'Edited', exact: true}).click();
-  await expect(page.getByRole('tab', {name: 'Build options', exact: true})).toHaveCount(0);
-  await expect(page.getByRole('tab', {name: 'Build log', exact: true})).toHaveCount(0);
+  await expect(page.getByTestId('build-options')).toHaveCount(0);
+  await expect(page.getByTestId('build-log')).toHaveCount(0);
   await expect(page.getByRole('button', {name: 'Build as copy', exact: true})).toHaveCount(0);
   await expect(page.locator('#go')).toHaveText('Edit');
 });

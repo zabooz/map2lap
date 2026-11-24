@@ -224,7 +224,7 @@ test("the name left as it is, a new track gets its (copy) by itself", async ({pa
   await page.locator("#save-name").press("Enter");
   await expect(page.locator("#edit-track")).toHaveValue("alpha_test_copy");
   await expect(page.locator("#edit-track option:checked")).toHaveText(/Alpha Test \(copy\)/);
-  await page.locator("#t-mine").click();
+  await page.getByTestId("nav-my-tracks").click();
   const list = page.locator("#pane-mine button");
   await expect(list.filter({hasText: "Alpha Test"})).toHaveText([/^Alpha Test(?! \(copy\))/]);     // (the original is still a build)
   await button(page, "Edited").click();
@@ -315,7 +315,7 @@ test("Edited offers editing and Play without build controls; no build replaces i
   await saveTrack(page);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await expect(page.locator('#edit-track optgroup[label="Edited"] option')).toHaveText(["Alpha Test"]);
-  await Promise.all([page.waitForResponse("**/api/tracks"), page.locator("#t-mine").click()]);
+  await Promise.all([page.waitForResponse("**/api/tracks"), page.getByTestId("nav-my-tracks").click()]);
   const alpha = page.locator("#pane-mine button", {hasText: "Alpha Test"});
   await expect(alpha).toHaveCount(0);
   await button(page, "Edited").click();
@@ -327,8 +327,8 @@ test("Edited offers editing and Play without build controls; no build replaces i
   await expect(card(page).getByRole("textbox", {name: "Track code"})).toHaveCount(0);     // (a code builds the track without its edits)
   await expect(card(page).getByRole("button", {name: "Delete track"})).toBeVisible();
   await expect(page.locator("#go")).toHaveText("Edit");
-  await expect(page.getByRole('tab', {name: 'Build options', exact: true})).toHaveCount(0);
-  await expect(page.getByRole('tab', {name: 'Build log', exact: true})).toHaveCount(0);
+  await expect(page.getByTestId('build-options')).toHaveCount(0);
+  await expect(page.getByTestId('build-log')).toHaveCount(0);
   await expect(button(page, 'Build as copy')).toHaveCount(0);
   for (const data of [{name: "alpha"}, {name: "alpha", drop_edits: true}]) {     // (nor by asking the server)
     expect((await page.request.post("/api/rebuild", {data})).status()).toBe(409);
@@ -348,7 +348,7 @@ test("a track with unsaved changes stays under Built, and warns before a build",
   const asked: string[] = [];
   page.removeAllListeners("dialog");
   page.on("dialog", d => { asked.push(d.message()); void d.dismiss(); });
-  await Promise.all([page.waitForResponse("**/api/tracks"), page.locator("#t-mine").click()]);     // (the list with its count of changes)
+  await Promise.all([page.waitForResponse("**/api/tracks"), page.getByTestId("nav-my-tracks").click()]);     // (the list with its count of changes)
   await page.locator("#pane-mine button", {hasText: "Beta Test"}).click();
   await page.locator("#go").click();
   await expect.poll(() => asked.length).toBe(1);

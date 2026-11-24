@@ -29,7 +29,7 @@
 [hidden] { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg);
-       color: var(--text); display: grid; grid-template-columns: 360px 1fr; }
+       color: var(--text); display: grid; grid-template-columns: 60px clamp(300px, 27vw, 400px) minmax(0, 1fr); }
 button, input, select { font: inherit; color: inherit; }
 
 /* Fields */
@@ -40,10 +40,11 @@ input[type=range] { width: 100%; accent-color: var(--accent); margin: 4px 0; }
 select { height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--raised); }
 select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
-.label-row { display: flex; justify-content: space-between; align-items: baseline; font-weight: 600; font-size: 13px; }
+.label-row { display: flex; justify-content: space-between; align-items: baseline;
+             font-weight: var(--sidebar-label-weight, 600); font-size: var(--sidebar-label, 13px); }
 .label-row .val { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 500; }
 
-/* Tabs: the page's and the settings', sharing the whole width */
+/* Settings tabs share the whole width. */
 .tabs { display: flex; border-bottom: 1px solid var(--line); margin-bottom: -2px; }
 .tabs button { flex: 1; border: 0; background: none; padding: 0 0 9px; margin-bottom: -1px; cursor: pointer; font-weight: 600;
                color: var(--muted); border-bottom: 2px solid transparent; display: flex; gap: 6px; align-items: center;
@@ -51,7 +52,7 @@ select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
 
 /* A tab's content below the head of the sidebar */
-.view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+.view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--sidebar-section-gap, 14px); }
 /* Leave a scrollable field visible beside the fixed status, log and appearance controls in a short desktop window. */
 @media (max-height: 680px) and (min-width: 761px) {
   .view { gap: 8px; }
@@ -59,7 +60,7 @@ select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 /* A quiet button along a whole field */
 .add-stop { flex: none; height: 34px; border: 1px dashed var(--line); border-radius: 9px; background: none;
-            color: var(--muted); cursor: pointer; font-weight: 600; font-size: 12.5px; }
+            color: var(--muted); cursor: pointer; font-weight: var(--sidebar-label-weight, 600); font-size: var(--sidebar-label, 12.5px); }
 .add-stop:not(:disabled):hover { color: var(--accent); border-color: var(--accent); }
 .add-stop:disabled { opacity: .55; cursor: default; }
 .add-stop.clear { border-style: solid; border-color: var(--accent); color: var(--accent); }
@@ -67,10 +68,10 @@ select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 /* Text */
 .muted { color: var(--muted); }
-.small { font-size: 12.5px; margin: 0; }
+.small { font-size: var(--sidebar-note, 12.5px); margin: 0; }
 .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .empty { margin: auto; text-align: center; color: var(--muted); max-width: 240px; }
 
 @media (max-width: 760px) {
-  body { height: auto; min-height: 100%; grid-template-columns: 1fr; grid-template-rows: auto auto; }
+  body { height: auto; min-height: 100%; grid-template-columns: 56px minmax(0, 1fr); grid-template-rows: auto auto; }
 }

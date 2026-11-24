@@ -13,7 +13,7 @@ test("one loading bar covers reading, parts, textures and selection preparation"
   await page.route("**/alpha/surface/prepare?*", async route => { await selection.waiting; await route.continue(); });
   try {
     await page.goto("/");
-    await page.locator("#t-edit").click();
+    await page.getByTestId("nav-editor").click();
     await page.locator("#edit-track").selectOption("alpha");
     const bar = page.getByRole("progressbar", {name: "Loading track"});
     await expect(bar).toBeVisible();
@@ -40,7 +40,7 @@ test("an old preparation cannot put the bar back after another track finishes", 
   await page.route("**/alpha/surface/prepare?*", async route => { started(); await selection.waiting; await route.continue(); });
   try {
     await page.goto("/");
-    await page.locator("#t-edit").click();
+    await page.getByTestId("nav-editor").click();
     await page.locator("#edit-track").selectOption("alpha");
     await arrived;
     await page.locator("#edit-track").selectOption("beta");
@@ -57,7 +57,7 @@ test("an old preparation cannot put the bar back after another track finishes", 
 test("a loading error ends the bar and keeps its explanation", async ({page}) => {
   await page.route("**/alpha/index", route => route.fulfill({status: 409, json: {error: "The track changed"}}));
   await page.goto("/");
-  await page.locator("#t-edit").click();
+  await page.getByTestId("nav-editor").click();
   await page.locator("#edit-track").selectOption("alpha");
   await expect(page.locator("#edit-status")).toHaveText("Could not load this track: The track changed");
   await expect(page.getByRole("progressbar", {name: "Loading track"})).toBeHidden();
@@ -73,7 +73,7 @@ test("switching tracks while a Rust worker is loading cannot restore the abandon
   });
   try {
     await page.goto("/");
-    await page.locator("#t-edit").click();
+    await page.getByTestId("nav-editor").click();
     await page.locator("#edit-track").selectOption("alpha");
     await arrived;
     await page.locator("#edit-track").selectOption("beta");

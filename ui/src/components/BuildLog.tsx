@@ -1,25 +1,28 @@
-import {useEffect, useLayoutEffect, useRef} from "react";
+import {useLayoutEffect, useRef, type RefObject} from "react";
 import styles from "./BuildLog.module.css";
 
 const BOTTOM_PX = 30;           // this near the bottom counts as reading the newest line
 
 /** The build's log: shows its newest line, until the reader scrolls up (back at the bottom: again). started: when the
     build began. */
-export function BuildLog({text, started, visible}: {text: string; started: number | null | undefined; visible: boolean}) {
-  const box = useRef<HTMLPreElement>(null);
+export function BuildLog({text, started, box}: {text: string; started: number | null | undefined; box: RefObject<HTMLPreElement | null>}) {
   const follow = useRef(true);
 
-  useEffect(() => { follow.current = true; }, [started]);
+  useLayoutEffect(() => { follow.current = true; }, [started]);
 
   useLayoutEffect(() => {
     if (!text) follow.current = true;
-    if (visible && box.current && follow.current) box.current.scrollTop = box.current.scrollHeight;
-  }, [text, visible]);
+    if (box.current && follow.current) box.current.scrollTo({top: box.current.scrollHeight});
+  }, [text, started, box]);
 
   return (
-    <pre id="log" className={styles.log} ref={box} onScroll={e => {
-      const l = e.currentTarget;
-      follow.current = l.scrollTop + l.clientHeight >= l.scrollHeight - BOTTOM_PX;
-    }}>{text}</pre>
+    <section className={styles.section} aria-labelledby="build-log-title">
+      <h2 id="build-log-title" className={styles.title}>Build log</h2>
+      <pre id="log" data-testid="build-log" className={styles.log} ref={box} tabIndex={0} aria-labelledby="build-log-title"
+           onScroll={e => {
+             const log = e.currentTarget;
+             follow.current = log.scrollTop + log.clientHeight >= log.scrollHeight - BOTTOM_PX;
+           }}>{text}</pre>
+    </section>
   );
 }
