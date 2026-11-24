@@ -10,7 +10,7 @@ test("Play switches between Hotlap and a Race grid without moving the dialog", a
   });
   await page.route("**/api/play/options?name=alpha", async route => {
     const response = await route.fetch();
-    await route.fulfill({response, json: {...await response.json(), max_opponents: 3}});
+    await route.fulfill({response, json: {...await response.json(), max_opponents: 5}});
   });
   await page.goto("/");
   await page.locator("#t-mine").click();
@@ -26,9 +26,9 @@ test("Play switches between Hotlap and a Race grid without moving the dialog", a
   await session.selectOption("hotlap");
   await expect(opponents).toHaveCount(0);
   await session.selectOption("race");
-  await expect(opponents.locator("option")).toHaveCount(4);
+  await expect(opponents.locator("option")).toHaveCount(6);
   await expect(dialog.getByRole("combobox", {name: "Laps"})).toHaveValue("2");
-  await opponents.selectOption("3");
+  await expect(opponents).toHaveValue("3");
   await dialog.getByRole("slider", {name: "Strength"}).fill("92");
   await dialog.getByRole("slider", {name: "Aggression"}).fill("24");
   await dialog.getByRole("combobox", {name: "Opponent car"}).selectOption("car_a");
@@ -70,7 +70,7 @@ test("Play asks before using a manual line or starting a failed Race solo", asyn
     data.tracks.find((t: {name: string}) => t.name === "alpha").kind = "circuit";
     await route.fulfill({response, json: data});
   });
-  await page.route("**/api/play/options?name=alpha", route => route.fulfill({json: {max_opponents: 5}}));
+  await page.route("**/api/play/options?name=alpha", route => route.fulfill({json: {max_opponents: 2}}));
   const grid: number[] = [];
   let manual = false;
   await page.route("**/api/play", route => {
@@ -89,7 +89,9 @@ test("Play asks before using a manual line or starting a failed Race solo", asyn
   for (const action of ["Cancel", "Start without opponents", "Use installed line", "Recalculate"]) {
     await page.locator("#actions").getByRole("button", {name: "▶ Play"}).click();
     await dialog.getByRole("combobox", {name: "Session", exact: true}).selectOption("race");
-    await dialog.getByLabel("Opponents", {exact: true}).selectOption("1");
+    const opponents = dialog.getByLabel("Opponents", {exact: true});
+    await expect(opponents).toHaveValue("2");
+    await opponents.selectOption("1");
     await startDriving(page);
     await expect(dialog).toContainText(manual ? "The installed AI line was replaced by hand." : "74.9");
     await dialog.getByRole("button", {name: action, exact: true}).click();

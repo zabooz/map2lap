@@ -28,7 +28,7 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
   const [gripOptions, setGripOptions] = useState<GripOptions | null>(null);
   const [grip, setGrip] = useState<string | GripEdits>("");
   const [gridError, setGridError] = useState(false);
-  const [ai, setAi] = useState({opponents: 0, strength: 95, aggression: 0, car: ""});
+  const [ai, setAi] = useState({opponents: 3, strength: 95, aggression: 0, car: ""});
   const [minutes, setMinutes] = useState<number | null>(initialClock === undefined ? null : Math.round(initialClock * 60));
   const [weather, setWeather] = useState<WeatherOptions>({...initialWeather});
   const [loadError, setLoadError] = useState(false);
@@ -66,6 +66,7 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
     setWeather(old => ({...old, [key]: value}));
   const mode = timedMode ? sessionMode : "practice";
   const race = mode === "race";
+  const waitingForGrid = race && maxOpponents === null && !gridError;
   const preset = typeof grip === "string" ? grip : grip.preset;
   const gripValues = {...(gripOptions?.presets.find(p => p.name === preset) ?? gripOptions?.current),
     ...(typeof grip === "object" ? grip : {})};
@@ -84,7 +85,7 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
     return () => { active = false; clearInterval(timer); };
   }, [busy, name, race, ai.opponents]);
   const start = async (overrides: Partial<NonNullable<PlaySession["ai"]>> = {}) => {
-    if (busy || saving || saveFailed || !cars) return;
+    if (busy || saving || saveFailed || !cars || waitingForGrid) return;
     setBusy(true);
     const grid = {...ai, ...overrides};
     setPhase(race && grid.opponents ? "Checking AI line inputs …" : "Starting …");
@@ -249,7 +250,7 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
             <button type="button" disabled={busy} onClick={() => void start({useInstalled: answer.token})}>Use installed line</button>
           </> : answer.lane === "failed" ?
             <button type="button" disabled={busy} onClick={() => void start({opponents: 0})}>Start without opponents</button> :
-            <button type="submit" className={styles.start} disabled={busy || !cars || saving || saveFailed}>
+            <button type="submit" className={styles.start} disabled={busy || !cars || saving || saveFailed || waitingForGrid}>
               {saving ? "Saving …" : "Start driving"}
             </button>}
         </footer>
