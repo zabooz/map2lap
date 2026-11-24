@@ -43,8 +43,12 @@ hook handles its own view marks but does not register another global click, pick
 AI line (L) shows the installed `ai/fast_lane.ai` as a translucent speed band with side limits and shows the route metre
 and point data on hover. Yellow is the lowest modelled speed and blue the highest. The legend spans the whole circuit
 or the stage from start gate to finish gate. Grid and runout colours clamp to this range. If an installed spline misses
-a timing gate, the legend spans the available samples. The Editor keeps the geometry while the tool is off and checks for a new revision on reopening or after Save, so an unsaved
-draft can differ from the displayed line. Recalculate AI line operates on the saved KN5 after pending edits have been saved.
+a timing gate, the legend spans the available samples. Save and Save as update the line in the background when its
+fingerprint changes. Until the replacement is ready, the old band stays visible, dimmed and labelled **Outdated**.
+If AC is open or a build is running, the update waits for the next Save, Recalculate or Race with opponents.
+Editor Play saves edits first. Only a Race with opponents needs a current line before launch.
+**Recalculate AI line** beside the tool saves pending edits first and can retry a failed or hand-replaced line.
+The button is disabled while calculating or when everything is current. Progress and results appear in Notifications.
 A lateral move is one undoable edit. Its offset tapers to zero over the Move range on each side (30 m by default).
 The recipe owns its route metre, local approach, departure, level and coordinate frame. A rebuilt copy resolves these on
 its own route. An ambiguous anchor, overlap, fixed grid or finish point, or insufficient clearance gives a located error.
@@ -54,8 +58,8 @@ visible in the Editor. Other valid moves still apply. Legacy moves store only a 
 they are skipped until redrawn. The racing-line solver holds the moved samples fixed. The saved corrections also enter the line fingerprint.
 
 Redraw starts and ends with a click on the line in driving order. Intermediate ground clicks shape the curve.
-The preview shows the collision cross-sections and mapped side limits along the edited line.
-Shift switches Road/Free, Ctrl switches Move/Redraw and Alt + wheel adjusts the move range.
+The preview shows the collision cross-sections and mapped side limits along the edited line. It replaces the installed band only along the measured stroke.
+Free is selected initially. Shift switches Road/Free, Ctrl switches Move/Redraw and Alt + wheel adjusts the move range.
 Changing modes or pressing Escape discards an unfinished stroke. Right-click a saved correction to remove it. Free mode belongs to each new correction.
 Yellow marks off-road segments supported by a driving surface. Red marks an invalid section, with its reason and
 route metre on hover. At an open finish the dashed continuation accepts the end click for a free runout.

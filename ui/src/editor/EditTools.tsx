@@ -97,7 +97,7 @@ export function EditTools({name, title, routeTrack, timedMode, visible, taken, v
   const [groupBusy, setGroupBusy] = useState(false);
   const [replaceTargets, setReplaceTargets] = useState<string[]>([]);
   const editable = edits.canEdit();
-  const unsavedAiDraft = useMemo(() => tool === "ai-line" && (!!state.inTurn || hasUnsavedChanges(state)), [tool, state]);
+  const unsavedAiDraft = useMemo(() => !!state.inTurn || hasUnsavedChanges(state), [state]);
   /** Whether t is the tool on and the track can be changed now. */
   const working = (t: Tool) => tool === t && editable;
   const selection = useSelection({name, view, edits, editable, kerbs: state.kerbs, onKerbRemoved: () => kerbs.setSelected(null), onNote: setNote});
@@ -116,7 +116,9 @@ export function EditTools({name, title, routeTrack, timedMode, visible, taken, v
   const placingWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
   const setPlacingWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { placingWheel.current = wheel; }, []);
   const [aiLineWrites, setAiLineWrites] = useState(0);
-  const saving = useSave({name, timedMode, edits, state, view, onSaved: savedName => {
+  const aiLine = useAiLine({name, view, routeTrack, enabled: tool === "ai-line", writes: aiLineWrites,
+    unsaved: unsavedAiDraft, edits, moves: state.aiCorrections, editable});
+  const saving = useSave({lanePending: aiLine.pending && !aiLine.working, name, timedMode, edits, state, view, onSaved: savedName => {
     if (savedName === name) setAiLineWrites(writes => writes + 1);
     onSaved(savedName);
   }});
@@ -146,8 +148,6 @@ export function EditTools({name, title, routeTrack, timedMode, visible, taken, v
   const band = useBand({name, view, edits, enabled: working("smooth"), revision: state.keptRevision, onNote: setNote});
   const separation = useSeparation({name, view, edits, enabled: working("separate"), revision: state.keptRevision, onNote: setNote});
   const banking = useBank({name, view, edits, enabled: working("bank"), revision: state.keptRevision, heights: state.heights, onNote: setNote});
-  const aiLine = useAiLine({name, view, routeTrack, enabled: tool === "ai-line", writes: aiLineWrites,
-    unsaved: unsavedAiDraft, edits, moves: state.aiCorrections, editable});
   const kerbs = useKerbs({name, view, edits, kerbs: state.kerbs, enabled: working("kerb"),
     highlightId: tool === "select" ? picked?.kerbId ?? null : null, onNote: setNote, onDelete: () => remove()});
   const stitch = useStitch({name, view, edits, stitches: state.stitches, enabled: working("stitch"), onNote: setNote});
@@ -292,7 +292,7 @@ export function EditTools({name, title, routeTrack, timedMode, visible, taken, v
     <>
       {fileHost && createPortal(<FileButtons edits={edits} view={view} saving={saving} onLibrary={openLibrary} />, fileHost)}
       {savedHost && createPortal(saving.savedText, savedHost)}
-      {toolsHost && createPortal(<ToolPanel aiPanel={aiLine.panel} state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={openModels} />, toolsHost)}
+      {toolsHost && createPortal(<ToolPanel aiPanel={aiLine.panel(() => void saving.save(true), saving.busy)} state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={openModels} />, toolsHost)}
       <Models name={name} view={view} edits={edits} replace={replaceTargets} enabled={working("model")}
         onWheel={setPlacingWheel}
         choosing={libraryTab === "objects"} onClose={closeMaterial} onPlace={() => switchTo("model")}

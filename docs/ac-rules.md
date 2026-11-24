@@ -162,8 +162,8 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 
 ## AI line
 
-Build and Rebuild generate `ai/fast_lane.ai` on the finished track. Editor Save carries the installed line
-when its inputs still match. A Race with opponents generates a missing line before starting. Practice,
+Build and Rebuild generate `ai/fast_lane.ai` on the finished track. Editor Save carries the installed line for display
+and updates it in the background when its inputs change. A Race with opponents requires a current or explicitly accepted manual line. Practice,
 Hotlap and solo Race skip this step. The Editor can explicitly recalculate the saved track's line.
 `data/map2lap_ai.json` fingerprints collision geometry, grid and timing markers, route, mapped road and
 ring facts, circuit mode, line-code version and the corrections from the Editor recipe. A separate file checksum

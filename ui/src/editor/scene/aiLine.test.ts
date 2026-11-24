@@ -35,3 +35,18 @@ test("hover chooses the closest visible segment and its nearer endpoint, includi
   expect(pickLanePoint(positions, [other, seam], 2)).toBe(1);
   expect(pickLanePoint(positions, [])).toBeNull();
 });
+
+test("installed band meets the measured boundaries and skips just the covered segments, including across the lap seam", async () => {
+  const {remainingBand} = await import("./aiLine");
+  const rows = Array.from({length:6}, (_,i) => ({at:[i,0,0] as Place, edges:[[i,0,-1],[i,0,1]] as [Place,Place], colour:[1,1,1]}));
+  const start = {...rows[1], at:[1,0,.2] as Place}, end = {...rows[3], at:[3,0,.3] as Place};
+  expect(remainingBand(rows, false, [[start,end]])).toEqual([[rows[0],start],[end,rows[4],rows[5]]]);
+  expect(remainingBand(rows, true, [[end,start]])).toEqual([[start,rows[2],end]]);
+});
+
+test("a replacement within one long installed segment leaves both adjoining parts", async () => {
+  const {remainingBand} = await import("./aiLine");
+  const row = (x:number) => ({at:[x,0,0] as Place, edges:[[x,0,-1],[x,0,1]] as [Place,Place], colour:[1,1,1]});
+  expect(remainingBand([row(0),row(10)], false, [[row(1),row(3)]]))
+    .toEqual([[row(0),row(1)],[row(3),row(10)]]);
+});

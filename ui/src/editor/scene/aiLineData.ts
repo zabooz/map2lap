@@ -57,8 +57,10 @@ export async function fetchAiLine(name: string, known: InstalledAiLine | null, s
   const url = `/api/editor/${encodeURIComponent(name)}/ai-line`;
   const status = await fetchJson<AiLineReady | AiLineUnavailable>(url, signal);
   if (status.status !== "ready") return status;
-  if (known?.revision === status.revision && known.closed === status.closed && known.validity === status.validity && known.canCalculate === status.canCalculate
-    && known.speedRange?.[0] === status.speedRange?.[0] && known.speedRange?.[1] === status.speedRange?.[1]) return known;
+  if (known?.revision === status.revision && known.closed === status.closed
+    && known.speedRange?.[0] === status.speedRange?.[0] && known.speedRange?.[1] === status.speedRange?.[1])
+    return known.validity === status.validity && known.canCalculate === status.canCalculate && known.message === status.message
+      ? known : {...known, ...status};
   const buffer = await fetchBytes(`${url}?r=${encodeURIComponent(status.revision)}`, signal);
   return decodeAiLine(status, buffer);
 }

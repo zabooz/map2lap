@@ -340,10 +340,11 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         _ui_title(temporary, title)
         staged_old = os.path.join(temporary, name + ".kn5")
         route_race.update_copy(staged_old, new_kn5, source_scan["points"])
+        lane_state = None
         if kind != "area":
             source_slot = ailanejobs.track(own)
             with source_slot.condition:
-                ailinestate.carry(folder, new_kn5, kind == "circuit")
+                lane_state = ailinestate.carry(folder, new_kn5, kind == "circuit")
         # (a build started or a tab saved meanwhile: the triangles counted are no more the ones to go)
         if objectlist.state_of(path) != edits["base"] or trackedits.load(ac, name)["revision"] != edits["revision"]:
             raise Refused("The track or its changes changed meanwhile: nothing was saved")
@@ -367,7 +368,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
                 step()
             except OSError:         # (the copy is whole, so it is saved: a draft left only shows as changes not saved)
                 pass
-    return {"name": new, "title": title, "left_out": _counted(seen, objects), "log": log}
+    return {"name": new, "title": title, "aiLine": lane_state, "left_out": _counted(seen, objects), "log": log}
 
 
 def _counted(seen, objects):

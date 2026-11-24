@@ -1,4 +1,5 @@
-import type {Posted} from "../components/toastStore";
+import {get, post} from "../api";
+import {toasts, type Posted} from "../components/toastStore";
 import type {EditState} from "./state/edits";
 import type {EditorLoadStatus} from "../types";
 
@@ -56,4 +57,50 @@ export function loadingToast(status: EditorLoadStatus): Posted | null {
   return {id: "edit-loading", tone: "info", title: "Loading track", message: status.text, dismissible: false,
     progress: {value: status.progress, label: "Loading track"},
     ...(status.first ? {detail: "First opening of this track: Map2Lap computes its sections for selecting once. Next time it opens faster."} : {})};
+}
+
+/** The line update belongs to the saved folder, including while Save as opens its copy. */
+const updates = new Map<string, {working: boolean; revision: number}>();
+const idle = {working: false, revision: 0};
+const listeners = new Set<() => void>();
+export const subscribeAiUpdates = (listener: () => void) => {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+};
+export const aiUpdate = (name: string) => updates.get(name) ?? idle;
+
+export function aiLineError(name: string, message: string) {
+  const id = `edit-ai-line-${name}`;
+  toasts.post({id, tone:"error", title:"AI line calculation failed", message, onDismiss:() => toasts.remove(id)});
+}
+
+export async function updateAiLine(name: string, retry: boolean, inputs?: string) {
+  const state = {working: true, revision: aiUpdate(name).revision};
+  const id = `edit-ai-line-${name}`, url = `/api/editor/${encodeURIComponent(name)}/ai-line`;
+  const notify = () => listeners.forEach(listener => listener());
+  const progress = (phase: string) => toasts.post({id, tone:"info", title:"Calculating AI line …",
+    message: phase === "Calculating AI line …" ? undefined : phase,
+    dismissible:false, progress:{value:null, label:phase}});
+  updates.set(name, state);
+  notify();
+  progress("Checking AI line inputs …");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  async function poll() {
+    const result = await get<{phase?: string}>(url + "/progress");
+    if (updates.get(name) !== state) return;
+    if (result?.phase) progress(result.phase);
+    timer = setTimeout(poll, 350);
+  }
+  void poll();
+  const result = await post<{status: string; message: string}>(url + "/recalculate", {retry, inputs});
+  clearTimeout(timer);
+  if (updates.get(name) !== state) return;
+  updates.set(name, {working:false, revision:state.revision + 1});
+  notify();
+  if (result.status === "superseded") { toasts.remove(id); return; }
+  if (result.error) { aiLineError(name, result.error); return; }
+  const deferred = result.status === "deferred";
+  toasts.post({id, tone:deferred ? "info" : "success",
+    title:deferred ? "AI line update deferred" : "AI line updated",
+    message:result.message, onDismiss:() => toasts.remove(id)});
 }

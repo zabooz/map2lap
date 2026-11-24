@@ -25,7 +25,7 @@ function placeAt(move: AiMove, x: number, z: number) {
 export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THREE.PerspectiveCamera,
   guide: MoveGuide, url: string, corrections: AiCorrection[], range: number, showGuide: boolean, free: boolean, pen: boolean,
   add: (move: AiCorrection) => void, remove: (id: string) => void, note: (why: string) => void,
-  redraw: () => void, groundDistance: (mouse: THREE.Vector2) => number, groundPoint: (mouse: THREE.Vector2) => THREE.Vector3 | null, previewing: (active:boolean) => void) {
+  redraw: () => void, groundDistance: (mouse: THREE.Vector2) => number, groundPoint: (mouse: THREE.Vector2) => THREE.Vector3 | null, previewing: (spans:number[][][]) => void) {
   const saved = corrections.filter(item => item.kind === "move");
   const stops = new AbortController(), {signal} = stops;
   const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0));
@@ -46,18 +46,26 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
   const queue = new PreviewQueue();
   const band = new THREE.Group();
   scene.add(band);
+  let moveSpans: number[][][] = [];
   const setBand = (rows: Checked["samples"]) => {
     for (const part of [...band.children]) disposeStroke(part);
+    moveSpans = [];
+    const runs: number[][][] = [];
     let run: number[][] = [], prev = -2;
     for (const [i, ...row] of rows) {
       if (i !== prev+1) {
-        if (run.length > 1) band.add(previewBand(run));
+        if (run.length) runs.push(run);
         run = [];
       }
       run.push(row); prev = i;
     }
-    if (run.length > 1) band.add(previewBand(run));
-    previewing(!!drag && rows.length > 0);
+    if (run.length) runs.push(run);
+    if (guide.closed && runs.length > 1 && rows[0][0] === 0 && prev === guide.rows.length-1)
+      runs[0] = runs.pop()!.concat(runs[0]);
+    for (const part of runs) if (part.length > 1) {
+      band.add(previewBand(part));
+      moveSpans.push([part[0],part[part.length-1]]);
+    }
   };
   let keptBand: Checked["samples"] = [];
   let checkedPositions = new Map<number, number[]>();
@@ -87,7 +95,10 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
         x += w*delta[0]; z += w*delta[1];
       }
       let colour = guide.errors?.[i] || existing && invalid.has(existing.id) ? red : yellow.has(i) ? amber : green;
-      if ((i > 0 || guide.closed) && !pencil.covers(m)) edges.push((i+guide.rows.length-1)%guide.rows.length, i);
+      const preview = showGuide || baked || existing || guide.errors?.[i]
+        || (drag && apart(m, drag.move.anchor.metre, guide) < range);
+      if (preview && (i > 0 || guide.closed) && !pencil.covers(m))
+        edges.push((i+guide.rows.length-1)%guide.rows.length, i);
       if (drag) {
         const d = apart(m, drag.move.anchor.metre, guide);
         if (d < range) {
@@ -107,6 +118,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     geometry.attributes.position.needsUpdate = geometry.attributes.color.needsUpdate = true;
     geometry.computeBoundingSphere();
     line.visible = showGuide || corrections.length > 0 || pen || !!drag;
+    previewing([...moveSpans, ...pencil.bandSpans()]);
     redraw();
   }
   const amber = new THREE.Color(0xffd23b);
@@ -208,7 +220,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
         if (signal.aborted || busy || !drag || drag !== gesture || drag.error && request !== serial) return;
         // While the pointer is moving the latest measured band stays visible.
         setBand(check.samples ?? []);
-        if (request !== serial) { redraw(); return; }
+        if (request !== serial) { draw(); return; }
         checkedPositions = new Map((check.samples ?? []).map(([i,...row]) => [i,row]));
         drag.error = check.error ?? check.skipped?.[move.id] ?? "";
         for (const i of check.yellow ?? []) liveYellow.add(i);
@@ -237,5 +249,5 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     drag = null; checkedPositions.clear(); setBand(keptBand); draw();
   }, opts);
   el.addEventListener("pointercancel", () => { drag = null; checkedPositions.clear(); setBand(keptBand); queue.clear(); ++serial; draw(); }, opts);
-  return () => { pencil.dispose(); disposeStroke(band); previewing(false); stops.abort(); queue.clear(); el.title = ""; scene.remove(line); geometry.dispose(); mat.dispose(); redraw(); };
+  return () => { pencil.dispose(); disposeStroke(band); previewing([]); stops.abort(); queue.clear(); el.title = ""; scene.remove(line); geometry.dispose(); mat.dispose(); redraw(); };
 }

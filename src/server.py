@@ -1027,12 +1027,20 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                 return self._send(404, {"error": "Track file missing"})
             if (mytracks.load(model.parent) or {}).get("area"):
                 return self._send(400, {"error": "AI lines require a Route or Circuit"})
-            if trackedits.changes(ac, name):
+            try:
+                options = self._body()
+                saved_inputs = options.get("inputs")
+                retry = options.get("retry", True) is True
+            except (ValueError, AttributeError):
+                return self._send(400, {"error": "Invalid AI line request"})
+            if saved_inputs is None and trackedits.changes(ac, name):
                 return self._send(409, {"error": "Save the track first."})
             with lock:
                 if error := _play_blocker():
-                    return self._send(409, {"error": error})
-            result = ailanejobs.ensure(model, mytracks.is_circuit(model.parent), force=True)
+                    return self._send(200, {"status": "deferred", "message": error})
+            result = ailanejobs.ensure(model, mytracks.is_circuit(model.parent), retry=retry, saved_inputs=saved_inputs)
+            if result["status"] == "superseded":
+                return self._send(200, result)
             if result["status"] != "ready":
                 return self._send(409, {"error": result.get("message", "The installed AI line changed. Please retry.")})
             return self._send(200, result)

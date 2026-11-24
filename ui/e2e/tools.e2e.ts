@@ -1,7 +1,7 @@
 // The Editor's tools: the sidebar's groups, one tool at a time, the bar's keys, picking more than one, Smooth road, Camera.
 import type {Page} from "@playwright/test";
-import {centre, expect, openEditor, openSettings, scene, test, type Backend} from "./fixtures";
-import {AWAY, NEAR_TREE, deleteTree, findCar, findTree, heights, picture, saveTrack, saved, stored} from "./edit-helpers";
+import {centre, expect, openEditor, openSettings, scene, startDriving, test, type Backend} from "./fixtures";
+import {AWAY, NEAR_TREE, brushStroke, deleteTree, findCar, findTree, heights, picture, saveTrack, saved, stored} from "./edit-helpers";
 
 const CAMERA_BAR = "#edit-camera-set";
 
@@ -59,6 +59,8 @@ test("Road has Smooth road, Bend road, Bank road, Racing kerb and Stitch road, w
 
 test("dragging the AI line produces one removable, undoable saved move", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", ai_moves: true, trees: false});
+  const installed = await page.request.post(backend.url+"/api/editor/alpha/ai-line/recalculate",{data:{}});
+  expect((await installed.json()).status).toBe("ready");
   await openEditor(page);
   await keysOnView(page);
   const guide = page.waitForResponse(r => r.url().endsWith("/ai-line/move-preview") && r.request().postDataJSON().guide);
@@ -68,6 +70,9 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   const bar = page.locator("#edit-ai-line-set");
   const range = bar.getByRole("spinbutton", {name: /Move range/});
   await expect(range).toHaveValue("30");
+  await expect(bar.getByRole("button",{name:"Free",exact:true})).toHaveAttribute("aria-pressed","true");
+  await page.keyboard.press("Shift");
+  await expect(bar.getByRole("button",{name:"Road",exact:true})).toHaveAttribute("aria-pressed","true");
   await wheelWith(page, ["Alt"], -100);
   await expect(range).toHaveValue("31");
   await wheelWith(page, ["Control"], -100);
@@ -92,11 +97,27 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   await expect.poll(moves).toHaveLength(0);
   await page.keyboard.press("Control+z");
   await expect.poll(moves).toHaveLength(1);
-  await saveTrack(page);
   const recalc = page.locator("#edit-bar").getByRole("button", {name: "Recalculate AI line"});
   await expect(recalc).toBeEnabled();
-  await recalc.click();
+  await page.screenshot({path:"../out/ai-line-save/01-active.png"});
+  await backend.post("/__test/hold-lane",{hold:true});
+  await saveTrack(page);
+  await expect(bar).toContainText("Outdated");
+  await expect(page.getByRole("progressbar",{name:"Calculating AI line …"})).toBeVisible();
+  await page.screenshot({path:"../out/ai-line-save/02-outdated-calculating.png"});
+  await backend.post("/__test/hold-lane",{hold:false});
+  await expect(page.getByText("AI line updated", {exact:true})).toBeVisible();
+  await expect(recalc).toBeDisabled();
+  await expect(bar).not.toContainText("Outdated");
+  await page.screenshot({path:"../out/ai-line-save/03-updated.png"});
+  await page.getByRole("button",{name:"Dismiss notification"}).last().click();
+  const patch = {x:Math.floor(bounds.x+bounds.width/2-30), y:Math.floor(bounds.y+bounds.height*.43), width:60, height:20};
+  const before = await page.screenshot({clip:patch});
+  await bar.getByRole("button",{name:"Redraw",exact:true}).click();
+  await expect(bar.getByRole("button",{name:"Redraw",exact:true})).toHaveAttribute("aria-pressed","true");
+  await expect.poll(async () => (await page.screenshot({clip:patch})).equals(before)).toBe(true);
   await expect(bar).toContainText("Side limits");
+  await page.screenshot({path:"../out/ai-line-save/04-redraw.png"});
   expect(await moves()).toHaveLength(1);
 });
 
@@ -107,7 +128,6 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   await page.keyboard.press("l");
   const guide = await (await response).json();
   const bar = page.locator("#edit-ai-line-set");
-  await page.keyboard.press("Shift");
   await expect(bar.getByRole("button",{name:"Free",exact:true})).toHaveAttribute("aria-pressed","true");
   await page.keyboard.press("Control");
   await expect(bar.getByRole("button",{name:"Redraw",exact:true})).toHaveAttribute("aria-pressed","true");
@@ -124,7 +144,7 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   await click(105);
   await page.keyboard.press("Control"); await page.keyboard.press("Control");
   await click(105); await click(91);
-  await expect(bar).toContainText("End precedes the start");
+  await expect(page.locator("#edit-ai-preview")).toContainText("End precedes the start");
   await page.keyboard.press("Escape");
   expect(await moves()).toHaveLength(0);
   await click(90); await click(105,3.5); await click(128);
@@ -132,13 +152,54 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   const [stroke]=await moves();
   expect(stroke.kind).toBe("redraw"); expect(stroke.free).toBe(true);
   expect(stroke.points).toHaveLength(1);
-  await saveTrack(page);
-  await page.locator("#edit-bar").getByRole("button",{name:"Recalculate AI line"}).click();
+  await page.getByRole("button",{name:"Recalculate AI line"}).click();
+  await page.locator("#save-dialog").getByRole("button",{name:"Overwrite"}).click();
+  await expect(page.getByText("AI line updated",{exact:true})).toBeVisible();
   await expect(bar).toContainText("Side limits");
   expect(await moves()).toEqual([stroke]);
   await bar.getByRole("button",{name:"Move",exact:true}).click();
   await page.mouse.move(...position(100));
   await expect(page.getByRole("region",{name:"AI line point"})).toContainText("Route metre");
+});
+
+test("Save reuses a tree-only change, and defers a road change until Save after AC closes", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name:"alpha",title:"Alpha Test",ai_moves:true});
+  const url = backend.url + "/api/editor/alpha/ai-line";
+  expect((await (await page.request.post(url+"/recalculate",{data:{}})).json()).status).toBe("ready");
+  let requests=0;
+  page.on("request", r => { if (r.url()===url+"/recalculate") requests++; });
+  await openEditor(page);
+  await deleteTree(page);
+  await saveTrack(page);
+  const recalc=page.getByRole("button",{name:"Recalculate AI line"});
+  await expect(recalc).toBeDisabled();
+  expect(requests).toBe(0);
+  await page.locator("#edit-elevation").click();
+  await brushStroke(page);
+  await backend.post("/__test/ac-running",{running:true});
+  await saveTrack(page,false);
+  await expect(page.getByText("AI line update deferred",{exact:true})).toBeVisible();
+  expect((await (await page.request.get(url)).json()).validity).toBe("pending");
+  await backend.post("/__test/ac-running",{running:false});
+  await page.locator("#edit-save").click();
+  await expect(page.getByText("AI line updated",{exact:true})).toBeVisible();
+  await expect(recalc).toBeDisabled();
+});
+
+test("Play saves a road change and Practice leaves its installed preview pending", async ({page,backend}) => {
+  await backend.post("/__test/rebuild", {name:"alpha",title:"Alpha Test",ai_moves:true});
+  const url=backend.url+"/api/editor/alpha/ai-line";
+  expect((await (await page.request.post(url+"/recalculate",{data:{}})).json()).status).toBe("ready");
+  let requests=0;
+  page.on("request", r => { if (r.url()===url+"/recalculate") requests++; });
+  await openEditor(page);
+  await page.locator("#edit-elevation").click();
+  await brushStroke(page);
+  await page.locator("#edit-play").click();
+  await startDriving(page);
+  await expect.poll(backend.calls).toContainEqual(["play","alpha"]);
+  expect((await (await page.request.get(url)).json()).validity).toBe("pending");
+  expect(requests).toBe(0);
 });
 
 test("L shows the installed AI line", async ({page, backend}) => {
@@ -163,8 +224,8 @@ test("L shows the installed AI line", async ({page, backend}) => {
   await expect(bar).toContainText("Side limits");
   await expect(bar).not.toContainText("Braking");
   await expect(bar).toContainText("Line from the last build or save");
-  await expect(page.locator("#edit-bar").getByRole("button", {name: "Recalculate AI line"})).toBeDisabled();
-  await expect(ai.getByText("Save first.", {exact: true})).toBeVisible();
+  await expect(ai.getByRole("button", {name: "Recalculate AI line"})).toBeEnabled();
+  await expect(ai.getByText("Save first.", {exact: true})).toHaveCount(0);
   await page.mouse.move(c.x, c.y + 10);
   const point = page.getByRole("region", {name: "AI line point"});
   await expect(point).toContainText("Route metre");
@@ -175,18 +236,20 @@ test("L shows the installed AI line", async ({page, backend}) => {
   await expect(point).toContainText("Route metre");
   await page.mouse.click(c.x + 30, c.y + 10);
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
-  expect([statusReads, binaryReads]).toEqual([2, 1]);
+  const reads = statusReads;
+  expect(binaryReads).toBe(1);
   await page.keyboard.press("l");
   await expect(bar).toHaveCount(0);
   await page.keyboard.press("l");
   await expect(bar).toContainText("Side limits");
   await expect(point).toContainText("Route metre");
-  expect([statusReads, binaryReads]).toEqual([3, 1]);
+  expect([statusReads, binaryReads]).toEqual([reads+1, 1]);
 
-  await saveTrack(page);    // The fixture has no timing gates, so Save removes the old line without generating another.
-  await expect(bar).toContainText("No AI line is installed");
+  await saveTrack(page);    // The fixture has no timing gates. The old line remains available as a preview.
+  await expect(bar).toContainText("Outdated");
+  await expect(bar).toContainText("Side limits");
   await expect(bar).not.toContainText("Line from the last build or save");
-  expect([statusReads, binaryReads]).toEqual([4, 1]);
+
   await page.keyboard.press("Escape");
   await expect(bar).toHaveCount(0);
   await expect(point).toHaveCount(0);
@@ -523,5 +586,6 @@ test("AI line button reports a saved track's calculation error in the Editor", a
   await page.locator("#edit-bar").getByRole("button", {name: "Recalculate AI line"}).click();
   const {error} = await (await answer).json();
   expect(error).toBeTruthy();
-  await expect(bar.getByRole("alert")).toHaveText(error);
+  await expect(page.locator("#edit-ai-line-alpha")).toContainText(error);
+  await expect(bar.getByRole("alert")).toHaveCount(0);
 });

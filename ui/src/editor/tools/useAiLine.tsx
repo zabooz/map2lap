@@ -1,4 +1,7 @@
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useRef, useState, useSyncExternalStore} from "react";
+import {aiUpdate, subscribeAiUpdates} from "../editorToasts";
+import {useToasts} from "../../components/toastStore";
+import {fetchJson} from "../scene/requests";
 import {post} from "../../api";
 import {EDGE_COLOUR, SPEED_COLOURS} from "../scene/aiLine";
 import {fetchAiLine, type AiLineHover, type InstalledAiLine} from "../scene/aiLineData";
@@ -45,50 +48,50 @@ export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, e
   name: string; view: TrackView; enabled: boolean; writes: number; unsaved: boolean; edits: TrackEdits; moves: AiCorrection[]; editable: boolean; routeTrack: boolean;
 }) {
   const [pen, setPen] = useState(false);
-  const [free, setFree] = useState(false);
-  const [working, setWorking] = useState(false);
+  const [free, setFree] = useState(true);
+  const job = useSyncExternalStore(subscribeAiUpdates, () => aiUpdate(name));
+  const [validity, setValidity] = useState<string>();
   const [error, setError] = useState("");
-  const recalculate = async () => {
-    setWorking(true);
-    setError("");
-    const result = await post(`/api/editor/${encodeURIComponent(name)}/ai-line/recalculate`);
-    setError(result.error ?? "");
-    setWorking(false);
-    setAttempt(value => value + 1);
-  };
+  useToasts(enabled && error ? [{id:"edit-ai-preview", tone:"error", title:"AI line preview", message:error,
+    onDismiss:() => setError("")}] : []);
   const known = useRef<InstalledAiLine | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [loaded, setLoaded] = useState<{attempt: number; writes: number; answer: AiLineAnswer} | null>(null);
+  const [answer, setAnswer] = useState<AiLineAnswer | null>(null);
   const [hovered, setHovered] = useState<{lane: InstalledAiLine; hover: AiLineHover} | null>(null);
   useEffect(() => {
-    if (!attempt) return;
+    if (!routeTrack && !attempt) return;
     const request = new AbortController(), {signal} = request;
     async function read() {
       try {
+        if (!attempt) {
+          const meta = await fetchJson<{validity?: string}>(`/api/editor/${encodeURIComponent(name)}/ai-line`, signal);
+          if (!signal.aborted) setValidity(meta.validity);
+          return;
+        }
         const answer = await fetchAiLine(name, known.current, signal);
         if (signal.aborted) return;
+        setValidity(answer.validity);
         known.current = answer.status === "ready" ? answer : null;
         view.setAiLine(known.current);
-        setLoaded({attempt, writes, answer});
+        setAnswer(answer);
       } catch (error) {
         if (signal.aborted) return;
         const message = error instanceof MeshFetchError && error.status === 409 ? error.message : "The AI line could not be loaded.";
-        setLoaded({attempt, writes, answer: {status: "error", message}});
+        setAnswer({status: "error", message});
       }
     }
     void read();
     return () => request.abort();
-  }, [name, view, attempt, writes]);
+  }, [name, view, attempt, writes, job.revision, routeTrack]);
   useEffect(() => () => view.setAiLine(null), [view]);
 
-  const answer = loaded?.writes === writes && loaded.attempt === attempt ? loaded.answer : null;
   const lane = answer?.status === "ready" ? answer : null;
   const hover = hovered?.lane === lane ? hovered.hover : null;
   useEffect(() => {
-    if (!enabled || !lane || pen || (unsaved && moves.some(m => m.kind === "redraw"))) return;
-    view.showAiLine(hover => setHovered(hover && {lane, hover}));
+    if (!enabled || !lane) return;
+    view.showAiLine(pen ? null : hover => setHovered(hover && {lane, hover}), true);
     return () => view.showAiLine(null);
-  }, [view, enabled, lane, pen, moves, unsaved]);
+  }, [view, enabled, lane, pen]);
 
   const [range, setRange] = useState(30);
   const [guide, setGuide] = useState<{data: MoveGuide; revision: string} | null>(null);
@@ -137,19 +140,14 @@ export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, e
         } : undefined}
         actions={<>
           {answer && "validity" in answer && answer.validity === "manual" && <span>Manually replaced</span>}
-          {lane?.validity === "pending" && <span>Unverified installed line</span>}
-          {error && <span role="alert">{error}</span>}
+          {(lane?.validity === "pending" || lane?.validity === "failed") && <span>Outdated</span>}
           {lane ? <Legend {...lane.speeds} />
           : <span role="status">{answer?.message ?? "Loading the installed AI line …"}</span>}</>} />
-      {hover && <PointDetails hover={hover} />}
+      {!pen && hover && <PointDetails hover={hover} />}
     </>,
   };
-  const panel = (answer && "canCalculate" in answer ? answer.canCalculate : routeTrack) && <>
-    <button type="button" disabled={unsaved || working} title={unsaved ? "Save first." : undefined}
-      onClick={thenView(view, () => void recalculate())}>Recalculate AI line</button>
-    {unsaved && <span>Save first.</span>}
-    {working && <span role="status">Calculating AI line …</span>}
-    {!enabled && error && <span role="alert">{error}</span>}
-  </>;
-  return {controller, panel};
+  const panel = (recalculate: () => void, saving: boolean) => (answer && "canCalculate" in answer ? answer.canCalculate : routeTrack) &&
+    <button type="button" disabled={job.working || saving || (!unsaved && (!validity || validity === "ready"))}
+      onClick={thenView(view, recalculate)}>Recalculate AI line</button>;
+  return {controller, panel, pending: validity === "pending", working: job.working};
 }

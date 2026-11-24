@@ -101,13 +101,13 @@ def _calculate(model, circuit, slot, revision, original, key):
                 return _failed("Close Assetto Corsa before replacing the AI line.")
             if message := answer.get("message"):
                 if original["status"] not in ("ready", "manual"):
-                    ailinestate.clear(model.parent, key, message)
+                    ailinestate.mark_outdated(model.parent, key, message)
                 return _failed(message)
             ailinestate.publish(model.parent, key, target, answer.get("skipped"))
             return ailinestate.status(model.parent, key)
 
 
-def ensure(model, circuit, *, force=False):
+def ensure(model, circuit, *, force=False, retry=False, saved_inputs=None):
     """Check the installed inputs, sharing an in-flight calculation with all waiters."""
     model = Path(model)
     slot = track(model)
@@ -123,15 +123,16 @@ def ensure(model, circuit, *, force=False):
                     except ailinestate.ERRORS as error:
                         message = ailinestate.reason(error)
                         if model.is_file() and not route_race.ac_running():
-                            ailinestate.clear(model.parent, None, message)
+                            ailinestate.mark_outdated(model.parent, None, message)
                         return _failed(message)
+                    if saved_inputs is not None and key != saved_inputs:
+                        return {"status": "superseded"}
                     original = ailinestate.status(model.parent, key)
-                    if not force and original["status"] != "pending":
+                    requested = original["status"] == "pending" or (retry and original["status"] in ("manual", "failed"))
+                    if not (force or requested):
                         return original
                     if route_race.ac_running():
                         return _failed("Close Assetto Corsa before calculating the AI line.")
-                    if original["status"] == "pending" and (model.parent / fastlane.FILE).exists():
-                        ailinestate.clear(model.parent, key)
                     revision = slot.revision, objectlist.state_of(model)
                 except ailinestate.ERRORS as error:
                     return _failed(ailinestate.reason(error))
@@ -141,6 +142,8 @@ def ensure(model, circuit, *, force=False):
                 slot.phase = "Calculating AI line …"
         if future is not None:
             result = future.result()
+            if saved_inputs is not None and result is not None and result.get("inputs", saved_inputs) != saved_inputs:
+                continue
         else:
             result = _failed("AI line worker stopped unexpectedly.")
             try:

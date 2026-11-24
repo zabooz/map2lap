@@ -52,6 +52,7 @@ export function ToolPanel({aiPanel, state, edits, view, tool, onTool, onModels}:
           {t.label}<span className={styles.key} aria-hidden="true">{t.key}</span>
         </button>
       ))}
+      {group === "ai" && aiPanel}
     </div>
   );
   return (
@@ -64,7 +65,7 @@ export function ToolPanel({aiPanel, state, edits, view, tool, onTool, onModels}:
         {buttons("general")}
       </Section>
       <Section title="Road">{buttons("road")}</Section>
-      <Section title="AI">{buttons("ai")}{aiPanel}</Section>
+      <Section title="AI">{buttons("ai")}</Section>
       <Section title="Terrain">{buttons("terrain")}</Section>
       <Section title="Objects">{buttons("objects")}</Section>
       <Help tool={shownTool} />

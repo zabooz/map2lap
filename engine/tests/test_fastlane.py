@@ -24,7 +24,7 @@ class LaneCodeVersionTest(unittest.TestCase):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (6, "a94a64a607085fe3f6a7e22cb32b4b53e231dca8e1cce899e503afda50880d4d")
+        expected = (6, "6ca803e47fcff6bc015ad2186986b3835db206df574728deec1ad7e07dc1d616")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments or refactors proven to preserve the generated line, update only the digest.")
@@ -179,7 +179,7 @@ class AILineTest(unittest.TestCase):
             self.assertAlmostEqual(out[25,2], (z-4)/2)
 
 
-    def test_save_carries_current_or_manual_line_only_for_matching_inputs(self):
+    def test_save_keeps_last_line_visible_until_pending_replacement_is_ready(self):
         from unittest.mock import patch
         from app import ailanejobs
         from track import ailinestate
@@ -200,11 +200,14 @@ class AILineTest(unittest.TestCase):
             ailinestate.carry(self.folder, saved, False)
             state = ailinestate.inspect(saved, False)
             self.assertEqual(expected, state["status"])
-            self.assertEqual(expected != "pending", (target / fastlane.FILE).exists())
-            if expected != "pending":
-                self.assertEqual(self.lane.read_bytes(), (target / fastlane.FILE).read_bytes())
+            self.assertEqual(self.lane.read_bytes(), (target / fastlane.FILE).read_bytes())
 
             with patch.object(ailanejobs, "compute", wraps=ailanejobs.compute) as calculate:
+                if expected == "pending":
+                    def launch():
+                        self.assertEqual("ready", ailinestate.inspect(saved, False)["status"])
+                        return 200, {"ok": True}
+                    self.assertEqual((200, {"ok": True}), ailanejobs.race(saved, False, {}, launch))
                 first = ailanejobs.ensure(saved, False)
                 self.assertEqual("manual" if expected == "manual" else "ready", first["status"])
                 self.assertEqual(first, ailanejobs.ensure(saved, False))
@@ -228,7 +231,7 @@ class AILineTest(unittest.TestCase):
         self.assertEqual(manual, self.lane.read_bytes())
         self.assertEqual("manual", ailinestate.inspect(self.model, False)["status"])
 
-    def test_unreadable_route_cannot_leave_its_previous_line_installed(self):
+    def test_unreadable_route_keeps_preview_but_refuses_race(self):
         from app import ailanejobs
         self.write_track([(20, 10), (80, 10)])
         self.generate()
@@ -236,7 +239,9 @@ class AILineTest(unittest.TestCase):
         state = ailanejobs.ensure(self.model, False)
         self.assertEqual("failed", state["status"])
         self.assertIn("map2lap_route.txt", state["message"])
-        self.assertFalse(self.lane.exists())
+        self.assertTrue(self.lane.exists())
+        code, result = ailanejobs.race(self.model, False, {}, lambda: self.fail("launched stale lane"))
+        self.assertEqual((409, "failed"), (code, result["lane"]))
 
     def test_race_and_button_share_work_and_save_discards_old_result(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -270,6 +275,45 @@ class AILineTest(unittest.TestCase):
             self.assertEqual("ready", ailanejobs.ensure(self.model, False)["status"])
             self.assertEqual(2, len(calls))
         self.assertGreater(fastlane.read_lane(self.lane)[0]["pos"][0, 1], 10.9)
+
+    def test_second_save_replaces_the_first_job_and_only_publishes_the_latest_inputs(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+        from unittest.mock import patch
+        from app import ailanejobs
+        from track import ailinestate
+        route = [(20, 10), (80, 10)]
+        self.write_track(route)
+        self.generate()
+        original = self.lane.read_bytes()
+        entered, resume = Event(), Event()
+        compute = ailanejobs.compute
+
+        def pause(*args):
+            self.assertEqual(original, self.lane.read_bytes())
+            answer = compute(*args)
+            entered.set()
+            self.assertTrue(resume.wait(5))
+            return answer
+
+        def save(height):
+            with ailanejobs.changing(self.model):
+                self.write_track(route, height=height)
+                key = ailinestate.input_key(self.model, False)
+                ailinestate.mark_outdated(self.folder, key)
+                return key
+
+        with patch.object(ailanejobs, "compute", side_effect=pause), patch.object(
+                ailinestate, "publish", wraps=ailinestate.publish) as publish, ThreadPoolExecutor(2) as pool:
+            first = pool.submit(ailanejobs.ensure, self.model, False, saved_inputs=save(11))
+            self.assertTrue(entered.wait(5))
+            latest = save(12)
+            second = pool.submit(ailanejobs.ensure, self.model, False, saved_inputs=latest)
+            resume.set()
+            self.assertEqual("superseded", first.result()["status"])
+            self.assertEqual("ready", second.result()["status"])
+            publish.assert_called_once()
+            self.assertEqual(latest, publish.call_args.args[1])
 
     def test_open_route_begins_behind_the_last_grid_slot_and_passes_the_finish(self):
         self.write_track([(20, 10), (80, 10)], prefix="M2")

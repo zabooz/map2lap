@@ -75,12 +75,71 @@ function lines(positions: number[], colour: string, width: number, renderOrder: 
   return draw;
 }
 
-/** Speed band on the installed road level, with a thin centre line and both side limits. */
+interface BandRow {at: Place; edges: [Place,Place]; colour: number[]}
+type Ends = [BandRow, BandRow];
+
+/** Complement of measured preview spans, stitched to the very same cross sections. Pure. */
+export function remainingBand(rows: BandRow[], closed: boolean, spans: Ends[]): BandRow[][] {
+  const end = closed ? rows.length : rows.length - 1;
+  const lastRow = rows[end % rows.length];
+  // Fractional sample indices allow two ends inside one segment of an older, coarser line.
+  const station = (p: Place) => {
+    let best = Infinity, station = 0;
+    for (let i = 0; i < end; i++) {
+      const a = rows[i].at, b = rows[(i+1) % rows.length].at;
+      const dx = b[0]-a[0], dy = b[1]-a[1], dz = b[2]-a[2];
+      const x = p[0]-a[0], y = p[1]-a[1], z = p[2]-a[2];
+      const t = THREE.MathUtils.clamp((dx*x + dy*y + dz*z) / (dx*dx + dy*dy + dz*dz || 1), 0, 1);
+      const d = (x-t*dx)**2 + (y-t*dy)**2 + (z-t*dz)**2;
+      if (d < best) { best = d; station = i+t; }
+    }
+    return station;
+  };
+  const cuts = spans.flatMap(([from,to]) => {
+    const a = station(from.at), b = station(to.at);
+    if (closed && b < a) return [{a, b:end, from, to:lastRow}, {a:0, b, from:rows[0], to}];
+    return a <= b ? [{a,b,from,to}] : [];
+  }).sort((first, second) => first.a - second.a);
+  const runs: BandRow[][] = [];
+  let cursor = 0, left = rows[0];
+  const connect = (until: number, right: BandRow) => {
+    if (cursor < until)
+      runs.push([left, ...rows.slice(Math.floor(cursor)+1, Math.ceil(until)), right]);
+  };
+  for (const cut of cuts) {
+    connect(cut.a, cut.from);
+    if (cut.b >= cursor) { cursor = cut.b; left = cut.to; }
+  }
+  connect(end, lastRow);
+  return runs;
+}
+
+function bandMarks(rows: BandRow[], closed: boolean, faded: boolean) {
+  const edges = rows.map(row => row.edges), colours = rows.map(row => row.colour);
+  const centre: number[] = [], gradient: number[] = [], sides: number[] = [];
+  for (let i=0; i<rows.length-Number(!closed); i++) {
+    const j=(i+1)%rows.length;
+    centre.push(...rows[i].at, ...rows[j].at);
+    gradient.push(...colours[i], ...colours[j]);
+    sides.push(...edges[i][0], ...edges[j][0], ...edges[i][1], ...edges[j][1]);
+  }
+  const fill = new THREE.Mesh(laneBand(edges, colours, closed), new THREE.MeshBasicMaterial({vertexColors:true,
+    transparent:true, opacity:faded ? .2 : .5, depthWrite:false, side:THREE.DoubleSide, forceSinglePass:true, toneMapped:false}));
+  fill.renderOrder=7;
+  const path=lines(centre,"#ffffff",LINE_PX,8,gradient), limits=lines(sides,EDGE_COLOUR,1,10);
+  if (faded) path.material.opacity = limits.material.opacity = .45;
+  return [fill, limits, path] as const;
+}
+
+/** Speed band on the installed road level. Preview spans replace only their own part of the band. */
 export class AiLineDraw {
-  private marks: (LineSegments2 | THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>)[] = [];
-  private band: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | null = null;
-  private centre: LineSegments2 | null = null;
+  private marks: ReturnType<typeof bandMarks>[] = [];
+  private pieces: ReturnType<typeof bandMarks>[] = [];
+  private rows: BandRow[] = [];
   private locations: Place[] = [];
+  private closed = false;
+  private faded = false;
+  private mask = "";
   private ray = new THREE.Raycaster();
   private shown = false;
 
@@ -89,53 +148,58 @@ export class AiLineDraw {
     this.ray.params.Line2 = {threshold: 2 * HOVER_PX - LINE_PX};
   }
 
-  /** Keep the prepared overlay and its picking index when the tool is laid down. */
   show(shown: boolean) {
     this.shown = shown;
-    for (const mark of this.marks) mark.visible = shown;
+    for (const marks of this.marks) for (const mark of marks) mark.visible = shown && !this.mask;
+    for (const marks of this.pieces) for (const mark of marks) mark.visible = shown;
+  }
+
+  private clear(list: ReturnType<typeof bandMarks>[]) {
+    for (const marks of list.splice(0)) for (const mark of marks) {
+      this.scene.remove(mark); mark.geometry.dispose(); mark.material.dispose();
+    }
   }
 
   set(lane: InstalledAiLine | null) {
-    for (const mark of this.marks) {
-      this.scene.remove(mark);
-      mark.geometry.dispose();
-      mark.material.dispose();
-    }
-    this.marks = [];
-    this.band = null;
-    this.centre = null;
-    this.locations = [];
+    this.clear(this.marks); this.clear(this.pieces);
+    this.mask=""; this.locations=[]; this.rows=[];
     if (!lane) return;
+    this.closed=lane.closed;
+    this.faded=lane.validity === "pending" || lane.validity === "failed";
+    this.locations=Array.from(lane.x, (x,i): Place => [x,lane.y[i]+LIFT_M,lane.z[i]]);
+    this.rows=this.locations.map((at,i) => ({at, edges:laneEdges(at,[lane.forwardX[i],lane.forwardZ[i]],
+      [lane.normalX[i],lane.normalY[i],lane.normalZ[i]],lane.left[i],lane.right[i]),
+      colour:laneSpeedColour(lane.speed[i],lane.speeds.slow,lane.speeds.fast).toArray()}));
+    const marks=bandMarks(this.rows,this.closed,this.faded);
+    speedUpRays(marks[0]);
+    this.marks.push(marks); this.scene.add(...marks); this.show(this.shown);
+  }
 
-    const {count, closed, speeds: {slow, fast}} = lane;
-    this.locations = Array.from({length: count}, (_, i): Place => [lane.x[i], lane.y[i] + LIFT_M, lane.z[i]]);
-    const edges = this.locations.map((p, i) => laneEdges(p, [lane.forwardX[i], lane.forwardZ[i]],
-      [lane.normalX[i], lane.normalY[i], lane.normalZ[i]], lane.left[i], lane.right[i]));
-    const colours = Array.from(lane.speed, speed => laneSpeedColour(speed, slow, fast).toArray());
-    const centre: number[] = [], gradient: number[] = [], sides: number[] = [];
-    for (let i = 0; i < count - (closed ? 0 : 1); i++) {
-      const j = (i + 1) % count;
-      centre.push(...this.locations[i], ...this.locations[j]);
-      gradient.push(...colours[i], ...colours[j]);
-      sides.push(...edges[i][0], ...edges[j][0], ...edges[i][1], ...edges[j][1]);
+  preview(spans: number[][][], lift: number) {
+    if (!this.rows.length) return;
+    const key = spans.length ? JSON.stringify(spans) : "";
+    if (key === this.mask) return;
+    this.mask=key;
+    this.clear(this.pieces);
+    if (spans.length) {
+      const point=(r: number[], i: number): Place => [r[i],r[i+1]+lift,r[i+2]];
+      const row=(r: number[]): BandRow => ({at:point(r,0),edges:[point(r,4),point(r,7)],colour:[.2,.8,.4]});
+      for (const run of remainingBand(this.rows,this.closed,spans.map(([a,b]) => [row(a),row(b)]))) {
+        const marks=bandMarks(run,false,this.faded);
+        this.pieces.push(marks); this.scene.add(...marks);
+      }
     }
-    this.band = new THREE.Mesh(laneBand(edges, colours, closed), new THREE.MeshBasicMaterial({vertexColors: true,
-      transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, toneMapped: false}));
-    this.band.renderOrder = 7;
-    speedUpRays(this.band);     // The strip's two faces per segment keep their order for hover.
-    this.centre = lines(centre, "#ffffff", LINE_PX, 8, gradient);
-    this.marks = [this.band, lines(sides, EDGE_COLOUR, 1, 10), this.centre];
     this.show(this.shown);
-    this.scene.add(...this.marks);
   }
 
   pick(mouse: THREE.Vector2, camera: THREE.PerspectiveCamera, maxDistance = Infinity) {
-    if (!this.shown || !this.band || !this.centre) return null;
+    if (!this.shown || !this.marks.length) return null;
+    const [band,,centre] = this.marks[0];
     this.ray.setFromCamera(mouse, camera);
-    const [hit] = this.ray.intersectObject(this.band, false);
+    const [hit] = this.ray.intersectObject(band, false);
     if (hit?.faceIndex != null && hit.distance <= maxDistance) {
       return nearestSample(this.locations, Math.floor(hit.faceIndex / 2), hit.point);
     }
-    return pickLanePoint(this.locations, this.ray.intersectObject(this.centre, false), maxDistance);
+    return pickLanePoint(this.locations, this.ray.intersectObject(centre, false), maxDistance);
   }
 }

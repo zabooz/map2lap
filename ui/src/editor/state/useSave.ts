@@ -2,6 +2,7 @@
 // (in its place or as a new track); Play saves first.
 import {useCallback, useState} from "react";
 import {post} from "../../api";
+import {aiLineError, updateAiLine} from "../editorToasts";
 import {usePlay} from "../../hooks/usePlay";
 import type {TimedMode} from "../../types";
 import {isCurrent, type EditState, type TrackEdits} from "./edits";
@@ -16,20 +17,20 @@ const isAsBuilt = (s: EditState) => !isChanged(s) && !s.recipe;
 const clock = (at: number) => new Date(at * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
 
 /** Saving the track name, whose edits have the state now. onSaved: the track is saved as name (a copy: another one). */
-export function useSave({name, timedMode, edits, state, view, onSaved}: {
-  name: string; timedMode?: TimedMode; edits: TrackEdits; state: EditState; view: TrackView; onSaved: (name: string) => void;
+export function useSave({name, timedMode, edits, state, view, onSaved, lanePending}: {
+  lanePending: boolean; name: string; timedMode?: TimedMode; edits: TrackEdits; state: EditState; view: TrackView; onSaved: (name: string) => void;
 }) {
-  const [asking, setAsking] = useState(false);
+  const [asking, setAsking] = useState<"save" | "recalculate" | null>(null);
   const [saving, setSaving] = useState<{busy: boolean; text: string | null}>({busy: false, text: null});
   const [waiting, setWaiting] = useState<{play: boolean} | null>(null);   // (Save or Play pressed, changes still on their way)
   const {starting, choose, choosing, dialog} = usePlay();
   const current = isCurrent(state), asBuilt = isAsBuilt(state);
-  const canSave = edits.canEdit() && !saving.busy && !current && !asBuilt;
+  const canSave = edits.canEdit() && !saving.busy && (lanePending || (!current && !asBuilt));
 
   /** The track written as its edits say (trackcopy.save): in its place, or (copyTitle) as a new track the Editor then goes on
       with. The name it was written as, or null. */
-  const write = async (copyTitle: string | null = null) => {
-    setAsking(false);
+  const write = async (copyTitle: string | null, action: "save" | "recalculate" | "play") => {
+    setAsking(null);
     setSaving({busy: true, text: null});
     await edits.settled();
     edits.hold(true);
@@ -40,7 +41,7 @@ export function useSave({name, timedMode, edits, state, view, onSaved}: {
       setSaving({busy: false, text: "Not saved: the changes could not be kept. Nothing was written."});
       return null;
     }
-    const r = await post<{name: string; title: string; log?: string[]}>(`/api/editor/${encodeURIComponent(name)}/save`,
+    const r = await post<{name: string; title: string; aiLine?: {status: string; inputs: string; message?: string}}>(`/api/editor/${encodeURIComponent(name)}/save`,
                                                        {copy: copyTitle !== null, title: copyTitle, revision});
     edits.hold(false);
     if (r.error || !r.name) {
@@ -50,6 +51,10 @@ export function useSave({name, timedMode, edits, state, view, onSaved}: {
     setSaving({busy: false, text: null});       // (a copy: the Editor shows it now, its name in the track field)
     if (copyTitle !== null) edits.handOver(r.name);
     else edits.markSaved();
+    const line = r.aiLine;
+    if (action !== "play" && line && (line.status === "pending" || (action === "recalculate" && line.status !== "ready")))
+      void updateAiLine(r.name, action === "recalculate", line.inputs);
+    else if (action === "save" && line?.status === "failed" && line.message) aiLineError(r.name, line.message);
     onSaved(r.name);
     return r.name;
   };
@@ -62,31 +67,37 @@ export function useSave({name, timedMode, edits, state, view, onSaved}: {
   };
 
   return {
-    asking, canSave, starting, dialog,
+    asking: !!asking, canSave, starting, dialog,
     waiting: waiting && {changes: state.inTurn, play: waiting.play},
     busy: saving.busy,
     failed: saving.text,
     savedText: saving.busy ? "Saving …" : current ? `Saved ${clock(state.recipe!.at)}` : asBuilt ? "" : "Not saved",
     canPlay: !starting && !choosing && !saving.busy && !waiting && state.save !== "loading" && (current || asBuilt || canSave),
     /** ▾: it asks, in its place or a new track. */
-    saveAs: () => setAsking(true),
+    saveAs: () => setAsking("save"),
     /** What the Save dialog chose. */
     chosen: async (copyTitle: string | null) => {
       view.focus();
-      await write(copyTitle);
+      await write(copyTitle, asking ?? "save");
     },
     cancel: useCallback(() => {
-      setAsking(false);
+      setAsking(null);
       view.focus();
     }, [view]),
     /** Save: a track never saved here asks once (in its place, or a new track), then it writes at once. After the strokes on their way:
         what it goes by is the list with them in it. */
-    save: async () => {
+    save: async (retry = false) => {
       await settle(false);
       const now = edits.state();
-      if (!edits.canEdit() || saving.busy || isCurrent(now) || isAsBuilt(now)) return;
-      if (now.recipe) void write();
-      else setAsking(true);
+      if (saving.busy) return;
+      if (isCurrent(now) || isAsBuilt(now)) {
+        if (retry || lanePending) void updateAiLine(name, retry);
+        return;
+      }
+      if (!edits.canEdit()) return;
+      const action = retry ? "recalculate" : "save";
+      if (now.recipe) void write(null, action);
+      else setAsking(action);
     },
     /** Play begins writing immediately, including the first in-place Save; its dialog waits for the write before AC starts. */
     drive: async () => {
@@ -95,7 +106,7 @@ export function useSave({name, timedMode, edits, state, view, onSaved}: {
       const prepared = needsSave ? (async () => {
         await settle(true);
         const now = edits.state();
-        return isCurrent(now) || isAsBuilt(now) ? name : write();
+        return isCurrent(now) || isAsBuilt(now) ? name : write(null, "play");
       })() : undefined;
       choose(name, timedMode, view.clockHours(), view.weatherOptions(), prepared);
     },

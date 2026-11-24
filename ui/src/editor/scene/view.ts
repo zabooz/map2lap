@@ -12,6 +12,7 @@ import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, fitSphere, makeGeome
 import {screenPoint, LEFT_BUTTON, CLICK_PX} from "./pointer";
 import {Marquee, selectionVolume, type SelectionRectangle} from "./marquee";
 import {RoadMarkers, type RangeDrawing} from "./roadMarkers";
+import {PREVIEW_LIFT} from "./aiPreviewBand";
 import {editMoves} from "./aiMoves";
 import type {MoveGuide} from "./aiGuide";
 import type {AiCorrection} from "../state/edits";
@@ -1130,14 +1131,11 @@ export class TrackView {
         this.picker.setFromCamera(mouse, this.camera);
         const ray = this.picker.ray;
         return this.groundAlong(ray.origin, ray.direction)?.point ?? null;
-      }, active => {
-        if (active) this.showAiLinePoint(null);
-        this.aiLineDraw.show(!active && this.onAiLinePoint !== null);
-      });
+      }, spans => this.aiLineDraw.preview(spans, PREVIEW_LIFT));
   }
 
   setAiLine(lane: InstalledAiLine | null) {
-    if (this.aiLine?.revision === lane?.revision && this.aiLine?.closed === lane?.closed) return;
+    if ((this.aiLine ?? null) === lane) return;
     this.aiLine = lane;
     this.aiLineSample = null;
     this.aiLineDraw.set(lane);
@@ -1146,10 +1144,10 @@ export class TrackView {
   }
 
   /** Show the prepared line and report hovered samples while onPoint is set. */
-  showAiLine(onPoint: ((hover: AiLineHover | null) => void) | null) {
+  showAiLine(onPoint: ((hover: AiLineHover | null) => void) | null, shown = onPoint !== null) {
     this.onAiLinePoint = onPoint;
     this.aiLineSample = null;
-    this.aiLineDraw.show(onPoint !== null);
+    this.aiLineDraw.show(shown);
     this.hoverDue = true;
     this.dirty = true;
   }

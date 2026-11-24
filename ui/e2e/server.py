@@ -48,6 +48,8 @@ BUILD_STEP_S = 0.3
 calls = []                  # what the page asked of the stand-ins
 release = {}                # the newest release version.latest answers
 stopped = threading.Event()
+ac_open = threading.Event()
+lane_publish = threading.Event()
 TRACK_LOCK = threading.RLock()
 
 
@@ -212,6 +214,11 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
     tree.children = [road, ground("1GRASS_ground_-1_0", 1, -TILE, -TILE),
                      ground("nocol_far_1", 2, -2000.0, 0.0, 4000.0, -3.0), kn5.Node(1, "AC_START_0", 1, matrix=START)]
     if ai_moves:
+        # A street with two distinct edges in view for the band and its correction tests.
+        textures[0] = (textures[0][0], dds(((92, 92, 92),)))
+        road.vertices["pos"][:, 0] = 121 + road.vertices["pos"][:, 0] * (14 / TILE)
+        tree.children.extend([ground("1GRASS_verge_left", 1, 121 - TILE, -TILE),
+                              ground("1GRASS_verge_right", 1, 135, -TILE)])
         for gate, z in (("AC_AB_START", -44), ("AC_AB_FINISH", -230)):
             for side, x in (("L", 123), ("R", 133)):
                 tree.children.append(obj_to_kn5.empty(gate + "_" + side, (x, 0, z), (0, 0, -1)))
@@ -356,6 +363,8 @@ def fill():
     calls.clear()
     release.clear()
     stopped.clear()
+    ac_open.clear()
+    lane_publish.set()
     server.job.update(state="idle", log=[], result=None, error=None, progress=None, started=None, ended=None)
     server.running.update(proc=None, clearing=False)
     for d in (AC, os.path.join(TMP, "out"), os.path.join(TMP, "library"), os.path.join(TMP, "cache"), os.path.join(TMP, "assets")):
@@ -410,6 +419,14 @@ def stand_ins():
     mapcache.clear = lambda: (calls.append(["map data cleared"]), 5000000)[1]
     server.play = lambda name, clock=None, weather_options=None, car=None, *, session=None, laps=None, ai=None, grip=None: (
         calls.append(["play", name] if laps is None else ["play", name, laps]), (200, {"ok": True}))[1]
+    calculate = server.ailanejobs.compute
+    def lane_worker(*args):
+        result = calculate(*args)
+        if not lane_publish.wait(30):
+            raise ValueError("Test did not release the calculated AI line")
+        return result
+    server.ailanejobs.compute = lane_worker
+    system.running = lambda exe: exe == "acs.exe" and ac_open.is_set()
     server.browse_folder = record("browse")
     server.start_build = start_build
     system.kill_tree = lambda pid: stopped.set()
@@ -495,6 +512,10 @@ class Handler(server.Handler):
         body = self._body()
         if self.path == "/__test/reset":
             fill()
+        elif self.path == "/__test/hold-lane":
+            (lane_publish.clear if body["hold"] else lane_publish.set)()
+        elif self.path == "/__test/ac-running":
+            (ac_open.set if body["running"] else ac_open.clear)()
         elif self.path == "/__test/builtin-models":
             Path(TMP, "assets").mkdir(exist_ok=True)
             Path(TMP, "assets/builtin-objects.json").write_text('{"version":1}', encoding="utf-8")

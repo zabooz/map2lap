@@ -116,14 +116,14 @@ class Base(unittest.TestCase):
 
 
 class FilterTest(Base):
-    def test_save_as_skips_unverified_line_and_never_calculates(self):
+    def test_save_as_stages_the_outdated_preview_without_calculating(self):
         lane = Path(self.root, "ai/fast_lane.ai")
         lane.write_bytes(b"old AI")
         with mock.patch("track.fastlane.regenerate") as calculate:
             self.copy()
         calculate.assert_not_called()
         self.assertEqual(b"old AI", lane.read_bytes())
-        self.assertFalse(Path(self.own("t_mod")).with_name("ai").joinpath("fast_lane.ai").exists())
+        self.assertEqual(b"old AI", Path(self.own("t_mod")).with_name("ai").joinpath("fast_lane.ai").read_bytes())
 
     def test_a_car_goes_front_and_back_and_nothing_else(self):
         self.edits(["t_0_0#1"])

@@ -89,7 +89,9 @@ test("Delete track in the Save popup asks first, then the open track is gone fro
   await expect(page.locator('#edit-track option[value="alpha"]')).toHaveCount(0);
 });
 
-test("Save: asked once, then written at once; the trees AC gets are without the tree, the work stays shown; Play saves first", async ({page}) => {
+test("Save: asked once, then written at once; the trees AC gets are without the tree, the work stays shown; Play saves first", async ({page,backend}) => {
+  await backend.post("/__test/rebuild",{name:"alpha",title:"Alpha Test",ai_moves:true});
+  expect((await (await page.request.post("/api/editor/alpha/ai-line/recalculate",{data:{}})).json()).status).toBe("ready");
   await openEditor(page);
   const trees = (await treeCount(page));
   await expect(page.locator("#edit-saved")).toHaveText("");      // (nothing changed: nothing to say)
@@ -131,7 +133,8 @@ test("Save: asked once, then written at once; the trees AC gets are without the 
   expect((await treeCount(page))).toBe(trees - 1);
 });
 
-test("Save as new track: only under a new name, shown with the work and its undo, its name in the track field; the track itself as it was", async ({page}) => {
+test("Save as new track: only under a new name, shown with the work and its undo, its name in the track field; the track itself as it was", async ({page,backend}) => {
+  await backend.post("/__test/rebuild",{name:"alpha",title:"Alpha Test",ai_moves:true});
   await openEditor(page);
   const whole = await picture(page);
   const trees = (await treeCount(page));
@@ -151,6 +154,10 @@ test("Save as new track: only under a new name, shown with the work and its undo
   await expect(go).toBeEnabled();
   await go.click();
   await expect(page.locator("#edit-track")).toHaveValue("alpha_edit");
+  await expect(page.locator("#edit-ai-line-alpha_edit")).toContainText("AI line updated");
+  expect((await (await page.request.get("/api/editor/alpha_edit/ai-line")).json()).validity).toBe("ready");
+  expect((await (await page.request.get("/api/editor/alpha/ai-line")).json()).validity).toBe("pending");
+  await page.locator("#edit-ai-line-alpha_edit").getByRole("button",{name:"Dismiss notification"}).click();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await expect.poll(async () => (await picture(page)).equals(preview)).toBe(true);

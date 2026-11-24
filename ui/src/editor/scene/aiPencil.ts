@@ -40,6 +40,7 @@ export class Pencil {
   private draft: {start: Site; id: string; points: number[][]} | null = null;
   private hoverSite: Site | null = null;
   private ghost: THREE.Line | null = null;
+  private ghostEdges: number[][] = [];
   private extension: THREE.Line | null = null;
   private queue = new PreviewQueue();
   private serial = 0;
@@ -71,7 +72,7 @@ export class Pencil {
   }
   private reset() {
     ++this.serial; this.queue.clear(); this.finishing = false; this.awaitingBand = false;
-    this.drop(this.ghost); this.ghost = null; this.draft = null; this.hoverSite = null;
+    this.drop(this.ghost); this.ghost = null; this.ghostEdges = []; this.draft = null; this.hoverSite = null;
     this.note(""); this.el.title = "";
   }
   dispose() {
@@ -79,6 +80,12 @@ export class Pencil {
     this.done = true; this.stop.abort(); this.queue.clear();
     this.drop(this.ghost); this.drop(this.extension);
     for (const s of this.strokes.values()) this.drop(s.line);
+  }
+  bandSpans() {
+    const spans = [...this.strokes.values()].filter(s => !s.error && s.line.children.length)
+      .map(s => [s.points[0],s.points[s.points.length-1]]);
+    if (this.ghostEdges.length) spans.push(this.ghostEdges);
+    return spans;
   }
   covers(metre: number) {
     for (const s of this.strokes.values()) if (!s.error && metre > s.from && metre <= s.to) return true;
@@ -125,6 +132,7 @@ export class Pencil {
   }
   private preview(points: number[][], why = "") {
     this.drop(this.ghost); this.ghost = stroke(points,why); this.scene.add(this.ghost);
+    this.ghostEdges = this.ghost.children.length ? [points[0],points[points.length-1]] : [];
     this.el.title=why; this.note(why); this.draw();
   }
   private async check(site: Site, commit: boolean, provisional = false) {

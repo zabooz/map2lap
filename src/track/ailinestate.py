@@ -114,6 +114,11 @@ def publish(folder, inputs, candidate, skipped=None):
 
 def clear(folder, inputs, message=None):
     (folder / fastlane.FILE).unlink(missing_ok=True)
+    mark_outdated(folder, inputs, message)
+
+
+def mark_outdated(folder, inputs, message=None):
+    """Retain the last installed bytes for display while recording their race eligibility."""
     _write(folder, inputs, "failed" if message else "pending", message=message)
 
 
@@ -140,18 +145,20 @@ def inspect(model, circuit):
 
 
 def carry(source, model, circuit):
-    """Carry generated or hand-swapped bytes into a Save only for matching finished inputs."""
+    """Stage the installed preview and classify it against the finished Save inputs."""
     model, source = Path(model), Path(source)
-    try:
-        key = input_key(model, circuit)
-    except ERRORS as error:
-        clear(model.parent, None, reason(error))
-        return
-    state = status(source, key)
-    if state["status"] in ("manual", "ready"):
-        target = model.parent / fastlane.FILE
+    target = model.parent / fastlane.FILE
+    if (source / fastlane.FILE).is_file():
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / fastlane.FILE, target)
+    try:
+        key = input_key(model, circuit)
+        state = status(source, key)
+    except ERRORS as error:
+        key = None
+        state = {"status": "failed", "message": reason(error)}
+    if state["status"] in ("manual", "ready"):
         shutil.copy2(source / FILE, model.parent / FILE)
     else:
-        clear(model.parent, key, state.get("message"))
+        mark_outdated(model.parent, key, state.get("message"))
+    return {**state, "inputs": key}
