@@ -14,7 +14,7 @@ from track import aicorrections, fastlane
 FILE = Path("data/map2lap_ai.json")
 # When line code changes, bump this and update LaneCodeVersionTest in engine/tests/test_fastlane.py.
 # For comments or refactors proven to leave the generated line unchanged, update only the test's source digest.
-CODE_VERSION = 8
+CODE_VERSION = 9
 ERRORS = (AssertionError, IndexError, KeyError, OSError, ValueError, struct.error)
 
 

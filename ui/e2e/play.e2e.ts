@@ -28,7 +28,7 @@ test("Play switches between Hotlap and a Race grid without moving the dialog", a
   await session.selectOption("race");
   await expect(opponents.locator("option")).toHaveCount(6);
   await expect(dialog.getByRole("combobox", {name: "Laps"})).toHaveValue("2");
-  await expect(opponents).toHaveValue("3");
+  await expect(opponents).toHaveValue("5");
   await dialog.getByRole("slider", {name: "Strength"}).fill("92");
   await dialog.getByRole("slider", {name: "Aggression"}).fill("24");
   await dialog.getByRole("combobox", {name: "Opponent car"}).selectOption("car_a");
@@ -52,7 +52,7 @@ test("Play switches between Hotlap and a Race grid without moving the dialog", a
   await air.fill("17");
   expect(await dialog.boundingBox()).toEqual(bounds);
   await dialog.getByRole("tab", {name: "Session"}).click();
-  await expect(opponents).toHaveValue("3");
+  await expect(opponents).toHaveValue("5");
   await expect(air).toHaveCount(0);
 
   const request = page.waitForRequest("**/api/play");
@@ -60,7 +60,7 @@ test("Play switches between Hotlap and a Race grid without moving the dialog", a
   const body = (await request).postDataJSON();
   expect(body).not.toHaveProperty("clock");
   expect(body).toMatchObject({name: "alpha", session: "race", laps: 2, grip: {preset: "Green", variation: 0},
-    ai: {opponents: 3, strength: 92, aggression: 24, car: "car_a"}, weather: {airTemperature: 17}});
+    ai: {opponents: 5, strength: 92, aggression: 24, car: "car_a"}, weather: {airTemperature: 17}});
 });
 
 test("Play asks before using a manual line or starting a failed Race solo", async ({page}) => {

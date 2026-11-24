@@ -24,7 +24,7 @@ KEY=ROAD
 FRICTION=0.98
 DAMPING=0
 WAV=
-WAV_PITCH=0
+WAV_PITCH=extended-0
 FF_EFFECT=NULL
 DIRT_ADDITIVE=0
 IS_VALID_TRACK=1
@@ -82,12 +82,19 @@ SIN_LENGTH=0.4
 IS_PITLANE=0
 VIBRATION_GAIN=0.2
 VIBRATION_LENGTH=0.3
+
+[_EXTENSION]
+; Keep each start on its painted grid mark, including on narrow roads.
+RANDOMIZED_CARS_POSITIONING=0, 0
+
+[_SCRIPTING_PHYSICS]
+ALLOW_TRACK_SCRIPTS=1
 """
 # No KEY=WALL: AC treats meshes "<digit>WALL..." as collision walls (Kunos' Magione: 07WALL006 etc., WALL is not in
 # surfaces.ini). Defined as a surface, WALL turned into drivable ground and cars drove through houses.
 
 
-# AC instantiates the stock sign holders at the pit nodes, which share our single-file road grid.
+# AC instantiates the stock sign holders at the pit nodes, which share our start grid on the road.
 # Hide only the two stock crew models' geometry in this track, leaving the functional pit nodes in place.
 GRID_CREW = """
 [SCRIPT_...]
@@ -103,6 +110,9 @@ SCRIPT = '
 EXT_CONFIG = """\
 [INCLUDE: common/materials_track.ini]
 [INCLUDE: common/conditions.ini]
+
+[SCRIPT_...]
+SCRIPT = retired_cars.lua
 
 """ + lamps.config(["lamp_glass"], include=False) + """
 
@@ -204,7 +214,7 @@ def _road_mask(part, view):
 
 
 def make(name, title, obj=OBJ, preview=os.path.join(ROOT, "out", "check_top.png"), city="", country="", geotags=None,
-         extra_description="", route=None, log=print, parts=None, bounds=None, point_to_point=False, trees=None):
+         extra_description="", route=None, log=print, parts=None, bounds=None, point_to_point=False, trees=None, pitboxes=obj_to_kn5.GATE_SLOTS):
     """route: the generator's ENU polyline [(east, north), ...]: highlighted on the minimap.
     point_to_point: with start and finish lines from A to B (ui_track.json "run", like rally and hill climb tracks).
     city, country, geotags (lat, lon): shown by Content Manager, which also takes sun and time zone from geotags.
@@ -221,6 +231,8 @@ def make(name, title, obj=OBJ, preview=os.path.join(ROOT, "out", "check_top.png"
         f.write(EXT_CONFIG)
         if route is not None:
             f.write(GRID_CREW)
+    shutil.copyfile(os.path.join(os.path.dirname(__file__), "retired_cars.lua"),
+                    os.path.join(root, "extension", "retired_cars.lua"))
     write_trees(root, trees)
     weather.install_track(root)
     facades.write_glow(os.path.join(root, "extension"))
@@ -277,7 +289,7 @@ def make(name, title, obj=OBJ, preview=os.path.join(ROOT, "out", "check_top.png"
           "© ESA WorldCover project 2021; tree heights: Meta and WRI."),
           "tags": ["map2lap", "point to point" if point_to_point else "freeroam"],
           "geotags": [f"{geotags[0]:.5f}", f"{geotags[1]:.5f}"] if geotags else [], "country": country, "city": city,
-          "length": "0", "width": "", "pitboxes": str(obj_to_kn5.SLOTS), "run": "point-to-point" if point_to_point else "free",
+          "length": "0", "width": "", "pitboxes": str(pitboxes), "run": "point-to-point" if point_to_point else "free",
           "author": "Map2Lap",
           "version": version.VERSION}         # (Content Manager shows it)
     with open(os.path.join(root, "ui", "ui_track.json"), "w", encoding="utf-8") as f:

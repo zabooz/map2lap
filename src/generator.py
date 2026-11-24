@@ -476,6 +476,7 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
         lon_gap = (pts[-1][1] - pts[0][1]) * 111320.0 * math.cos(math.radians(pts[0][0]))
         loop = circuit or math.hypot(lat_gap, lon_gap) < LOOP_M
         approach = []
+        gate_approach_count = 0
         if circuit:
             ext = []
         elif line is not None:
@@ -484,12 +485,24 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
             ext = []
         else:
             ext = extend(pts)
-            approach = extend(pts[::-1], obj_to_kn5.STAGE_GRID_M, incoming=True)[::-1]
+            incoming = extend(pts[::-1], obj_to_kn5.STAGE_GRID_M, incoming=True)
+            gate_approach_count = len(incoming)
+            if incoming:
+                # Keep the original gate approach. Continue from its actual road endpoint
+                # so a rejected longer OSRM leg cannot erase the short one or move the gate.
+                incoming += extend([pts[0], *incoming], obj_to_kn5.MAX_GRID_M - obj_to_kn5.STAGE_GRID_M
+                                   + fastlane.GRID_RUN_IN, incoming=True)
+            approach = incoming[::-1]
         if saved is None:
             lats, lons = np.asarray(pts + ext + approach, float).T
             # A lap can cross the antimeridian on a single road. Its centre follows the continuous line.
-            centre_lons = np.unwrap(lons, period=360.0) if circuit else lons
-            lat0, lon0 = (lats.min() + lats.max()) / 2, (centre_lons.min() + centre_lons.max()) / 2
+            # Extra grid tiles must share the old ENU origin: changing it shifts the
+            # terrain lattice and the physical gate even when the route stays identical.
+            original = pts + ext + (approach[-gate_approach_count:] if gate_approach_count else [])
+            centre_lats, centre_lons = np.asarray(original).T
+            if circuit:
+                centre_lons = np.unwrap(centre_lons, period=360.0)
+            lat0, lon0 = (centre_lats.min() + centre_lats.max()) / 2, (centre_lons.min() + centre_lons.max()) / 2
             if circuit and not -180.0 <= lon0 < 180.0:
                 lon0 = wrap_lon(lon0)
             frame = geodesy.EnuFrame(lat0, lon0)
@@ -514,6 +527,8 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
             end, more = float(s[len(pts) - 1]), float(s[-1] - s[len(pts) - 1])
             finish = end + FINISH_AFTER_M if more >= FINISH_AFTER_M + 20.0 else end
             timing = {"start_m": 0.0, "finish_m": float(finish), "approach": lead.round(2).tolist()}
+            if gate_approach_count and gate_approach_count < len(lead):
+                timing["gate_approach_count"] = gate_approach_count
 
         head = resample(xy, 5.0)
         k = min(len(head) - 1, 6)
@@ -609,13 +624,13 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
         log(f"TreeFX trees: {len(trees['trees']):,}")
     obj_path = os.path.join(obj_dir, "track.obj")
 
-    def prepare_output(point_to_point):
+    def prepare_output(point_to_point, pitboxes):
         """Prepare the installed folder using the timing markers checked by the converter."""
         log("Writing track folder ...")
         root = make_track_folder.make(name, title, obj=obj_path, preview=None, city=town, country=country,
                                       geotags=(lat0, lon0), extra_description=desc, route=None if area else xy.tolist(),
                                       log=log, parts=parts, bounds=bounds,
-                                      point_to_point=point_to_point,
+                                      point_to_point=point_to_point, pitboxes=pitboxes,
                                       trees=trees)
         # For the debug app: the route in AC coordinates (x east, z = -north). Areas remove the previous route, if any.
         route_txt = os.path.join(root, "data", "map2lap_route.txt")

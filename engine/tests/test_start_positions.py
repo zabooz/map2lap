@@ -1,4 +1,5 @@
 """Native AC timing planes and grid, pit and hotlap spawns."""
+import configparser
 import io
 import json
 import os
@@ -19,7 +20,7 @@ from track import kn5, obj_to_kn5, route_race  # noqa: E402
 
 def road(depth=400):
     """A sloping drivable plane covering east- and north-going test routes. Pure."""
-    p = np.array([[0, 10, 0], [400, 30, 0], [400, 30, -depth], [0, 10, -depth]], float)
+    p = np.array([[-4, 9.8, 5], [400, 30, 5], [400, 30, -depth], [-4, 9.8, -depth]], float)
     return {"1ROAD_ground_0_0": ("road", p, np.zeros((4, 2)), np.array([[0, 1, 2], [0, 2, 3]]))}
 
 
@@ -60,12 +61,12 @@ class StartPositionsTest(unittest.TestCase):
         points = kn5.scan(model)["points"]
         self.assertLess(points["AC_START_0"][12] + 2.5, points["AC_AB_START_L"][12] - generator.gates.SQUARE_M)
 
-    def test_all_six_painted_slots_follow_their_road_faces_up_to_the_edge(self):
+    def test_all_painted_slots_follow_their_road_faces_up_to_the_edge(self):
         folder = self.timed_route_files()
         anchor = folder / "anchor.json"
         config = json.loads(anchor.read_text())
-        config["route"] = [[50, .8], [400, .8]]
-        config["timing"]["approach"] = [[0, .8]]
+        config["route"] = [[50, -3.75], [400, -3.75]]
+        config["timing"]["approach"] = [[0, -3.75]]
         anchor.write_text(json.dumps(config))
         model = folder / "track.kn5"
         obj_to_kn5.convert(str(folder / "track.obj"), str(model), str(anchor), log=lambda _: None)
@@ -77,17 +78,17 @@ class StartPositionsTest(unittest.TestCase):
                 self.assertEqual(mark["name"], f"nocol_grid_{k}")
                 xyz = kn5.mesh_arrays(stream, mark)[0]["pos"]
                 self.assertGreater(xyz[:, 0].min(), scan["points"][f"AC_START_{k}"][12])
-                self.assertLessEqual(xyz[:, 2].max(), 0)
+                self.assertLessEqual(xyz[:, 2].max(), 5)
                 np.testing.assert_allclose(xyz[:, 1], 10 + xyz[:, 0] * .05 + generator.gates.BAND_LIFT, atol=2e-5)
 
-    def test_unmarked_road_still_has_six_white_grid_brackets(self):
+    def test_unmarked_road_still_has_white_brackets_for_every_slot(self):
         folder = self.timed_route_files()
         (folder / "track.mtl").write_text("newmtl road\nmap_Kd road.png\n")
         model = folder / "track.kn5"
         obj_to_kn5.convert(str(folder / "track.obj"), str(model), str(folder / "anchor.json"), log=lambda _: None)
         scan = kn5.scan(model)
         marks = [m for m in scan["meshes"] if m["name"].startswith("nocol_grid_")]
-        self.assertEqual(len(marks), 6)
+        self.assertEqual(len(marks), 12)
         paint = next(i for i, m in enumerate(scan["materials"]) if m.name == "paint")
         self.assertEqual({m["material"] for m in marks}, {paint})
         texture = scan["materials"][paint].maps[0][2]
@@ -108,13 +109,31 @@ class StartPositionsTest(unittest.TestCase):
         self.assertIn("Meccanico_PALETTA", config)
         self.assertIn("setVisible(false)", config)
 
+    def test_retired_car_script_and_physics_permission_ship_on_every_track_kind(self):
+        folder = self.timed_route_files()
+        line = [[50, 30], [400, 30]]
+        with mock.patch.object(generator.make_track_folder, "AC", str(folder)):
+            for name, route, stage in (("area", None, False), ("route", line, True),
+                                       ("circuit", line + [line[0]], False)):
+                with self.subTest(name=name):
+                    root = Path(generator.make_track_folder.make(name, name, obj=str(folder / "track.obj"),
+                                route=route, point_to_point=stage, preview=None, log=lambda _: None))
+                    surfaces = configparser.ConfigParser()
+                    surfaces.read(root / "data/surfaces.ini")
+                    self.assertEqual(surfaces["SURFACE_0"]["WAV_PITCH"], "extended-0")
+                    self.assertTrue(surfaces.getboolean("_SCRIPTING_PHYSICS", "ALLOW_TRACK_SCRIPTS"))
+                    self.assertEqual(surfaces["_EXTENSION"]["RANDOMIZED_CARS_POSITIONING"], "0, 0")
+                    extension = root / "extension"
+                    self.assertIn("[SCRIPT_...]\nSCRIPT = retired_cars.lua", (extension / "ext_config.ini").read_text())
+                    self.assertIn("physics.disableCarCollisions", (extension / "retired_cars.lua").read_text())
+
     def test_legacy_route_with_native_gates_reports_point_to_point(self):
         folder = self.timed_route_files(legacy=True)
         target = folder / "legacy.kn5"
         prepare = mock.Mock(return_value=str(target))
         obj_to_kn5.convert(str(folder / "track.obj"), None, str(folder / "anchor.json"), log=lambda _: None,
                           prepare_output=prepare)
-        prepare.assert_called_once_with(True)
+        prepare.assert_called_once_with(True, 12)
         self.assertTrue(route_race.has_gates(kn5.scan(target)["points"]))
 
     def test_missing_texture_cleans_up_the_mesh_chunks(self):
@@ -174,7 +193,7 @@ class StartPositionsTest(unittest.TestCase):
         nodes, base = obj_to_kn5.start_empties(road(), anchor)
         p = positions(nodes)
         for k in range(6):
-            expected = [96 - 8 * k, 10 + .05 * (96 - 8 * k) + obj_to_kn5.START_LIFT, 0]
+            expected = [96 - 8 * (k // 2) - 2 * (k % 2), 10 + .05 * (96 - 8 * (k // 2) - 2 * (k % 2)) + obj_to_kn5.START_LIFT, 1.5 if k % 2 else -1.5]
             np.testing.assert_allclose(p[f"AC_START_{k}"], expected)
             np.testing.assert_allclose(p[f"AC_PIT_{k}"], expected)
         np.testing.assert_allclose(p["AC_HOTLAP_START_0"], p["AC_START_0"])
@@ -194,8 +213,10 @@ class StartPositionsTest(unittest.TestCase):
         anchor = {"route": [[0, 0], [60, 0], [60, 300]], "timing": {"start_m": 70, "finish_m": 300}}
         nodes, _ = obj_to_kn5.start_empties(road(), anchor)
         p = positions(nodes)
-        for k, (x, z) in enumerate([(60, -6), (58, 0), (50, 0), (42, 0), (34, 0), (26, 0)]):
-            np.testing.assert_allclose(p[f"AC_START_{k}"][[0, 2]], [x, z])
+        centres = np.array([v[[0, 2]] for k, v in p.items() if k.startswith("M2_GRID_")])
+        np.testing.assert_allclose(centres[0], [60, -6])
+        self.assertTrue(any(x < 60 and z == 0 for x, z in centres))
+        self.assertTrue(all(x == 60 or z == 0 for x, z in centres))
 
     def test_grid_cannot_be_placed_beyond_start_when_road_is_missing(self):
         p = np.array([[95, 10, -5], [400, 10, -5], [400, 10, 5], [95, 10, 5]], float)
@@ -216,7 +237,7 @@ class StartPositionsTest(unittest.TestCase):
         p = positions(nodes)
         self.assertAlmostEqual(p["AC_AB_START_L"][0], 50)
         for k in range(6):
-            self.assertAlmostEqual(p[f"AC_START_{k}"][0], 46 - 8 * k)
+            self.assertAlmostEqual(p[f"AC_START_{k}"][0], 46 - 8 * (k // 2) - 2 * (k % 2))
 
     def test_route_start_moves_only_enough_to_fit_its_grid(self):
         route = [[10, 0], [400, 0]]
@@ -225,7 +246,7 @@ class StartPositionsTest(unittest.TestCase):
         p = positions(nodes)
         self.assertAlmostEqual(p["AC_AB_START_L"][0], 44)
         self.assertAlmostEqual(p["AC_HOTLAP_START_0"][0], 40)
-        self.assertAlmostEqual(p["AC_START_5"][0], 0)
+        self.assertAlmostEqual(p["AC_START_10"][0], 0)
 
 
 def circuit(**timing):
@@ -283,8 +304,8 @@ class CircuitStartTest(unittest.TestCase):
         nodes, base = self.circuit_part(circuit())
         p = positions(nodes)
         for k in range(6):
-            x = 150 - 4 - 8 * k
-            expected = [x, 10 + 0.05 * x + obj_to_kn5.START_LIFT, -50]
+            x = 150 - 4 - 8 * (k // 2) - 2 * (k % 2)
+            expected = [x, 10 + 0.05 * x + obj_to_kn5.START_LIFT, -50 + (1.5 if k % 2 else -1.5)]
             np.testing.assert_allclose(p[f"AC_START_{k}"], expected)
             np.testing.assert_allclose(p[f"AC_PIT_{k}"], expected)
         np.testing.assert_allclose(p["AC_HOTLAP_START_0"], p["AC_START_0"])
@@ -385,7 +406,7 @@ class CircuitStartTest(unittest.TestCase):
                 x, y = (np.interp(metre, distances, column) for column in route.T)
                 split = (p[f"AC_TIME_{k}_L"] + p[f"AC_TIME_{k}_R"]) / 2
                 np.testing.assert_allclose(split, [x, 10 + .05 * x + obj_to_kn5.START_LIFT, -y], atol=2e-5)
-            self.assertEqual(sum(n.name.startswith("nocol_grid_") for n in children), 6)
+            self.assertEqual(sum(n.name.startswith("nocol_grid_") for n in children), sum(k.startswith("AC_START_") for k in p))
             self.assertTrue(any(n.name.startswith("nocol_gate_band_circuit") for n in children))
             self.assertEqual(sum(n.name.startswith("nocol_gate_banner") for n in children), 1)
             band = next(n for n in children if n.name.startswith("nocol_gate_band_circuit"))

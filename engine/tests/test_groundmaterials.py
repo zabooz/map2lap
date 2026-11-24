@@ -83,7 +83,7 @@ class GroundMaterialTest(unittest.TestCase):
             obj = make_obj.Obj(str(part))
             for i, (mesh, material) in enumerate((("1ROAD_ground_0_0", "ground_0_0"),
                                                    ("1GRASS_ground_1_0", "ground_1_0"), ("nocol_water_0_0", "water"))):
-                obj.add(mesh, material, np.array([[i * 4, 0, 0], [i * 4 + 2, 0, 0], [i * 4, 2, 0]], float),
+                obj.add(mesh, material, np.array([[i * 20, 0, 0], [i * 20 + 16, 0, 0], [i * 20, 16, 0]], float),
                         np.array([[0, 0], [1, 0], [0, 1]], float), np.array([[0, 1, 2]]))
             obj.close()
             with mock.patch.object(groundmaterial, "ground", side_effect=lambda m: m):
@@ -120,7 +120,7 @@ class GroundMaterialTest(unittest.TestCase):
             obj = make_obj.Obj(str(part))
             for i, (mesh, material) in enumerate((("1GRASS_ground_0_0", "ground_0_0"), ("1ROAD_ground_0_0", "ground_0_0"),
                                                    ("1GRASS_ground_1_0", "ground_1_0"), ("1ROAD_water_0_0", "water"))):
-                obj.add(mesh, material, np.array([[i * 4, 0, 0], [i * 4 + 2, 0, 0], [i * 4, 2, 0]], float),
+                obj.add(mesh, material, np.array([[i * 20, 0, 0], [i * 20 + 16, 0, 0], [i * 20, 16, 0]], float),
                         np.array([[0, 0], [1, 0], [0, 1]], float), np.array([[0, 1, 2]]))
             obj.close()
             obj_to_kn5.dds_texture(str(root / "ground_0_0.jpg"))      # (a BC1 one kept from a build before)

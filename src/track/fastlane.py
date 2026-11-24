@@ -134,7 +134,9 @@ def _gate(path, metres, points, name, *, last=False):
 
 def _grid(points):
     """The KN5 starting slots in driving order from rear to front. Pure."""
-    slots = sorted((int(name[9:]), value) for name, value in points.items() if re.fullmatch(r"AC_START_\d+", name))
+    prefix = "M2_GRID_" if "M2_GRID_0" in points else "AC_START_"
+    slots = sorted((int(name[len(prefix):]), value) for name, value in points.items()
+                   if re.fullmatch(prefix + r"\d+", name))
     return np.asarray([value for _, value in reversed(slots)] if slots and slots[0][0] == 0 else [])
 
 
@@ -171,11 +173,11 @@ def _route_path(path, points, grid):
         lead = []
         for j in range(first_on_route):
             lead.append(slots[j])
-            if j + 1 < first_on_route:
+            if j + 1 < first_on_route and "M2_GRID_0" not in points:
                 lead.extend(_grid_join(slots[j], directions[j], slots[j + 1], directions[j + 1]))
         if np.linalg.norm(lead[-1] - origin) <= GRID_XZ_TOL:
             lead.pop()
-        else:
+        elif "M2_GRID_0" not in points:
             lead.extend(_grid_join(slots[first_on_route - 1], directions[first_on_route - 1],
                                    origin, _unit(path[1] - origin)))
         path = np.vstack((*lead, path))
@@ -461,7 +463,10 @@ def _sample(path, points, circuit, road, mapped=(), rings=(), *, ownership=False
         track_m = np.r_[metres[:-1] - metres[-1], metres]
         rear = last
         if len(grid):
-            approach = max(track_m[0], first - obj_to_kn5.STAGE_START_GAP_M - (len(grid) - 1) * obj_to_kn5.SLOT_GAP)
+            # Centre guides include bends and staggered columns, so node count no longer measures grid length.
+            distance = metres[-1] if "M2_GRID_0" in points else (
+                obj_to_kn5.STAGE_START_GAP_M + (len(grid) - 1) * obj_to_kn5.SLOT_GAP)
+            approach = max(track_m[0], first - distance - GRID_XZ_TOL)
             at = np.searchsorted(track_m, approach, side="left")
             stop = np.searchsorted(track_m, first, side="right")
             span = np.r_[approach, track_m[at:stop], first]
@@ -1094,7 +1099,7 @@ def lane_inputs(model, circuit, log, *, preview=False):
         path = np.loadtxt(stream, ndmin=2)
     scan = kn5.scan(model)
     markers = {key: matrix for key, matrix in scan["points"].items()
-               if re.fullmatch(r"AC_START_\d+|AC_TIME_\d+_[LR]", key)}
+               if re.fullmatch(r"(?:AC_START_|M2_GRID_)\d+|AC_TIME_\d+_[LR]", key)}
     if not circuit:
         gates = route_race.GATES if all(k in scan["points"] for k in route_race.GATES) else route_race.ALIASES.values()
         markers.update((k, scan["points"][k]) for k in gates if k in scan["points"])

@@ -212,17 +212,32 @@ the log gives the reason and, for a surface failure, the route metre. Play keeps
 - AC drives along **+Z** of the start point (`obj_to_kn5.empty`). Start slots move up to the first road on the route.
 - Point-to-point routes get `AC_AB_START_L/R` and `AC_AB_FINISH_L/R` (acs.exe knows them; CSP's rally mode reads them) and
   `"run": "point-to-point"` in `ui_track.json`; circuits and areas keep the lap line `AC_TIME_0_L/R`.
-- Point-to-point grid, pit and hotlap spawns use the actual start gate. The first spawn is 4 m before its
-  timing plane, with five more slots 8 m apart behind it along the route, including at bends. New builds place
-  the gate at pin 1 if the road approaching that pin holds the grid. Otherwise they search forward for the first
-  drivable position with room for the grid. If the builder cannot place both gates, the build log explains why.
+- A point-to-point gate keeps its six-car placement reference. The builder follows the real incoming
+  road farther behind pin 1 for extra cars. The nominal pole is 4 m behind the gate. Cars in a double row
+  sit 1.5 m either side of the route centre, with the second car staggered 2 m back for visibility. Rows
+  start 8 m apart. Two 2 m wide cars have 1 m between them, and a 5 m car has at least 1 m longitudinal
+  clearance where a double row changes to single file on straight road.
+- Each spawn must fit a 5 m by 2.4 m footprint on one drivable level, clear of walls, raised sidewalks
+  and neighbouring cars. Curved, steep or narrow roads can alternate paired and centred single slots.
+  The grid stops at 20 cars or the usable approach limit. Mapped junctions, stacked road levels,
+  road ends and twice-driven Circuit sections limit capacity. A junction near pole can leave room
+  for a longer group farther back. The log records capacity, paired rows and the first limiting location.
+  Areas use a nearby mapped road when available. The AI and Editor use the KN5 centre guides through the
+  grid and its bends. Earlier single-file tracks use their existing start nodes.
 - Play offers Practice, Hotlap and Race for timed Routes and Circuits. A–B sessions use the default layout and
   measure from the start gate to the finish gate. Race has start lights and one run on a Route, or a lap count on
   a Circuit. A Race can use the installed AI line with up to one fewer opponent than the track has pitboxes.
-  New builds have six slots. White non-colliding grid brackets follow the road faces at each Route and Circuit
+  Five opponents are preselected when space permits. White non-colliding grid brackets follow the road faces at each Route and Circuit
   spawn. Their shared pit nodes remain usable. A track-local CSP script hides the stock sign holders there.
   The player starts behind the selected opponents and only their own best time is
   imported into AC's `personalbest.ini`.
+- AC parks retired opponents at their pit nodes on the road. Every track loads `retired_cars.lua` to disable
+  collisions and hide each retired AI opponent, restoring both when it becomes active again. Use `isRetired`:
+  an opponent passing its grid slot at racing speed can also report `isInPit`.
+  The track grants physics access to track scripts in `surfaces.ini` and disables randomized spawn positioning
+  to keep the painted slots and car positions aligned. Loading these tracks without CSP crashes Assetto Corsa.
+  [CSP extended physics](https://cup.acstuff.club/docs/csp/tracks/enabling-extended-physics) ·
+  [Positioning and script permissions](https://cup.acstuff.club/docs/csp/tracks/general-extended-physics-options)
 - Circuit starts with the same grid spacing before its `AC_TIME_0_L/R` line. The converter checks the grid and line on
   a single road level over a once-driven stretch, including the approach from the end of the lap. The timing segment
   must cross the lap exactly once. The search runs up to 300 m forward from pin 1, and a placement refusal leaves an

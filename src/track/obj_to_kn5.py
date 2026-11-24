@@ -56,11 +56,14 @@ FACADE_LEVELS = (0.82, 1.0, 1.15)       # brightness levels of the facades (make
 # by eye on a town and a country test track; the sum stays about the same, so their brightness does)
 BUILDING_AMBIENT, BUILDING_DIFFUSE = 0.75, 1.3
 MAX_VERTS = 65535
-SLOTS, SLOT_GAP, START_LIFT = 6, 8.0, 0.15
+SLOTS, SLOT_GAP, START_LIFT = 20, 8.0, 0.15
+# Preserve the six-slot reference used to choose the timing gate, independently of race capacity.
+GATE_SLOTS = 6
 # The band reaches 0.6 m toward the grid. A 2.5 m nose then clears the paint by 0.9 m,
 # allowing for model origin and settling at spawn. A nose longer than 3.4 m can reach the band.
 STAGE_START_GAP_M = 4.0
-STAGE_GRID_M = STAGE_START_GAP_M + (SLOTS - 1) * SLOT_GAP
+STAGE_GRID_M = STAGE_START_GAP_M + (GATE_SLOTS - 1) * SLOT_GAP
+MAX_GRID_M = STAGE_START_GAP_M + (SLOTS - 1) * SLOT_GAP
 # View distance (m) and shadows per kind of object, first matching name prefix. Without a limit AC draws every tile up
 # to the horizon, kerbs and markings too (a 2400-tile track: 22 fps; a 25-tile one: 90+).
 # No shadows for flat and thin things (invisible, but every shadow cascade pays for them). AC measures from the mesh
@@ -454,23 +457,28 @@ def _overlaps_twice(twice, first, span, length):
     return any(max(lo, a + shift) < min(hi, b + shift) for a, b in twice for shift in (0, length))
 
 
-def circuit_empties(objs, anchor, log=print):
+def circuit_empties(objs, anchor, log=print, junctions=None, barriers=None):
     """Start/finish, grid and hotlap from road objects and the closed ENU lap in the Circuit anchor."""
     xy, s = _closed_lap(anchor["route"])
     timing = anchor["timing"]
     length = s[-1]
-    behind = SLOTS * SLOT_GAP + STAGE_START_GAP_M + CIRCUIT_MARGIN_M
+    from track import fastlane, startgrid
+
+    grid_road = fastlane._local_roads({**objs, **(barriers or {})})
+    behind = GATE_SLOTS * SLOT_GAP + STAGE_START_GAP_M + CIRCUIT_MARGIN_M
     span = behind + CIRCUIT_MARGIN_M
     error = (f"No place for start/finish within {CIRCUIT_SEARCH_M:g} m after pin 1: "
              "move pin 1 onto a stretch driven once, away from bridges")
-    if length < span:
+    if length <= STAGE_START_GAP_M + CIRCUIT_MARGIN_M:
         raise RuntimeError(error)
+    behind = min(behind, length - CIRCUIT_MARGIN_M)
+    span = behind + CIRCUIT_MARGIN_M
 
     # The middle copy provides approach and runout across the seam for direction and grid placement.
     loop_xy = np.concatenate((xy, xy[1:], xy[1:]))
     loop_s = np.r_[s, length + s[1:], 2 * length + s[1:]]
     sample_at = np.r_[np.arange(-behind, CIRCUIT_MARGIN_M, CIRCUIT_STEP_M), CIRCUIT_MARGIN_M,
-                      -STAGE_START_GAP_M - SLOT_GAP * np.arange(SLOTS)]
+                      -STAGE_START_GAP_M - SLOT_GAP * np.arange(GATE_SLOTS)]
     sample_cache = {}
     nearby_roads = _road_near(objs)
 
@@ -496,15 +504,15 @@ def circuit_empties(objs, anchor, log=print):
         line = _timing_line(nearby_roads, xy, s, metre, centre, fwd, gantry=True)
         if line is None:
             continue
-        slots = route_slots(objs, loop_xy, SLOTS, SLOT_GAP, log, front_m=length + metre - STAGE_START_GAP_M)
-        if any(p is None for p, _ in slots):
+        gate = length + metre
+        grid = startgrid.layout(grid_road, loop_xy, loop_s, gate, gate-length+CIRCUIT_MARGIN_M,
+                                end_reason="lap length", junctions=junctions, twice=timing["twice"], lap=length)
+        slots = grid[0]
+        if len(slots) < GATE_SLOTS:
             continue
         if given is None and d > start_m:
             log(f"Start/finish moved {d - start_m:g} m forward from pin 1")
-        nodes = []
-        for k, (p, direction) in enumerate(slots):
-            pos = p + [0.0, START_LIFT, 0.0]
-            nodes.extend((empty(f"AC_START_{k}", pos, direction), empty(f"AC_PIT_{k}", pos, direction)))
+        nodes = startgrid.nodes(grid, log)
         base = slots[0][0] + [0.0, START_LIFT, 0.0]
         left, right = line
         nodes.extend((empty("AC_HOTLAP_START_0", base, slots[0][1]), empty("AC_TIME_0_L", left, fwd),
@@ -796,7 +804,8 @@ def _stage_grid(route, timing):
 def stage_start(objs, route, timing, log=print):
     """Find a Route's first start after pin 1 whose grid fits on one road level in the supplied objects."""
     xy, s, origin = _stage_grid(route, timing)
-    first = max(origin, STAGE_GRID_M)
+    original_start = len(timing["approach"]) - timing.get("gate_approach_count", len(timing["approach"]))
+    first = max(origin, s[original_start] + STAGE_GRID_M)
     # Keep the existing gantry search resolution and range (2 m steps across at most 50 m).
     for d in first + 2.0 * np.arange(26):
         if d >= min(s[-1], origin + timing["finish_m"]):
@@ -806,7 +815,7 @@ def stage_start(objs, route, timing, log=print):
         if len(levels) != 1:
             continue
         front = d - STAGE_START_GAP_M
-        slots = route_slots(objs, xy, SLOTS, SLOT_GAP, log, front_m=front)
+        slots = route_slots(objs, xy, GATE_SLOTS, SLOT_GAP, log, front_m=front)
         if all(p is not None and len(road_levels(objs, p[0], p[2])) == 1 for p, _ in slots):
             return float(d - origin), np.array([x, levels[0], -y]), fwd, slots
     return None
@@ -899,31 +908,40 @@ def route_splits(objs, anchor, gates, junctions=None):
     return nodes, [metre - origin for metre in metres]
 
 
-def start_empties(objs, anchor, log=print, junctions=None):
+def start_empties(objs, anchor, log=print, junctions=None, barriers=None, mapped=()):
     """Grid, pits and hotlap just before a route's native timing start, else at its first road. Without a route,
     use the asphalt nearest the anchor. Point-to-point routes keep AC_AB_START/FINISH, others AC_TIME_0."""
+    from track import fastlane, startgrid
+
     route = (anchor or {}).get("route")
+    grid_road = fastlane._local_roads({**objs, **(barriers or {})})
     if route and len(route) > 1:
         timing = anchor.get("timing")
         gates = ab_gates(objs, route, timing, log) if timing else []
-        if gates and "approach" in timing:
-            grid, _, origin = _stage_grid(route, timing)
-            if timing.get("gates"):
-                front_m = max(STAGE_GRID_M, origin + timing["start_m"]) - STAGE_START_GAP_M
-                slots = route_slots(objs, grid, SLOTS, SLOT_GAP, log, front_m=front_m)
-            else:
-                slots = stage_start(objs, route, timing, log)[3]
+        xy, s, origin = _stage_grid(route, timing if timing and "approach" in timing else {"approach": []})
+        if gates:
+            gate = _gate_distance(xy, gates[:2], origin + timing["start_m"], "start")
         else:
-            front_m = _gate_distance(route, gates[:2], timing["start_m"], "start") - STAGE_START_GAP_M if gates else None
-            slots = route_slots(objs, route, SLOTS, SLOT_GAP, log, front_m=front_m)
-        if gates and any(p is None for p, _ in slots):
-            raise RuntimeError("No road for all grid slots before the start line")
-        if all(p is not None for p, _ in slots):
-            nodes = []
-            for k, (p, fwd) in enumerate(slots):
-                pos = p + np.array([0.0, START_LIFT, 0.0])
-                nodes.append(empty(f"AC_START_{k}", pos, fwd))
-                nodes.append(empty(f"AC_PIT_{k}", pos, fwd))
+            legacy = route_slots(objs, xy, GATE_SLOTS, SLOT_GAP, log)
+            if legacy[0][0] is None:
+                gate = min(s[-1], STAGE_GRID_M)
+            else:
+                gate = fastlane._project(xy, s, legacy[0][0][[0, 2]] * [1, -1])[0] + STAGE_START_GAP_M
+        grid = startgrid.layout(grid_road, xy, s, gate, 0., junctions=junctions)
+        # A junction can split the approach before six cars fit. Try a contiguous
+        # grid behind it, keeping the timing line and its original approach.
+        if len(grid[0]) < GATE_SLOTS and "mapped junction" in grid[2]:
+            for gap in np.arange(STAGE_START_GAP_M + SLOT_GAP, min(gate, MAX_GRID_M), SLOT_GAP):
+                alternative = startgrid.layout(grid_road, xy, s, gate, 0., junctions=junctions, front_gap=gap)
+                if len(alternative[0]) > len(grid[0]):
+                    grid = alternative
+                if len(grid[0]) >= GATE_SLOTS:
+                    break
+        slots = grid[0]
+        if gates and not slots:
+            raise RuntimeError(f"No safe grid before the start line: {grid[2]}")
+        if slots:
+            nodes = startgrid.nodes(grid, log)
             base, fwd = slots[0][0] + np.array([0.0, START_LIFT, 0.0]), slots[0][1]
             side = np.cross([0.0, 1.0, 0.0], fwd)
             nodes.append(empty("AC_HOTLAP_START_0", base, fwd))
@@ -959,12 +977,31 @@ def start_empties(objs, anchor, log=print, junctions=None):
         ex, ny = near[:, 0] - near[:, 0].mean(), -near[:, 2] - (-near[:, 2]).mean()     # ENU: north = -z
         h = 0.5 * math.atan2(2 * np.sum(ex * ny), np.sum(ex * ex) - np.sum(ny * ny))
         fwd = np.array([math.cos(h), 0.0, -math.sin(h)])
-    base = p + np.array([0.0, START_LIFT, 0.0])
-    side = np.cross([0.0, 1.0, 0.0], fwd)
-    nodes = []
-    for k in range(SLOTS):
-        nodes.append(empty(f"AC_START_{k}", base - fwd * SLOT_GAP * k, fwd))
-        nodes.append(empty(f"AC_PIT_{k}", base - fwd * SLOT_GAP * k, fwd))
+    best_grid = startgrid.area_grid(grid_road, mapped, np.array([tx, tz]), junctions)
+    # An older OBJ may have no mapped road centreline. Start inside a nearby road triangle and test
+    # the same swept footprints along its local road axis, instead of extrapolating bare slots.
+    if best_grid is None:
+        candidates = np.concatenate([pos[faces].mean(axis=1) for name, (_, pos, _, faces) in objs.items()
+                                     if name.startswith(("1ROAD_", "1GRAVEL_"))])
+        order = np.argsort(np.hypot(candidates[:, 0]-p[0], candidates[:, 2]-p[2]))
+        for seed in candidates[order]:
+            if best_grid and np.linalg.norm(seed[[0, 2]]-p[[0, 2]]) > MAX_GRID_M:
+                break
+            lead = seed - fwd * MAX_GRID_M
+            end = seed + fwd * STAGE_START_GAP_M
+            xy = np.array([lead[[0, 2]], end[[0, 2]]]) * [1, -1]
+            length = MAX_GRID_M + STAGE_START_GAP_M
+            grid = startgrid.layout(grid_road, xy, [0., length], length, 0., junctions=junctions)
+            if grid[0] and (best_grid is None or len(grid[0]) > len(best_grid[0])):
+                best_grid = grid
+                if len(grid[0]) == SLOTS:
+                    break
+    if best_grid is None:
+        raise RuntimeError("No road wide enough for a car at the Area start")
+    nodes = startgrid.nodes(best_grid, log)
+    pos, fwd = best_grid[0][0]
+    base = pos + [0., START_LIFT, 0.]
+    side = np.cross([0., 1., 0.], fwd)
     nodes.append(empty("AC_HOTLAP_START_0", base, fwd))
     nodes.append(empty("AC_TIME_0_L", base + fwd * 20 + side * 6, fwd))
     nodes.append(empty("AC_TIME_0_R", base + fwd * 20 - side * 6, fwd))
@@ -1001,14 +1038,14 @@ def _part_chunk(path, chunk_path, mat_index, near_xz):
     objects = objectlist.chunk_objects(path, nodes_of)
     roads = {}
     for k, v in objs.items():
-        if k.startswith(("1ROAD_", "1GRAVEL_")):
+        if k.startswith(("1ROAD_", "1GRAVEL_", "1WALL_", "1KERB_walkcol_")):
             P = v[1]
             if near_xz is None or any((np.hypot(P[:, 0] - x, P[:, 2] - z) < START_NEAR_M).any() for x, z in near_xz):
                 roads[k] = v
     return n_nodes, n_verts, roads, objects, {v[0] for k, v in objs.items() if k.startswith("1ROAD_")}
 
 
-def _circuit_part(objs, anchor, parts, obj_dir, gate_path, log):
+def _circuit_part(objs, anchor, parts, obj_dir, gate_path, log, barriers=None):
     """Checked timing nodes and the corresponding visible start/finish OBJ. Does not install the track."""
     from scenery import gates
 
@@ -1020,8 +1057,9 @@ def _circuit_part(objs, anchor, parts, obj_dir, gate_path, log):
         if s[-1] > 0:
             x, y, _ = _along(xy, s, anchor["timing"]["line_m"] % s[-1])
             start_roads.update(nearby_roads(x, -y, START_NEAR_M))
-    nodes, base, line_m = circuit_empties(start_roads, anchor, log)
-    splits, sector_m = circuit_splits(objs, anchor, line_m, _mapped_junctions(parts, log))
+    junctions = _mapped_junctions(parts, log)
+    nodes, base, line_m = circuit_empties(start_roads, anchor, log, junctions, barriers)
+    splits, sector_m = circuit_splits(objs, anchor, line_m, junctions)
     start = nodes[-2:]
     left, right = np.asarray([node.matrix[12:15] for node in start])
     centre = (left + right) / 2
@@ -1035,7 +1073,7 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
     """parts: make_obj's tile part files; else obj_path alone. The worker processes write their meshes as finished kn5
     bytes into intermediate files, the main process writes the header and the start points and appends them.
     Materials: all of the .mtl (fixed numbers for all processes; unused ones only cost their texture, < 35 MB).
-    prepare_output(point_to_point): prepare the installed folder and return its kn5 path once the timing nodes
+    prepare_output(point_to_point, pitboxes): prepare the installed folder and return its kn5 path once the timing nodes
     have been placed. The flag indicates whether the model contains both A–B gates."""
     anchor = None
     if anchor_path and os.path.exists(anchor_path):
@@ -1071,10 +1109,11 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
         objs = {}
         for _, _, roads, _, _ in results:
             objs.update(roads)
+        barriers = {k: objs.pop(k) for k in list(objs) if k.startswith(("1WALL_", "1KERB_walkcol_"))}
         if circuit:
             gate_obj = os.path.join(chunk_dir, "circuit_gate.obj")
             empties, base, line_m, sector_m, materials = _circuit_part(
-                objs, anchor, parts, os.path.dirname(os.path.abspath(obj_path)), gate_obj, log)
+                objs, anchor, parts, os.path.dirname(os.path.abspath(obj_path)), gate_obj, log, barriers)
             mat_index.update({m: len(used) + i for i, m in enumerate(materials)})
             mtl.update(materials)
             used.extend(materials)
@@ -1130,10 +1169,12 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
             textures.extend(groundmaterial.textures())
         root = kn5.Node(1, "map2lap", 1, matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
         if not circuit:
-            junctions = _mapped_junctions(parts, log) if route and (anchor or {}).get("timing") else None
-            empties, base = start_empties(objs, anchor, log, junctions)
+            mapped = list(mapped_road_lines(map(editorinfo.side_file, parts), log))
+            junctions = _junction_geometry(mapped)
+            empties, base = start_empties(objs, anchor, log, junctions, barriers, mapped)
         if prepare_output is not None:
-            kn5_path = prepare_output(route_race.has_gates({node.name for node in empties}))
+            kn5_path = prepare_output(route_race.has_gates({node.name for node in empties}),
+                                      sum(node.name.startswith("AC_START_") for node in empties))
         if route:
             from scenery import gates
             root.children.extend(gates.grid_marks(objs, empties, mat_index["paint"]))

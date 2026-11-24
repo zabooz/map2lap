@@ -129,7 +129,7 @@ class CircuitBuildTest(unittest.TestCase):
         def convert(_obj, kn5, anchor_path, prepare_output=None, **kwargs):
             """Write a stand-in KN5 and the converter's placed timing metres."""
             if prepare_output is not None:
-                kn5 = prepare_output(False)
+                kn5 = prepare_output(False, 20)
             self.assertFalse(lane.exists(), "the old AI line must go before replacing the KN5")
             path = Path(anchor_path)
             saved = json.loads(path.read_text(encoding="utf-8"))

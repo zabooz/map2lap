@@ -16,8 +16,9 @@ Built on the world generator of [BeamNG.Earth](https://github.com/TecnaGamer/Bea
 
 **You need:** Windows 10/11 64-bit or a 64-bit Linux (glibc 2.35 or newer: Ubuntu 22.04, Fedora 36, Arch, SteamOS 3
 or later), [Assetto Corsa](https://store.steampowered.com/app/244210/Assetto_Corsa/) on Steam, an internet
-connection, installed and enabled [Custom Shaders Patch](https://acstuff.club/patch/) for correct track rendering,
-and 16 GB RAM recommended. [Content Manager](https://acstuff.club/app/) is optional; **▶ Play** can start Assetto Corsa directly.
+connection and an installed and enabled [Custom Shaders Patch](https://acstuff.club/patch/). Newly built tracks
+use CSP extended physics. Assetto Corsa crashes when loading them without CSP. We recommend 16 GB RAM.
+[Content Manager](https://acstuff.club/app/) is optional. **▶ Play** can start Assetto Corsa directly.
 
 ### On Linux
 

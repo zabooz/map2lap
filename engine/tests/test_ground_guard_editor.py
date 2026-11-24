@@ -38,7 +38,7 @@ class MarkTest(unittest.TestCase):
             part = root / "t_0_0.obj"
             obj = make_obj.Obj(str(part))
             for i, (mesh, material) in enumerate((("1ROAD_ground_0_0", "ground_0_0"), ("nocol_water_0_0", "water"))):
-                obj.add(mesh, material, np.array([[i * 4, 0, 0], [i * 4 + 2, 0, 0], [i * 4, 2, 0]], float),
+                obj.add(mesh, material, np.array([[i * 20, 0, 0], [i * 20 + 16, 0, 0], [i * 20, 16, 0]], float),
                         np.array([[0, 0], [1, 0], [0, 1]], float), np.array([[0, 1, 2]]))
             obj.close()
             obj_to_kn5.convert(str(part), str(root / "t.kn5"), parts=[str(part)], log=lambda _: None)

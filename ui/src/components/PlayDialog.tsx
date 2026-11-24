@@ -28,7 +28,7 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
   const [gripOptions, setGripOptions] = useState<GripOptions | null>(null);
   const [grip, setGrip] = useState<string | GripEdits>("");
   const [gridError, setGridError] = useState(false);
-  const [ai, setAi] = useState({opponents: 3, strength: 95, aggression: 0, car: ""});
+  const [ai, setAi] = useState({opponents: 5, strength: 95, aggression: 0, car: ""});
   const [minutes, setMinutes] = useState<number | null>(initialClock === undefined ? null : Math.round(initialClock * 60));
   const [weather, setWeather] = useState<WeatherOptions>({...initialWeather});
   const [loadError, setLoadError] = useState(false);
