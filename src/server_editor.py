@@ -131,7 +131,8 @@ class _PreviewBand:
         physical[indices] = sections[:,:2]
         mapped[indices] = fastlane._mapped_widths(xz, fastlane._unit(forward[indices][:,fastlane.XZ]), roads)
         junctions[indices] = fastlane._in_junctions(xz, self.areas)
-        widths = fastlane._junction_widths(physical, np.minimum(physical,mapped), junctions, self.closed)[indices]
+        widths = fastlane._junction_widths(physical, np.minimum(physical,mapped), junctions, self.closed)
+        widths = widths[indices]
         transverse = side[indices] + sections[:,2,None]*fastlane.UP
         return np.column_stack((pts, yellow, pts + transverse*widths[:,0,None], pts - transverse*widths[:,1,None]))
 
@@ -212,6 +213,7 @@ def _ink_preview(ref, wider, item, section, band):
     fastlane.check_splits(full, ribbon.splits, route.circuit)
     forward, sides = fastlane._frame(full,route.circuit)[2:]
     edited = np.r_[changed[before], np.ones(len(xyz),bool), changed[after]]
+    fastlane.aicorrections.check_centreline(full, metres, edited, route.circuit, fastlane.obj_to_kn5.LEVEL_GAP_M)
     dirty = edited.copy()
     dirty[1:] |= edited[:-1]
     dirty[:-1] |= edited[1:]
@@ -272,21 +274,25 @@ def _move_preview(model, body):
         except ValueError as error:
             skipped[key] = str(error)
     measured = {}
-    (moved, mask, queries), rejected = fastlane.checked_moves(ref, moves, lambda *result: result, wider, measured)
+    def preview(moved, mask, queries):
+        yellow = [int(i) for i in np.flatnonzero(mask) if fastlane._query(queries,i) is wider and
+                  not fastlane._fits_chord(road,moved[i-1],moved[i],fastlane.FILLET_CLEARANCE)]
+        indices = np.flatnonzero(mask)
+        samples = []
+        if len(indices):
+            forward, sides = fastlane._frame(moved, circuit)[2:]
+            fastlane.aicorrections.check_centreline(moved, ribbon.metres, mask, circuit, fastlane.obj_to_kn5.LEVEL_GAP_M)
+            rows = band.rows(moved, indices, np.arange(len(moved)), np.array([measured[i] for i in indices]),
+                             np.isin(indices,yellow), forward, sides)
+            samples = np.column_stack((indices,rows)).tolist()
+        return samples, yellow
+
+    (samples, yellow), rejected = fastlane.checked_moves(ref, moves, preview, wider, measured)
     skipped.update(rejected)
     record = ailinestate._record(model.parent)
     if record.get("skipped") and record.get("corrections") == items:
         if ailinestate.input_key(model, circuit) == record.get("inputs"):
             skipped.update(record["skipped"])
-    yellow = [int(i) for i in np.flatnonzero(mask) if fastlane._query(queries,i) is wider and
-              not fastlane._fits_chord(road,moved[i-1],moved[i],fastlane.FILLET_CLEARANCE)]
-    indices = np.flatnonzero(mask)
-    samples = []
-    if len(indices):
-        forward, sides = fastlane._frame(moved, circuit)[2:]
-        rows = band.rows(moved, indices, np.arange(len(moved)), np.array([measured[i] for i in indices]),
-                         np.isin(indices,yellow), forward, sides)
-        samples = np.column_stack((indices,rows)).tolist()
     return {"samples": samples, "ink": ink, "yellow": yellow,
             "skipped": skipped, "centres": centres, "ends": ends}
 

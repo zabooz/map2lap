@@ -1,5 +1,5 @@
 import {get, post} from "../api";
-import {toasts, type Posted} from "../components/toastStore";
+import {BRIEF_TOAST_MS, toasts, type Posted} from "../components/toastStore";
 import type {EditState} from "./state/edits";
 import type {EditorLoadStatus} from "../types";
 
@@ -101,6 +101,6 @@ export async function updateAiLine(name: string, retry: boolean, inputs?: string
   if (result.error) { aiLineError(name, result.error); return; }
   const deferred = result.status === "deferred";
   toasts.post({id, tone:deferred ? "info" : "success",
-    title:deferred ? "AI line update deferred" : "AI line updated",
+    duration:deferred ? undefined : BRIEF_TOAST_MS, title:deferred ? "AI line update deferred" : "AI line updated",
     message:result.message, onDismiss:() => toasts.remove(id)});
 }

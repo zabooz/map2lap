@@ -10,9 +10,9 @@ import {PointerInfo} from "./inspector/PointerInfo";
 import type {SelectionRectangle} from "./scene/marquee";
 
 /** The track name in 3D; built: when it was built, built again it loads again (a Save leaves it: the view shows the track's
-    source). title: its title, taken: the other tracks'. visible: its tab is open. controls: how it moves. fileHost, toolsHost, notesHost: where in the sidebar its buttons are drawn.
+    source). title: its title, taken: the other tracks'. visible: its tab is open. controls: how it moves. fileHost, toolsHost: where in the sidebar its buttons are drawn.
     onStatus gets what is loading; onSaved the track saved, by its name (a copy: another one); onDelete: its Delete was pressed. */
-export default function EditorScene({name, title, routeTrack, timedMode, taken, built, visible, controls, fileHost, savedHost, toolsHost, notesHost, onStatus, onSaved, onDelete}: {
+export default function EditorScene({name, title, routeTrack, timedMode, taken, built, visible, controls, fileHost, savedHost, toolsHost, onStatus, onSaved, onDelete}: {
   name: string;
   title: string;
   routeTrack: boolean;
@@ -24,13 +24,11 @@ export default function EditorScene({name, title, routeTrack, timedMode, taken, 
   fileHost: HTMLElement | null;
   savedHost: HTMLElement | null;
   toolsHost: HTMLElement | null;
-  notesHost: HTMLElement | null;
   onStatus: Say;
   onSaved: (name: string) => void;
   onDelete: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const scene = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<TrackView | null>(null);
   const [hovered, setHovered] = useState<Hovered | null>(null);
   const [rectangle, setRectangle] = useState<SelectionRectangle | null>(null);
@@ -55,12 +53,12 @@ export default function EditorScene({name, title, routeTrack, timedMode, taken, 
   return (
     <div className={styles.layout} hidden={!visible}
       style={{"--inspector-space": name && !inspectorCollapsed ? `min(${inspectorWidth + 5}px, 48%)` : "0px"} as CSSProperties}>
-      <div id="scene" className={styles.scene} ref={scene}>
+      <div id="scene" className={styles.scene}>
         <div className={styles.view} ref={host} />
         {rectangle && <div className={styles.rectangle} aria-label="Selection rectangle"
           style={{left: rectangle.x, top: rectangle.y, width: rectangle.width, height: rectangle.height}} />}
         {view && name && <PointerInfo hovered={hovered} inspectorCollapsed={inspectorCollapsed} />}
-      {view && name && <EditTools routeTrack={routeTrack} key={`${name} ${built}`} name={name} title={title} timedMode={timedMode} visible={visible} taken={taken} view={view} scene={scene} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost} elevationSpeed={controls.elevationSpeed}
+      {view && name && <EditTools routeTrack={routeTrack} key={`${name} ${built}`} name={name} title={title} timedMode={timedMode} visible={visible} taken={taken} view={view} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} elevationSpeed={controls.elevationSpeed}
                                   inspectorHost={inspectorHost}
                                   inspectorWidth={inspectorWidth} onInspectorWidth={setInspectorWidth}
                                   inspectorCollapsed={inspectorCollapsed} onInspectorCollapsed={setInspectorCollapsed}

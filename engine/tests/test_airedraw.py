@@ -28,6 +28,42 @@ class RedrawTest(unittest.TestCase):
     def save(self, edit):
         (self.folder / "data/map2lap.json").write_text(json.dumps({"edits": {"aiCorrections": [edit]}}))
 
+    def test_wide_inside_of_hairpin_accepts_move_and_redraw_in_preview_and_save(self):
+        from server_editor import _move_preview
+        path = [(20,10),(57,10),(64,14),(65,20),(60,25),(32,25),(30,33),(75,35),(75,10),(80,10)]
+        self.write_track(path)
+        self.generate()
+        automatic = self.lane.read_bytes()
+        route = fastlane.aicorrections.Route(np.asarray(path, dtype=float), (0,0), False)
+        def anchor(m):
+            return dict(metre=m, level=9, origin=[0,0], context=route.context(m).tolist())
+        move = dict(id="move", kind="move", free=True, range=15, routeOffset=.3, anchor=anchor(51))
+        redraw = dict(id="ink", kind="redraw", free=True, anchor=anchor(39), end=anchor(62),
+                      points=[[64,9,20]])
+        for item in (move, redraw):
+            with self.subTest(item=item["kind"]):
+                self.save(item)
+                preview = _move_preview(self.model, {"aiCorrections":[item]})
+                self.assertFalse(preview["skipped"], preview["skipped"])
+                self.assertTrue(preview["samples"] or preview["ink"])
+                self.assertNotIn("skipped", " ".join(self.generate()))
+                self.assertNotEqual(automatic, self.lane.read_bytes())
+                points, detail, _ = fastlane.read_lane(self.lane)
+                apex = np.linalg.norm(points["pos"]-[64,9,20], axis=1).argmin()
+                self.assertGreater(min(detail["left"][apex], detail["right"][apex]), detail["radius"][apex])
+
+    def test_crossing_redraw_is_skipped_in_preview_and_save(self):
+        from server_editor import _move_preview
+        self.write_track([(20,10),(80,10)])
+        self.generate()
+        automatic = self.lane.read_bytes()
+        edit = self.redraw(12,48,[[55,9,20],[40,9,21],[55,9,11]])
+        self.save(edit)
+        preview = _move_preview(self.model, {"aiCorrections":[edit]})
+        self.assertRegex(preview["skipped"]["ink"], "crosses itself at route metre")
+        self.assertIn("crosses itself at route metre", " ".join(self.generate()))
+        self.assertEqual(automatic, self.lane.read_bytes())
+
     def test_move_and_redraw_can_cross_a_split_off_centre_but_cannot_miss_it(self):
         from server_editor import _move_preview
         self.write_track([(20,10),(80,10)], splits=[("AC_TIME_1",50)])
@@ -36,7 +72,7 @@ class RedrawTest(unittest.TestCase):
         # The same unedited KN5 exported with lane code version 5.
         self.assertEqual("12e9dd84907c2e41c88d7f6472ca8965812f61f1e73c74a7ca883d0bf57a9bd3",
                          hashlib.sha256(automatic).hexdigest())
-        for offset in (2, 8):
+        for offset in (.3, 8):
             edits = [dict(id="side", kind="move", free=False, range=10, routeOffset=-offset,
                           anchor=self.anchor(30)), self.redraw(20,40,[[50,9,10+offset]])]
             for edit in edits:
@@ -44,7 +80,7 @@ class RedrawTest(unittest.TestCase):
                     self.save(edit)
                     preview = _move_preview(self.model, {"aiCorrections":[edit]})
                     log = self.generate()
-                    if offset == 2:
+                    if offset == .3:
                         self.assertFalse(preview["skipped"], preview["skipped"])
                         self.assertFalse(any("skipped" in line for line in log), log)
                         self.assertNotEqual(automatic, self.lane.read_bytes())
@@ -72,12 +108,12 @@ class RedrawTest(unittest.TestCase):
         self.write_track([(20, 10), (80, 10)], strips=[(-10, 44, 0, 25), (57, 120, 0, 25)],
                          obstacles=[grass])
         self.assertIn("no driveable road", self.generate()[-1])
-        edit = self.redraw(14, 46, [[50, 9, 14]])
+        edit = self.redraw(12, 48, [[50, 9, 12]])
         self.save(edit)
         log = self.generate()
         self.assertTrue(self.lane.is_file(), log)
         pos = fastlane.read_lane(self.lane)[0]["pos"]
-        self.assertLess(np.linalg.norm(pos-[50, 9, 14], axis=1).min(), .1)
+        self.assertLess(np.linalg.norm(pos-[50, 9, 12], axis=1).min(), .1)
         self.assertLess(abs(pos[:, 1]-9).max(), .001)
         self.save(dict(edit, free=False))
         self.assertIn("route metre", self.generate()[-1])
@@ -86,7 +122,7 @@ class RedrawTest(unittest.TestCase):
     def test_free_move_can_go_onto_grass_but_never_through_a_wall(self):
         grass = ("1GRASS_ground", [(-10,9,10.5),(120,9,10.5),(120,9,40),(-10,9,40)])
         wall = ("1WALL_house", [(48,8,14),(52,8,14),(52,11,14),(48,11,14)])
-        edit = dict(id="side", kind="move", free=True, range=12, routeOffset=-4, anchor=self.anchor(30))
+        edit = dict(id="side", kind="move", free=True, range=26, routeOffset=-4, anchor=self.anchor(30))
         for obstacles, expected in [([grass],14), ([grass,wall],10)]:
             self.write_track([(20,10),(80,10)],strips=[(-10,120,0,11.5)],obstacles=obstacles)
             self.save(edit)
@@ -122,7 +158,7 @@ class RedrawTest(unittest.TestCase):
         self.assertLess(auto[-1,0], 87)
 
     def test_redraw_joins_tangentially_when_the_reference_moves_away_from_the_click(self):
-        self.write_track([(20,10),(80,10)], strips=[(-10,120,-12,34)])
+        self.write_track([(20,10),(80,10)], strips=[(-10,120,6,18)])
         edit = self.redraw(24,41,[[52,9,13]])
         for anchor in (edit["anchor"],edit["end"]):
             anchor["lateral"] = -2.5
@@ -170,13 +206,13 @@ class RedrawTest(unittest.TestCase):
         strips = [(-10,39,0,25),(43,59,0,25),(63,120,0,25)]
         grass = ("1GRASS_ground",[(-10,9,0),(120,9,0),(120,9,25),(-10,9,25)])
         self.write_track([(20,10),(80,10)],strips=strips,obstacles=[grass])
-        edits = [self.redraw(14,27,[[41,9,12]]),
+        edits = [self.redraw(14,27,[[41,9,10.3]]),
                  dict(self.redraw(30,34,[[52,9,75]]),id="invalid"),
-                 dict(self.redraw(35,48,[[61,9,12]]),id="second")]
+                 dict(self.redraw(35,48,[[61,9,10.3]]),id="second")]
         (self.folder/"data/map2lap.json").write_text(json.dumps({"edits":{"aiCorrections":edits}}))
         log = self.generate()
         self.assertTrue(self.lane.is_file(), log)
         xyz = fastlane.read_lane(self.lane)[0]["pos"]
-        for click in ([41,9,12],[61,9,12]):
+        for click in ([41,9,10.3],[61,9,10.3]):
             self.assertLess(np.linalg.norm(xyz-click,axis=1).min(),.02)
         self.assertEqual(1,sum("correction skipped" in line for line in log))

@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState, useSyncExternalStore} from "react";
 import {aiUpdate, subscribeAiUpdates} from "../editorToasts";
-import {useToasts} from "../../components/toastStore";
+import {BRIEF_TOAST_MS, useToasts} from "../../components/toastStore";
 import {fetchJson} from "../scene/requests";
 import {post} from "../../api";
 import {EDGE_COLOUR, SPEED_COLOURS} from "../scene/aiLine";
@@ -11,7 +11,7 @@ import {MeshFetchError} from "../scene/requests";
 import type {TrackView} from "../scene/view";
 import type {Place} from "../types";
 import type {ToolController} from "./toolHost";
-import {thenView, ToolChoice, ToolNumber, ToolOptions} from "./ToolOptions";
+import {thenView, ToolChoice, ToolOptions} from "./ToolOptions";
 import styles from "./AiLine.module.css";
 
 const value = (n: number, digits = 3) => Number(n.toFixed(digits)).toString();
@@ -52,7 +52,7 @@ export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, e
   const job = useSyncExternalStore(subscribeAiUpdates, () => aiUpdate(name));
   const [validity, setValidity] = useState<string>();
   const [error, setError] = useState("");
-  useToasts(enabled && error ? [{id:"edit-ai-preview", tone:"error", title:"AI line preview", message:error,
+  useToasts(enabled && error ? [{id:"edit-ai-preview", tone:"error", title:"AI line preview", duration:BRIEF_TOAST_MS, message:error,
     onDismiss:() => setError("")}] : []);
   const known = useRef<InstalledAiLine | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -93,7 +93,7 @@ export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, e
     return () => view.showAiLine(null);
   }, [view, enabled, lane, pen]);
 
-  const [range, setRange] = useState(30);
+  const editing = useRef<ReturnType<TrackView["editAiMoves"]> | null>(null);
   const [guide, setGuide] = useState<{data: MoveGuide; revision: string} | null>(null);
   const revision = JSON.stringify([name, writes, attempt]);
   const url = `/api/editor/${encodeURIComponent(name)}/ai-line/move-preview`;
@@ -109,19 +109,18 @@ export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, e
     });
     return () => { current = false; };
   }, [canEdit, url, revision]);
-  const dragRange = pen ? 0 : range;
   useEffect(() => {
     if (!canEdit || guide?.revision !== revision) return;
-    return view.editAiMoves(guide.data, url, moves, dragRange, !lane, free, pen,
+    const session = view.editAiMoves(guide.data, url, moves, !lane,
       move => edits.addAiCorrection(move), id => edits.removeAiCorrection(id), setError);
-  }, [canEdit, guide, revision, url, moves, dragRange, lane, free, pen, edits, view]);
+    editing.current = session;
+    return () => { session.dispose(); editing.current = null; };
+  }, [canEdit, guide, revision, url, moves, lane, edits, view]);
+  useEffect(() => { editing.current?.setMode(pen, free); }, [pen, free, canEdit, guide, revision, url, moves, lane, edits, view]);
 
-  const setMoveRange = (value: number) => setRange(Math.max(1, Math.min(100, Math.round(value))));
   const controller: ToolController = {
     toggleMode: () => { if (canEdit) setFree(value => !value); },
     ctrlAction: () => { if (canEdit) setPen(value => !value); },
-    takesWheel: !!canEdit,
-    wheel: (keys, by) => { if (keys === "alt") setMoveRange(range + by); },
     activate: () => { setError(""); setAttempt(value => value + 1); },
     clear: () => { setHovered(null); setPen(false); },
     options: <>
@@ -135,8 +134,6 @@ export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, e
             <ToolChoice label="Move" on={!pen} hint="Drag the line sideways" onClick={thenView(view, () => setPen(false))} />
             <ToolChoice label="Redraw" on={pen} hint="Draw a replacement section" onClick={thenView(view, () => setPen(true))} />
           </span>,
-          alt: <ToolNumber label="Move range" unit="m" hint="Blend distance on each side (Alt + wheel)"
-            min={1} max={100} value={range} onChange={setMoveRange} />,
         } : undefined}
         actions={<>
           {answer && "validity" in answer && answer.validity === "manual" && <span>Manually replaced</span>}

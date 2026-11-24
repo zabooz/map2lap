@@ -3,9 +3,10 @@ import {post} from "../../api";
 import type {AiAnchor, AiCorrection, AiRedraw} from "../state/edits";
 import {at, type Checked, type MoveGuide, type Row} from "./aiGuide";
 import {disposeStroke, previewBand, PREVIEW_LIFT, previewColour, PreviewQueue} from "./aiPreviewBand";
+import {editorInputBlocked} from "../tools/held";
 import {screenPoint} from "./pointer";
 
-type Stroke = {line: THREE.Line; points: number[][]; from: number; to: number; id: string; error?: string};
+type Stroke = {line: ReturnType<typeof stroke>; points: number[][]; from: number; to: number; id: string; error?: string};
 type Site = {row: Row; tail: boolean};
 const lift = PREVIEW_LIFT;
 
@@ -29,9 +30,10 @@ function stroke(points: number[][], error?: string, dashed = false) {
   const line = new THREE.Line(g, dashed ? new THREE.LineDashedMaterial({dashSize: 1, gapSize: 1,color: 0xdde2e6})
                                        : new THREE.LineBasicMaterial({vertexColors:true}));
   if (dashed) line.computeLineDistances();
-  else if (!error && points.length > 1 && points.every(p => p.length === 10)) line.add(previewBand(points));
+  const band = !dashed && !error && points.length > 1 && points.every(p => p.length === 10) ? previewBand(points) : null;
+  if (band) line.add(band);
   line.renderOrder = 13;
-  return line;
+  return Object.assign(line, {bandEnds:band?.ends ?? []});
 }
 
 /** Event and mesh lifetime of a single AI tool activation. Clicks are a draft until the end click succeeds. */
@@ -39,7 +41,7 @@ export class Pencil {
   private strokes = new Map<string, Stroke>();
   private draft: {start: Site; id: string; points: number[][]} | null = null;
   private hoverSite: Site | null = null;
-  private ghost: THREE.Line | null = null;
+  private ghost: ReturnType<typeof stroke> | null = null;
   private ghostEdges: number[][] = [];
   private extension: THREE.Line | null = null;
   private queue = new PreviewQueue();
@@ -47,25 +49,33 @@ export class Pencil {
   private done = false;
   private finishing = false;
   private awaitingBand = false;
+  private pen = false;
+  private free = true;
   private stop = new AbortController();
 
   constructor(private el: HTMLCanvasElement, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera,
-    private guide: MoveGuide, private edits: AiCorrection[], private free: boolean, private pen: boolean,
+    private guide: MoveGuide, private edits: AiCorrection[],
     private url: string, private ground: (mouse: THREE.Vector2) => THREE.Vector3 | null,
     private depth: (mouse: THREE.Vector2) => number, private pick: (e: PointerEvent) => number,
     private add: (item: AiCorrection) => void, private remove: (id: string) => void,
     private note: (why: string) => void, private draw: () => void) {
-    if (pen && free && guide.tail?.length) {
-      this.extension = stroke(guide.tail, undefined, true);
-      scene.add(this.extension);
-    }
     window.addEventListener("keydown", e => {
-      if (this.draft && e.key === "Escape") {
+      if (this.draft && e.key === "Escape" && !editorInputBlocked(e.target) && this.el.checkVisibility()) {
         e.stopImmediatePropagation(); e.preventDefault(); this.reset(); this.draw();
       }
     }, {capture:true,signal:this.stop.signal});
   }
 
+  setMode(pen: boolean, free: boolean) {
+    if (this.pen === pen && this.free === free) return;
+    if (this.draft) this.reset();
+    this.pen = pen; this.free = free;
+    this.drop(this.extension); this.extension = null;
+    if (pen && free && this.guide.tail?.length) {
+      this.extension = stroke(this.guide.tail, undefined, true);
+      this.scene.add(this.extension);
+    }
+  }
   private drop(line: THREE.Line | null) {
     if (!line) return;
     disposeStroke(line);
@@ -83,7 +93,7 @@ export class Pencil {
   }
   bandSpans() {
     const spans = [...this.strokes.values()].filter(s => !s.error && s.line.children.length)
-      .map(s => [s.points[0],s.points[s.points.length-1]]);
+      .map(s => s.line.bandEnds);
     if (this.ghostEdges.length) spans.push(this.ghostEdges);
     return spans;
   }
@@ -132,7 +142,7 @@ export class Pencil {
   }
   private preview(points: number[][], why = "") {
     this.drop(this.ghost); this.ghost = stroke(points,why); this.scene.add(this.ghost);
-    this.ghostEdges = this.ghost.children.length ? [points[0],points[points.length-1]] : [];
+    this.ghostEdges = this.ghost.bandEnds;
     this.el.title=why; this.note(why); this.draw();
   }
   private async check(site: Site, commit: boolean, provisional = false) {

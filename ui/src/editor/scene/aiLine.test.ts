@@ -50,3 +50,31 @@ test("a replacement within one long installed segment leaves both adjoining part
   expect(remainingBand([row(0),row(10)], false, [[row(1),row(3)]]))
     .toEqual([[row(0),row(1)],[row(3),row(10)]]);
 });
+
+test("a wide hairpin preview stops at its centre and keeps the outer width and banking", async () => {
+  const {previewBand} = await import("./aiPreviewBand");
+  for (const turn of [-1, 1]) {
+    const rows = [0, Math.PI/4, Math.PI/2, 3*Math.PI/4, Math.PI].map((angle, i) => {
+      const x = 10*Math.cos(angle), z = turn*10*Math.sin(angle);
+      // The outside shoulder has zero width at entry. Both directions share this geometry.
+      const outside = i ? 1.3 : 1;
+      const inner = [-2*x, 8, -2*z], outer = [outside*x, 2, outside*z];
+      return [x, 0, z, 0, ...(turn > 0 ? [...outer, ...inner] : [...inner, ...outer])];
+    });
+    const fill = previewBand(rows);
+    const vertices = fill.geometry.getAttribute("position");
+    for (let i=0; i<rows.length; i++) {
+      const inside = 2*i + Number(turn > 0), outside = 2*i + Number(turn < 0);
+      expect(Math.hypot(vertices.getX(inside), vertices.getZ(inside))).toBeCloseTo(0);
+      expect(vertices.getY(inside)-vertices.getY(outside)).toBeCloseTo(8/3-2);
+      expect(Math.hypot(vertices.getX(outside), vertices.getZ(outside))).toBeCloseTo(i ? 13 : 10);
+    }
+  }
+});
+
+test("a recorded zero-width endpoint opens to the next cross-section without a fold", async () => {
+  const {previewBand} = await import("./aiPreviewBand");
+  const band = previewBand([[0,0,0,0, 0,0,0, 0,0,0], [2,0,0,0, 2,0,-3, 2,0,4]]);
+  const points = band.geometry.getAttribute("position");
+  expect([0,1,2,3].map(i => [points.getX(i), points.getZ(i)])).toEqual([[0,0],[0,0],[2,-3],[2,4]]);
+});

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type {Place} from "../types";
-import {EDGE_COLOUR, laneBand} from "./aiLine";
+import {displayEdges, EDGE_COLOUR, laneBand} from "./aiLine";
 
 export const previewColour = (yellow: number) => new THREE.Color(yellow ? 0xffd23b : 0x51de94);
 // Draw above the installed band and road paint, including on banked pavement.
@@ -8,9 +8,12 @@ export const PREVIEW_LIFT = .38;
 
 /** One connected, measured stroke. Coordinates already include the road cross slope. */
 export function previewBand(rows: number[][]) {
-  const edges: [Place, Place][] = rows.map(p => [
-    [p[4], p[5]+PREVIEW_LIFT, p[6]], [p[7], p[8]+PREVIEW_LIFT, p[9]],
-  ]);
+  const centres: Place[] = rows.map(p => [p[0],p[1],p[2]]);
+  const edges = displayEdges(centres, rows.map(p => [
+    [p[4], p[5], p[6]], [p[7], p[8], p[9]],
+  ]), false);
+  const ends = [0, rows.length-1].map(i => [...rows[i].slice(0,4), ...edges[i][0], ...edges[i][1]]);
+  for (const pair of edges) for (const edge of pair) edge[1] += PREVIEW_LIFT;
   const fill = new THREE.Mesh(laneBand(edges, rows.map(p => previewColour(p[3]).toArray()), false),
     new THREE.MeshBasicMaterial({vertexColors:true, transparent:true, opacity:.5, depthWrite:false,
       side:THREE.DoubleSide, forceSinglePass:true, toneMapped:false}));
@@ -21,7 +24,7 @@ export function previewBand(rows: number[][]) {
     new THREE.Float32BufferAttribute(limits,3)),new THREE.LineBasicMaterial({color:EDGE_COLOUR, depthWrite:false}));
   fill.renderOrder=11; outline.renderOrder=12;
   fill.add(outline);
-  return fill;
+  return Object.assign(fill, {ends});
 }
 
 export function disposeStroke(root: THREE.Object3D) {

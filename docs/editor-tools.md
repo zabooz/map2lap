@@ -49,7 +49,9 @@ If AC is open or a build is running, the update waits for the next Save, Recalcu
 Editor Play saves edits first. Only a Race with opponents needs a current line before launch.
 **Recalculate AI line** beside the tool saves pending edits first and can retry a failed or hand-replaced line.
 The button is disabled while calculating or when everything is current. Progress and results appear in Notifications.
-A lateral move is one undoable edit. Its offset tapers to zero over the Move range on each side (30 m by default).
+Dragging inside an existing move adjusts it in one Undo step. New and adjusted moves taper on each side over at least
+15 m. Their peak added lateral slope is limited to 1 in 4 relative to the reference. The editor retains the stored range
+until the move is adjusted. A centre-line crossing on the same level rejects the correction with its route metre.
 The recipe owns its route metre, local approach, departure, level and coordinate frame. A rebuilt copy resolves these on
 its own route. An ambiguous anchor, overlap, fixed grid or finish point, or insufficient clearance gives a located error.
 The target is the lateral distance from the route centre at the anchor. Its along-route component preserves a drop on
@@ -58,8 +60,10 @@ visible in the Editor. Other valid moves still apply. Legacy moves store only a 
 they are skipped until redrawn. The racing-line solver holds the moved samples fixed. The saved corrections also enter the line fingerprint.
 
 Redraw starts and ends with a click on the line in driving order. Intermediate ground clicks shape the curve.
-The preview shows the collision cross-sections and mapped side limits along the edited line. It replaces the installed band only along the measured stroke.
-Free is selected initially. Shift switches Road/Free, Ctrl switches Move/Redraw and Alt + wheel adjusts the move range.
+The preview replaces the installed band along the measured stroke. Both bands show collision cross-sections and mapped
+side limits. In a tight bend the displayed inside edge stops where adjacent cross-sections meet. The point inspector
+and AI file retain the measured widths.
+Free is selected initially. Shift switches Road/Free, Ctrl switches Move/Redraw. Switching keeps the measured correction bands visible.
 Changing modes or pressing Escape discards an unfinished stroke. Right-click a saved correction to remove it. Free mode belongs to each new correction.
 Yellow marks off-road segments supported by a driving surface. Red marks an invalid section, with its reason and
 route metre on hover. At an open finish the dashed continuation accepts the end click for a free runout.

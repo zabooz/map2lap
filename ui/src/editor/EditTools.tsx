@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from "react";
+import {useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import {createPortal} from "react-dom";
 import type {TimedMode} from "../types";
 import {useKerbs} from "./tools/useKerbs";
@@ -48,11 +48,10 @@ import {useToasts} from "../components/toastStore";
 import {editorToasts} from "./editorToasts";
 
 /** The track name's editing: which tool is on, what is picked or marked, the Library and dialogs. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
-    to be said below them (EditNotes in notesHost), while the state stays here by the view; over the view the bar of the tool on (its controller's options) and the right-click menu.
-    Each tool hook hands its controller to useToolHost, which routes the view's input and the keys (toolDefs.globalKey; they count while the focus is in scene or in
-    those hosts). A new tool: its definition (toolDefs), its hook called here and its controller in `controllers`. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
+    to be said below them (EditNotes in the tools panel), while the state stays here by the view; over the view the bar of the tool on (its controller's options) and the right-click menu.
+    Each tool hook hands its controller to useToolHost, which routes the view's input and the keys (toolDefs.globalKey; they count on the active Editor page outside fields and dialogs). A new tool: its definition (toolDefs), its hook called here and its controller in `controllers`. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
     tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). onDelete: Delete was pressed. */
-export function EditTools({name, title, routeTrack, timedMode, visible, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, inspectorHost,
+export function EditTools({name, title, routeTrack, timedMode, visible, taken, view, fileHost, savedHost, toolsHost, inspectorHost,
   inspectorWidth, onInspectorWidth, inspectorCollapsed, onInspectorCollapsed, elevationSpeed, reopen, onSaved, onDelete}: {
   name: string;
   title: string;
@@ -61,11 +60,9 @@ export function EditTools({name, title, routeTrack, timedMode, visible, taken, v
   visible: boolean;
   taken: string[];
   view: TrackView;
-  scene: RefObject<HTMLDivElement | null>;
   fileHost: HTMLElement | null;
   savedHost: HTMLElement | null;
   toolsHost: HTMLElement | null;
-  notesHost: HTMLElement | null;
   inspectorHost: HTMLElement | null;
   inspectorWidth: number;
   onInspectorWidth: (width: number) => void;
@@ -275,7 +272,7 @@ export function EditTools({name, title, routeTrack, timedMode, visible, taken, v
     else takeUp(action.tool);
   };
   const {switchTool, options} = useToolHost({view, tool, setTool, editable, picked, deletable: selection.deletable(inspectorKerb), controllers,
-    onPick: selection.take, onGlobal, keyHosts: [scene, fileHost, toolsHost, notesHost, inspectorHost], paused: saving.asking});
+    onPick: selection.take, onGlobal, visible, paused: saving.asking});
 
   // (what goes wrong outside any window, and Saving: a toast at the top centre while the Editor's tab is open, with its way out;
   // ×'d, it stays away until its text changes)

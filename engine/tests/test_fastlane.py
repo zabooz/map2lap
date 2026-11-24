@@ -24,7 +24,7 @@ class LaneCodeVersionTest(unittest.TestCase):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (6, "6ca803e47fcff6bc015ad2186986b3835db206df574728deec1ad7e07dc1d616")
+        expected = (8, "a3b231772a9673a3e30c9cc9078a841989d2df928d96b390d4527f75d4d88701")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments or refactors proven to preserve the generated line, update only the digest.")
@@ -75,7 +75,7 @@ class AILineTest(unittest.TestCase):
         self.generate()
         before = fastlane.read_lane(self.lane)[0]["pos"].copy()
         old_key = ailinestate.input_key(self.model, False)
-        move = {"id": "move-one", "kind": "move", "free": False, "range": 10, "routeOffset": 3,
+        move = {"id": "move-one", "kind": "move", "free": False, "range": 28, "routeOffset": 3,
                 "anchor": {"metre": 30, "level": 9, "origin": [0, 0],
                            "context": [[45, 10], [50, 10], [55, 10]]}}
         recipe = self.folder / "data/map2lap.json"
@@ -89,8 +89,8 @@ class AILineTest(unittest.TestCase):
             self.assertEqual("ready", ailanejobs.ensure(self.model, False)["status"])
             self.assertEqual(1, worker.call_count)
         after = fastlane.read_lane(self.lane)[0]["pos"]
-        inside = abs(before[:, 0]-50) < 10
-        expected = 1.5*(1 + np.cos(np.pi*(before[inside, 0]-50)/10))
+        inside = abs(before[:, 0]-50) < 28
+        expected = 1.5*(1 + np.cos(np.pi*(before[inside, 0]-50)/28))
         np.testing.assert_allclose(after[inside, 2], before[inside, 2]-expected, atol=1e-5)
         self.assertEqual("ready", ailinestate.inspect(self.model, False)["status"])
         meta = self.folder / ailinestate.FILE
@@ -110,7 +110,7 @@ class AILineTest(unittest.TestCase):
             repeated.resolve(anchor)
 
     def test_fixed_or_overlapping_moves_leave_a_located_error(self):
-        self.write_track([(20, 10), (80, 10)])
+        self.write_track([(20, 10), (80, 10)], strips=[(-10,120,6,14)])
         for centre, duplicate, reason in [(0, False, "Fixed"), (30, True, "Overlap")]:
             x = 20 + centre
             move = {"kind": "move", "id": "a", "range": 8, "routeOffset": 2, "free": False,
@@ -126,12 +126,12 @@ class AILineTest(unittest.TestCase):
         from app import ailanejobs
         from server_editor import _move_preview
         from track import ailinestate
-        self.write_track([(20, 10), (80, 10)])
+        self.write_track([(20, 10), (80, 10)], strips=[(-10,120,5,15)])
         self.generate()
         before = fastlane.read_lane(self.lane)[0]["pos"].copy()
         def move(mid, offset):
             x = mid+20
-            return dict(id=str(mid), kind="move", free=False, range=5, routeOffset=offset,
+            return dict(id=str(mid), kind="move", free=False, range=12, routeOffset=offset,
                         anchor=dict(metre=mid, level=9, origin=[0,0], context=[[x-5,10],[x,10],[x+5,10]]))
         moves = [move(16, 80), move(42, 3)]
         path = self.folder / "data/map2lap.json"

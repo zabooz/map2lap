@@ -39,3 +39,13 @@ test("a moving progress bar or a new second line renders again; the same ones do
   store.post({...loading, progress: {value: 0.5, label: "Loading track"}, detail: "First opening"});
   expect(renders).toBe(3);
 });
+
+test("only timed messages expire; replacing a success with an error cancels its expiry", async () => {
+  const store = new ToastStore();
+  const item = {id:"line", title:"Updated", tone:"success" as const, duration:10};
+  store.post(item);
+  store.post({...item, id:"other"});
+  store.post({id:"other", title:"Failed", tone:"error"});
+  await new Promise(resolve => setTimeout(resolve,25));
+  expect(store.toasts().map(t => t.id)).toEqual(["other"]);
+});

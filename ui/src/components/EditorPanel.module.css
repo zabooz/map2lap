@@ -5,5 +5,3 @@
 .status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 /* The tools scroll on a small window, what is to be said stays below them */
 .scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
-.notes { flex: none; max-height: 25vh; overflow-y: auto; }
-.notes:empty { display: none; }

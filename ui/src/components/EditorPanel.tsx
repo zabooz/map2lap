@@ -6,11 +6,11 @@ import {groupOf} from "./MyTracksPane";
 const GROUPS: readonly (readonly [TrackGroup, string])[] = [["built", "Built"], ["edited", "Edited"]];
 
 /** The Editor tab's sidebar: File with the track to show, what is loading (a line of its own: nothing moves; its bar is a toast) and its Save and Play, the places the 3D view's buttons
-    are drawn into (fileRef, toolsRef with the help, notesRef: there while the page is, hidden with the tab, as the view keeps its state). */
-export function EditorPanel({tracks, choice, status, hidden, fileRef, savedRef, toolsRef, notesRef, onChoose}: {tracks: Track[]; choice: string; status: EditorLoadStatus; hidden: boolean;
+    are drawn into (fileRef, toolsRef with the help: there while the page is, hidden with the tab, as the view keeps its state). */
+export function EditorPanel({tracks, choice, status, hidden, fileRef, savedRef, toolsRef, onChoose}: {tracks: Track[]; choice: string; status: EditorLoadStatus; hidden: boolean;
                                                                                                       fileRef: Ref<HTMLDivElement>; toolsRef: Ref<HTMLDivElement>;
                                                                                                       savedRef: Ref<HTMLSpanElement>;
-                                                                                                      notesRef: Ref<HTMLDivElement>; onChoose: (name: string) => void}) {
+                                                                                                      onChoose: (name: string) => void}) {
   return (
     <section id="editor" className="view" hidden={hidden}>
       <div className={styles.scroll}>
@@ -39,7 +39,6 @@ export function EditorPanel({tracks, choice, status, hidden, fileRef, savedRef, 
         </section>
         <div ref={toolsRef} />
       </div>
-      <div className={styles.notes} ref={notesRef} />
     </section>
   );
 }

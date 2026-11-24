@@ -442,7 +442,11 @@ export class TrackEdits {
   }
 
   addAiCorrection(move: AiCorrection) {
-    this.change({...this.edits(), aiCorrections: [...this.now.aiCorrections, move]});
+    const corrections = [...this.now.aiCorrections];
+    const index = corrections.findIndex(item => item.id === move.id);
+    if (index < 0) corrections.push(move);
+    else corrections[index] = move;
+    this.change({...this.edits(), aiCorrections: corrections});
   }
 
   removeAiCorrection(id: string) {

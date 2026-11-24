@@ -1280,6 +1280,7 @@ def _drawn_reference(model, inputs, circuit, report_returns, *, diagnostic=False
     else:
         records, detail = _racing_records(xyz, along, queries, circuit, mapped, limits, report_returns)
         check_splits(records["pos"], limits.splits, circuit)
+        aicorrections.check_centreline(records["pos"], metres, authored, circuit, obj_to_kn5.LEVEL_GAP_M)
     return records, detail, limits, along, queries, route
 
 
@@ -1338,6 +1339,8 @@ def checked_moves(reference, moves, finish, wider=None, measured=None):
     original = reference[0]["pos"].astype(float)
     empty = np.zeros(len(original), bool)
     def apply(items):
+        if measured is not None:
+            measured.clear()
         return finish(*moved_line(reference, items, wider, measured)) if items else finish(original, empty, reference[4])
     try:
         return apply(moves), {}
@@ -1429,6 +1432,7 @@ def calculate(model, inputs, circuit, lane, log):
         limits = ribbon._replace(fixed=protected)
         records, details = _racing_records(moved, stations, queries, circuit, inputs[3], limits, returns.update)
         check_splits(records["pos"], ribbon.splits, circuit)
+        aicorrections.check_centreline(records["pos"], ribbon.metres, fixed, circuit, obj_to_kn5.LEVEL_GAP_M)
         return records, details, returns
 
     moves = [item for item in inputs[-1] if item["kind"] == "move"]

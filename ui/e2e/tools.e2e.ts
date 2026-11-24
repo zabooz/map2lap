@@ -69,12 +69,10 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   expect(result.error).toBeUndefined();
   const bar = page.locator("#edit-ai-line-set");
   const range = bar.getByRole("spinbutton", {name: /Move range/});
-  await expect(range).toHaveValue("30");
+  await expect(range).toHaveCount(0);
   await expect(bar.getByRole("button",{name:"Free",exact:true})).toHaveAttribute("aria-pressed","true");
   await page.keyboard.press("Shift");
   await expect(bar.getByRole("button",{name:"Road",exact:true})).toHaveAttribute("aria-pressed","true");
-  await wheelWith(page, ["Alt"], -100);
-  await expect(range).toHaveValue("31");
   await wheelWith(page, ["Control"], -100);
   await expect(bar.getByRole("button",{name:"Move",exact:true})).toHaveAttribute("aria-pressed","true");
   const bounds = (await scene(page).boundingBox())!;
@@ -86,9 +84,23 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   const p = new three.Vector3(row[0],row[1]+.34,row[2]).project(camera);
   const x = bounds.x+(p.x+1)*bounds.width/2, y = bounds.y+(1-p.y)*bounds.height/2;
   const moves = async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiCorrections;
-  await page.mouse.move(x,y); await page.mouse.down();
+  const grid = result.rows.find((r: number[]) => r[8] && r[3] >= 39);
+  const locked = new three.Vector3(grid[0], grid[1]+.34, grid[2]).project(camera);
+  await page.mouse.move(bounds.x+(locked.x+1)*bounds.width/2, bounds.y+(1-locked.y)*bounds.height/2);
+  await expect(scene(page)).toHaveCSS("cursor","not-allowed");
+  await page.mouse.move(x,y);
+  await expect(scene(page)).toHaveCSS("cursor","grab");
+  await page.mouse.down();
+  await expect(scene(page)).toHaveCSS("cursor","grabbing");
   await page.mouse.move(x+15,y,{steps: 4}); await page.mouse.up();
   await expect.poll(moves).toHaveLength(1);
+  const [initial] = await moves();
+  expect(initial.range).toBe(15);
+  await page.mouse.move(x+15,y); await page.mouse.down(); await page.mouse.move(x+23,y); await page.mouse.up();
+  await expect.poll(async () => (await moves())[0]?.routeOffset).not.toEqual(initial.routeOffset);
+  expect(await moves()).toMatchObject([{id:initial.id}]);
+  await page.keyboard.press("Control+z");
+  await expect.poll(moves).toEqual([initial]);
   await page.keyboard.press("Control+z");
   await expect.poll(moves).toHaveLength(0);
   await page.keyboard.press("Control+y");
@@ -110,15 +122,30 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   await expect(recalc).toBeDisabled();
   await expect(bar).not.toContainText("Outdated");
   await page.screenshot({path:"../out/ai-line-save/03-updated.png"});
-  await page.getByRole("button",{name:"Dismiss notification"}).last().click();
+  await page.locator("#edit-ai-line-alpha").getByRole("button",{name:"Dismiss notification"}).click();
+  await expect(scene(page)).toBeFocused();
   const patch = {x:Math.floor(bounds.x+bounds.width/2-30), y:Math.floor(bounds.y+bounds.height*.43), width:60, height:20};
   const before = await page.screenshot({clip:patch});
-  await bar.getByRole("button",{name:"Redraw",exact:true}).click();
+  const afterSave = await moves();
+  let checks = 0;
+  page.on("request", r => { if (r.url().endsWith("/move-preview")) checks++; });
+  await page.locator("#t-edit").focus();
+  await page.keyboard.press("Control");
   await expect(bar.getByRole("button",{name:"Redraw",exact:true})).toHaveAttribute("aria-pressed","true");
   await expect.poll(async () => (await page.screenshot({clip:patch})).equals(before)).toBe(true);
   await expect(bar).toContainText("Side limits");
   await page.screenshot({path:"../out/ai-line-save/04-redraw.png"});
-  expect(await moves()).toHaveLength(1);
+  expect(checks).toBe(0);
+  await page.mouse.move(x,y);
+  await expect(scene(page)).toHaveCSS("cursor","crosshair");
+  await page.keyboard.press("Control");
+  await page.mouse.move(x+15,y); await page.mouse.down(); await page.mouse.move(x+20,y); await page.mouse.up();
+  await expect.poll(async () => (await moves())[0]?.routeOffset).not.toBe(afterSave[0].routeOffset);
+  expect(await moves()).toMatchObject([{id:initial.id}]);
+  await page.locator("#t-edit").focus();
+  await page.keyboard.press("Escape");
+  await expect(bar).toHaveCount(0);
+  await expect(scene(page)).not.toHaveCSS("cursor","crosshair");
 });
 
 test("Redraw finishes on the line, Escape discards the stroke, and a saved free stroke reopens", async ({page,backend}) => {
@@ -147,7 +174,7 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   await expect(page.locator("#edit-ai-preview")).toContainText("End precedes the start");
   await page.keyboard.press("Escape");
   expect(await moves()).toHaveLength(0);
-  await click(90); await click(105,3.5); await click(128);
+  await click(62); await click(125,3.5); await click(205);
   await expect.poll(moves).toHaveLength(1);
   const [stroke]=await moves();
   expect(stroke.kind).toBe("redraw"); expect(stroke.free).toBe(true);
@@ -255,7 +282,7 @@ test("L shows the installed AI line", async ({page, backend}) => {
   await expect(point).toHaveCount(0);
 });
 
-test("each tool has its key, one is on at a time, Esc goes back to Select from each, from a number and a button of it too", async ({page}) => {
+test("each tool has its key, one is on at a time, Esc goes back to Select from each, fields keep their keys and sidebar buttons accept shortcuts", async ({page}) => {
   await openEditor(page);
   await keysOnView(page);
   expect(await pressed(page, "#edit-select")).toBe("true");
@@ -268,6 +295,8 @@ test("each tool has its key, one is on at a time, Esc goes back to Select from e
   }
   await page.keyboard.press("h");
   await page.locator("#edit-elevation-set").getByLabel("Height").press("Escape");
+  await expect(page.locator("#edit-elevation")).toHaveAttribute("aria-pressed","true");
+  await page.locator("#t-edit").focus(); await page.keyboard.press("Escape");
   await expect(page.locator("#edit-select")).toHaveAttribute("aria-pressed", "true");
   await page.locator("#edit-elevation").focus();
   await page.keyboard.press("x");

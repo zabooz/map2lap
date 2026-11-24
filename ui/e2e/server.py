@@ -217,8 +217,12 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
         # A street with two distinct edges in view for the band and its correction tests.
         textures[0] = (textures[0][0], dds(((92, 92, 92),)))
         road.vertices["pos"][:, 0] = 121 + road.vertices["pos"][:, 0] * (14 / TILE)
-        tree.children.extend([ground("1GRASS_verge_left", 1, 121 - TILE, -TILE),
-                              ground("1GRASS_verge_right", 1, 135, -TILE)])
+        # Grass verges run the length of the street. A tile-wide shoulder would make
+        # a free-mode ribbon several hundred metres wide even on a town street.
+        for name_suffix, edge in (("left", 115), ("right", 135)):
+            verge_mesh = ground("1GRASS_verge_" + name_suffix, 1, 0, -TILE)
+            verge_mesh.vertices["pos"][:, 0] = edge + verge_mesh.vertices["pos"][:, 0] * (6 / TILE)
+            tree.children.append(verge_mesh)
         for gate, z in (("AC_AB_START", -44), ("AC_AB_FINISH", -230)):
             for side, x in (("L", 123), ("R", 133)):
                 tree.children.append(obj_to_kn5.empty(gate + "_" + side, (x, 0, z), (0, 0, -1)))

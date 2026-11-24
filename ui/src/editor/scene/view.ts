@@ -643,14 +643,20 @@ export class TrackView {
   }
 
   /** The tool on, for the mouse pointer: it says what a click of it would do to what is under the mouse (cursor.ts). */
+  private toolCursor = "";
+  setToolCursor(cursor: string) {
+    this.toolCursor = cursor;
+    this.applyCursor();
+  }
+
   setCursorTool(tool: Tool) {
-    if (tool !== this.cursorTool) this.marquee.cancel();
+    if (tool !== this.cursorTool) { this.marquee.cancel(); this.toolCursor = ""; }
     this.cursorTool = tool;
     this.applyCursor();
   }
 
   private applyCursor() {
-    this.renderer.domElement.style.cursor = cursorFor({tool: this.cursorTool, dragging: this.mover.draggingNow, pin: this.roadMarkers.overPin,
+    this.renderer.domElement.style.cursor = this.toolCursor || cursorFor({tool: this.cursorTool, dragging: this.mover.draggingNow, pin: this.roadMarkers.overPin,
       aiming: !!this.brush.current || this.ghost.placing}, this.pointed);
   }
 
@@ -1123,15 +1129,15 @@ export class TrackView {
   drawBand(line: Place[] | null, width: number) { this.roadMarkers.drawBand(line, width); }
 
   /** Prepare the installed revision of the AI line, retaining its geometry while that revision holds. */
-  editAiMoves(guide: MoveGuide, url: string, moves: AiCorrection[], range: number, showGuide: boolean, free: boolean, pen: boolean,
+  editAiMoves(guide: MoveGuide, url: string, moves: AiCorrection[], showGuide: boolean,
     add: (move: AiCorrection) => void, remove: (id: string) => void, note: (reason: string) => void) {
-    return editMoves(this.renderer.domElement, this.scene, this.camera, guide, url, moves, range, showGuide, free, pen,
+    return editMoves(this.renderer.domElement, this.scene, this.camera, guide, url, moves, showGuide,
       add, remove, note, () => { this.dirty = true; }, mouse => this.pointing.hit(mouse)?.distance ?? Infinity,
       mouse => {
         this.picker.setFromCamera(mouse, this.camera);
         const ray = this.picker.ray;
         return this.groundAlong(ray.origin, ray.direction)?.point ?? null;
-      }, spans => this.aiLineDraw.preview(spans, PREVIEW_LIFT));
+      }, spans => this.aiLineDraw.preview(spans, PREVIEW_LIFT), cursor => this.setToolCursor(cursor));
   }
 
   setAiLine(lane: InstalledAiLine | null) {

@@ -1,9 +1,10 @@
 // The one way input reaches the Editor's tools: the view's clicks, picks and wheel, the keyboard and modifier gestures, and taking
 // a tool up or laying it down. A tool hook hands its ToolController over; what it does with an input stays in the hook.
-import {useEffect, useEffectEvent, useState, type ReactNode, type RefObject} from "react";
+import {useEffect, useEffectEvent, useState, type ReactNode} from "react";
 import type {Picked, WheelKeys} from "../types";
 import type {TrackView} from "../scene/view";
-import {AltAlone, CtrlAlone, ShiftAlone} from "./held";
+import {toasts} from "../../components/toastStore";
+import {editorInputBlocked, AltAlone, CtrlAlone, ShiftAlone} from "./held";
 import {globalKey, toolDef, type GlobalKey, type SelectionRule, type Tool} from "./toolDefs";
 
 /** What a tool takes while it is on; anything left out goes to the camera or to the shared selection. Called with the newest
@@ -62,16 +63,14 @@ export function handOver(controllers: ToolControllers, from: Tool, to: Tool, pic
   controllers[to]?.activate?.({tool: from, picked});
 }
 
-const isField = (target: EventTarget | null) => target instanceof HTMLElement && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
-
 /** The tools' input on view. tool, setTool: the one on (EditTools' state). editable: the track can be changed now. picked: what is
     picked, handed to a tool taken up. deletable: something is picked or marked (X deletes it). onPick: the shared selection takes
-    a pick under the rule in force. onGlobal: an Editor shortcut. keyHosts: where keys count (scene and sidebar hosts). paused: a
+    a pick under the rule in force. onGlobal: an Editor shortcut. visible: the Editor tab owns page shortcuts. paused: a
     dialog has the keys (only Ctrl+S is kept from the browser). switchTool takes a tool up: only events call it, never a render. */
-export function useToolHost({view, tool, setTool, editable, picked, deletable, controllers, onPick, onGlobal, keyHosts, paused}: {
+export function useToolHost({view, tool, setTool, editable, picked, deletable, controllers, onPick, onGlobal, visible, paused}: {
   view: TrackView; tool: Tool; setTool: (tool: Tool) => void; editable: boolean; picked: Picked | null; deletable: boolean;
   controllers: ToolControllers; onPick: (p: Picked | null, rule: SelectionRule) => void; onGlobal: (action: GlobalKey) => void;
-  keyHosts: (RefObject<HTMLElement | null> | HTMLElement | null)[]; paused: boolean;
+  visible: boolean; paused: boolean;
 }) {
   const on = usable(tool, editable), active = on ? controllers[tool] : undefined, rule = selectionRule(tool, editable);
 
@@ -104,8 +103,8 @@ export function useToolHost({view, tool, setTool, editable, picked, deletable, c
       if (control && e.key.toLowerCase() === "s") e.preventDefault();
       return;
     }
-    if (["Home", "End", "ArrowLeft", "ArrowRight"].includes(e.key) && (e.target as HTMLElement).closest('[role="tablist"]')) return;
-    if (e.key !== "Escape" && e.key !== "Enter" && isField(e.target)) return;      // Fields keep their typing and option keys.
+    if (["Home", "End", "ArrowLeft", "ArrowRight"].includes(e.key) && (e.target as HTMLElement).closest?.('[role="tablist"]')) return;
+    if (e.defaultPrevented || editorInputBlocked(e.target)) return;
     alt.down(e);
     const action = editorKey(e, deletable, active);
     if (action) { if (action !== "removed") onGlobal(action); }     // ("removed": the tool deleted its own picked edit)
@@ -117,26 +116,29 @@ export function useToolHost({view, tool, setTool, editable, picked, deletable, c
     e.preventDefault();      // (Firefox would open its menu bar)
     active?.altAction?.();
   });
-  const onEditorTarget = useEffectEvent((target: EventTarget | null) => target instanceof Node && keyHosts.some(host =>
-    (host && "current" in host ? host.current : host)?.contains(target)));
   const modifierUp = useEffectEvent((e: KeyboardEvent) => {
-    if (shift.up(e) && !paused) active?.toggleMode?.();
-    if (ctrl.up(e) && !paused) active?.ctrlAction?.();
+    const blocked = paused || editorInputBlocked(e.target);
+    if (shift.up(e) && !blocked) active?.toggleMode?.();
+    if (ctrl.up(e) && !blocked) active?.ctrlAction?.();
   });
 
   useEffect(() => {
-    const down = (e: KeyboardEvent) => keyDown(e), up = (e: KeyboardEvent) => altUp(e);
-    const elements = keyHosts.map(host => host && "current" in host ? host.current : host);
-    for (const el of elements) { el?.addEventListener("keydown", down); el?.addEventListener("keyup", up); }
-    return () => { for (const el of elements) { el?.removeEventListener("keydown", down); el?.removeEventListener("keyup", up); } };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- The hosts are the dependency (a constant number of them).
-  }, keyHosts);
+    if (!visible) return;
+    const down = (e: KeyboardEvent) => keyDown(e);
+    const up = (e: KeyboardEvent) => altUp(e);
+    window.addEventListener("keydown", down); window.addEventListener("keyup", up);
+    const off = toasts.onDismissed(() => {
+      if (!document.querySelector('dialog[open], [aria-modal="true"]')) view.focus();
+    });
+    return () => { off(); window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+  }, [visible, view]);
 
   useEffect(() => {
+    if (!visible) return;
     const down = (e: KeyboardEvent) => {
       const keys = {key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey,
-        repeat: e.repeat, inField: isField(e.target)};
-      ctrl.down({...keys, inField: keys.inField || !onEditorTarget(e.target)});
+        repeat: e.repeat, inField: editorInputBlocked(e.target)};
+      ctrl.down(keys);
       shift.down({...keys, inField: keys.inField || keys.altKey || keys.ctrlKey || keys.metaKey});
     };
     const up = (e: KeyboardEvent) => modifierUp(e);
@@ -147,9 +149,9 @@ export function useToolHost({view, tool, setTool, editable, picked, deletable, c
     return () => {
       window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up);
       for (const type of ["pointerdown", "wheel"]) window.removeEventListener(type, other, true);
-      window.removeEventListener("blur", other);
+      window.removeEventListener("blur", other); other();
     };
-  }, [alt, ctrl, shift]);
+  }, [alt, ctrl, shift, visible]);
 
   /** Take up next: the tool on is cleared, next activated if it can work now. */
   const switchTool = (next: Tool) => {

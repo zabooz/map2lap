@@ -563,6 +563,10 @@ test("one AI line drag is a single undoable recipe edit", async () => {
   const move = {id: "a", kind: "move" as const, range: 30, offset: 2, free: false,
     anchor: {metre: 20, level: 1, origin: [0, 0], context: [[15, 0], [20, 0], [25, 0]]}};
   edits.addAiCorrection(move);
+  const replacement = {...move, routeOffset:4, range:26};
+  edits.addAiCorrection(replacement);
+  expect(edits.state().aiCorrections).toEqual([replacement]);
+  edits.undo(); expect(edits.state().aiCorrections).toEqual([move]);
   edits.undo(); expect(edits.state().aiCorrections).toEqual([]);
   edits.redo(); expect(edits.state().aiCorrections).toEqual([move]);
   edits.saveNow(); await settle();

@@ -30,6 +30,38 @@ export function laneEdges([x, y, z]: Place, [fx, fz]: [number, number], [nx, ny,
   return [edge(left), edge(-right)];
 }
 
+/** Display edges along the banked cross-sections. Pure. Signed intersections of neighbouring
+    normals give their local turn centre, even with unequal spacing or a change of turn direction. */
+export function displayEdges(at: Place[], measured: [Place, Place][], closed: boolean): [Place, Place][] {
+  const normals = measured.map(([left,right]) => {
+    const x = left[0]-right[0], z = left[2]-right[2], length = Math.hypot(x,z);
+    return length ? [x/length,z/length] : [0,0];
+  });
+  const limits = at.map(() => [Infinity,Infinity]);
+  const limit = (i:number, distance:number) => {
+    const side = distance < 0 ? 1 : 0;
+    limits[i][side] = Math.min(limits[i][side], Math.abs(distance));
+  };
+  for (let i=0; i<at.length-Number(!closed); i++) {
+    const j=(i+1)%at.length;
+    const [ax,az]=normals[i], [bx,bz]=normals[j], det=ax*bz-az*bx;
+    if (!det) continue; // Parallel cross-sections (or a point of zero total width).
+    const dx=at[j][0]-at[i][0], dz=at[j][2]-at[i][2];
+    limit(i,(dx*bz-dz*bx)/det);
+    limit(j,(dx*az-dz*ax)/det);
+  }
+  return measured.map(([left,right], i) => {
+    const [x,y,z] = at[i];
+    const clip = (p:Place, radius:number):Place => {
+      const width = Math.hypot(p[0]-x,p[2]-z);
+      if (width <= radius) return p;
+      const scale = radius/width;
+      return [x+(p[0]-x)*scale,y+(p[1]-y)*scale,z+(p[2]-z)*scale];
+    };
+    return [clip(left,limits[i][0]),clip(right,limits[i][1])];
+  });
+}
+
 type LaneHit = Pick<THREE.Intersection, "faceIndex" | "pointOnLine" | "point" | "distance">;
 
 function nearestSample(positions: Place[], start: number, point: THREE.Vector3) {
@@ -170,6 +202,8 @@ export class AiLineDraw {
     this.rows=this.locations.map((at,i) => ({at, edges:laneEdges(at,[lane.forwardX[i],lane.forwardZ[i]],
       [lane.normalX[i],lane.normalY[i],lane.normalZ[i]],lane.left[i],lane.right[i]),
       colour:laneSpeedColour(lane.speed[i],lane.speeds.slow,lane.speeds.fast).toArray()}));
+    const edges = displayEdges(this.locations, this.rows.map(row => row.edges), this.closed);
+    this.rows.forEach((row,i) => { row.edges = edges[i]; });
     const marks=bandMarks(this.rows,this.closed,this.faded);
     speedUpRays(marks[0]);
     this.marks.push(marks); this.scene.add(...marks); this.show(this.shown);

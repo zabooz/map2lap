@@ -58,7 +58,6 @@ export function App() {
   const [fileHost, setFileHost] = useState<HTMLDivElement | null>(null);       // (where in the sidebar the 3D view's Save and Play are drawn)
   const [savedHost, setSavedHost] = useState<HTMLSpanElement | null>(null);   // (the save state beside loading progress)
   const [toolsHost, setToolsHost] = useState<HTMLDivElement | null>(null);     // (... and its tools)
-  const [notesHost, setNotesHost] = useState<HTMLDivElement | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTarget, setSettingsTarget] = useState<InstallationTarget | null>(null);
   const [acknowledgedCspVersion, setAcknowledgedCspVersion] = useStored<string>("map2lap.acknowledgedCspVersion", "");
@@ -211,7 +210,7 @@ export function App() {
           {tabButton("edit", "Editor")}
         </nav>
 
-        <EditorPanel tracks={tracks} choice={shownEditTrack} status={editStatus} hidden={tab !== "edit"} fileRef={setFileHost} savedRef={setSavedHost} toolsRef={setToolsHost} notesRef={setNotesHost} onChoose={setEditTrack} />
+        <EditorPanel tracks={tracks} choice={shownEditTrack} status={editStatus} hidden={tab !== "edit"} fileRef={setFileHost} savedRef={setSavedHost} toolsRef={setToolsHost} onChoose={setEditTrack} />
 
         <div id="work" className={`view${hasRebuildPanel ? ` ${styles.rebuildView}` : ""}`} hidden={tab === "edit"}>
           <div className={`${styles.panes}${mine ? ` ${styles.mine}` : ""}`}>
@@ -263,7 +262,7 @@ export function App() {
             <Suspense fallback={null}>
               <EditorScene routeTrack={!!editing && editing.kind !== "area"} name={shownEditTrack} title={editing?.title ?? ""} timedMode={timedMode(editing?.kind, editing?.ab_timing)}
                            taken={tracks.filter(t => t !== editing).map(t => t.title)}
-                           built={editing?.built ?? null} visible={tab === "edit"} controls={controls} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost}
+                           built={editing?.built ?? null} visible={tab === "edit"} controls={controls} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost}
                            onStatus={reportEditLoad} onSaved={onSaved} onDelete={() => { if (editing) void deleteTrack(editing); }} />
             </Suspense>
           </ErrorBoundary>

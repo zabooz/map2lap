@@ -56,6 +56,35 @@ def problem(items):
     return None
 
 
+def _cross(a, b):
+    """Signed X/Z area of pairs of horizontal vectors. Pure."""
+    return a[..., 0]*b[..., 1] - a[..., 1]*b[..., 0]
+
+
+def check_centreline(xyz, metres, changed, circuit, level_gap):
+    """Reject a same-level crossing involving a corrected centre-line segment. Pure."""
+    xz = xyz[:, [0, 2]].astype(float, copy=False)
+    starts = np.arange(len(xyz) if circuit else len(xyz)-1)
+    ends = (starts+1) % len(xyz)
+    affected = starts[changed[starts] | changed[ends]]
+    steps = xz[ends] - xz[starts]
+    low, high = np.minimum(xz[starts], xz[ends]), np.maximum(xz[starts], xz[ends])
+    for i in affected:
+        near = ((low <= high[i]) & (high >= low[i])).all(axis=1)
+        near &= (starts != i) & (ends != i) & (starts != ends[i])
+        other = starts[near]
+        if not len(other):
+            continue
+        denom = _cross(steps[i], steps[other])
+        other, denom = other[denom != 0], denom[denom != 0]
+        delta = xz[other] - xz[i]
+        u, v = _cross(delta, steps[other])/denom, _cross(delta, steps[i])/denom
+        y = xyz[:, 1]
+        gap = y[i]+u*(y[ends[i]]-y[i]) - (y[other]+v*(y[ends[other]]-y[other]))
+        if ((u >= 0) & (u <= 1) & (v >= 0) & (v <= 1) & (abs(gap) < level_gap)).any():
+            raise ValueError(f"AI line crosses itself at route metre {metres[i]:.1f}")
+
+
 class Route:
     """Directed horizontal metres in the saved route's coordinate frame."""
     def __init__(self, path, origin, circuit):
