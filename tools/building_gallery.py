@@ -243,7 +243,7 @@ def label_texture(folder, labels):
     from PIL import Image, ImageDraw, ImageFont
     image = Image.new("RGB", (1024, atlas_rows(len(labels)) * 128), (30, 38, 43))
     draw = ImageDraw.Draw(image)
-    font = ImageFont.truetype("DejaVuSans.ttf", 22)
+    font = ImageFont.truetype(str(ROOT / "assets/fonts/LiberationSans-Bold.ttf"), 22)
     for i, label in enumerate(labels):
         x, y = (i % 2) * 512, (i // 2) * 128
         draw.rectangle((x + 3, y + 3, x + 508, y + 124), outline=(120, 158, 162), width=3)

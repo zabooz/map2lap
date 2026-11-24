@@ -1,5 +1,5 @@
 {
   "native/snowworker/main.rs": "ca25b864f44bc6b01eb0e3dc3b6f75c49bc39de4c2c04924e1ad623106bebed2",
   "tools/build_snow_worker.py": "d5d747b2d486d05b0bf192c1d7606a25d93a5a50da497b4d9da4544254f5da12",
-  "src/bin/snow-worker.exe": "4c1e54704244b13127aa01afd31a5133505547739cf7ed84737d5b097b37f819"
+  "src/bin/snow-worker.exe": "0152db79eede844a8afe5583f0b1e409b0c970d01e773f68a5bfcc04fbbcad2d"
 }

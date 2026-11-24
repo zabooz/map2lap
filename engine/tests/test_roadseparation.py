@@ -71,7 +71,7 @@ class DeletedRailTest(unittest.TestCase):
         faces = np.array([[0, 1, 2], [3, 4, 5]], np.uint16)
         scan = {"meshes": [{"name": "nocol_rail_ballast_0_0", "center": [5., 0., 0.], "radius": 100.}]}
         upper, lower, above, below, _crossings = networks()
-        with tempfile.NamedTemporaryFile() as source, mock.patch.object(kn5, "mesh_arrays", return_value=(vertices, faces)):
+        with tempfile.NamedTemporaryFile(delete_on_close=False) as source, mock.patch.object(kn5, "mesh_arrays", return_value=(vertices, faces)):
             args = (source.name, scan, None, above, below, upper, lower, [(10., 1.)], [])
             with self.assertRaisesRegex(ValueError, "nocol_rail_ballast_0_0"):
                 roadseparation._offsets(*args)
@@ -108,7 +108,7 @@ class SharedOwnershipTest(unittest.TestCase):
                  "held_junctions": [], "unselected": []}
         lower = {"segments": [{"a": [10., -20.], "b": [10., 20.], "width": 8., "structure": "", "road": "low"}],
                  "held_junctions": [], "unselected": []}
-        with (tempfile.NamedTemporaryFile() as source,
+        with (tempfile.NamedTemporaryFile(delete_on_close=False) as source,
               mock.patch.object(kn5, "mesh_arrays", side_effect=lambda _f, m: SCENE[m["name"]][0]),
               mock.patch.object(editorinfo, "surface_face_owners", side_effect=lambda _p, n: np.array(SCENE[n][1])),
               mock.patch.object(roadseparation, "_guardrail_owner", return_value=np.array([1, 1, 1, 2, 2, 2], np.uint8))):
