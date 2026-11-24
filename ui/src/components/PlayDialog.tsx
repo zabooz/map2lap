@@ -26,7 +26,7 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
   const [laps, setLaps] = useState(LAP_OPTIONS[0]);
   const [maxOpponents, setMaxOpponents] = useState<number | null>(null);
   const [gripOptions, setGripOptions] = useState<GripOptions | null>(null);
-  const [grip, setGrip] = useState<string | GripEdits>("");
+  const [grip, setGrip] = useState<string | GripEdits>("Optimum");
   const [gridError, setGridError] = useState(false);
   const [ai, setAi] = useState({opponents: 5, strength: 95, aggression: 0, car: ""});
   const [minutes, setMinutes] = useState<number | null>(initialClock === undefined ? null : Math.round(initialClock * 60));
@@ -222,7 +222,7 @@ export function PlayDialog({name, timedMode, initialClock, initialWeather, savin
               </label>
               <label className={`${styles.field} ${styles.gripPreset}`}>Track grip
                 <select aria-label="Track grip" value={typeof grip === "string" ? grip : "Custom"} onChange={e => setGrip(e.target.value)} disabled={!gripOptions}>
-                  <option value="">{gripOptions?.last ? `Last session · ${gripOptions.last}` : "Last session"}</option>
+                  {gripOptions?.last && <option value="">Last session · {gripOptions.last}</option>}
                   {typeof grip === "object" && <option value="Custom">Custom</option>}
                   {gripOptions?.presets.map(preset => <option key={preset.name} value={preset.name}>
                     {`${preset.name} · ${preset.start}% ${preset.variation ? `base, ${preset.variation}% variation` : "fixed"}`}

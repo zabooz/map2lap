@@ -38,9 +38,10 @@ test("Play switches between Hotlap and a Race grid without moving the dialog", a
   await expect(session).toHaveCount(0);
   const grip = dialog.getByRole("combobox", {name: "Track grip"});
   await expect(grip.getByRole("option", {name: "Green · 95% base, 2% variation"})).toHaveCount(1);
-  await grip.selectOption({label: "Optimum · 100% fixed"});
+  await expect(grip).toHaveValue("Optimum");
   const base = dialog.getByRole("slider", {name: "Starting grip"});
   const variation = dialog.getByRole("slider", {name: "Grip variation"});
+  await expect(base).toHaveValue("100");
   await expect(variation).toHaveValue("0");
   await base.fill("91");
   await expect(grip).toHaveValue("Custom");
@@ -74,6 +75,7 @@ test("Play asks before using a manual line or starting a failed Race solo", asyn
   const grid: number[] = [];
   let manual = false;
   await page.route("**/api/play", route => {
+    expect(route.request().postDataJSON().grip).toBe("Optimum");
     const n = route.request().postDataJSON().ai.opponents;
     grid.push(n);
     if (manual) {

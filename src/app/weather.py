@@ -37,16 +37,15 @@ def grip_options(race_file):
     try:
         ini.read(race_file, encoding="utf-8-sig")
         if ini.has_section("DYNAMIC_TRACK"):
-            last = "Custom"
-            for field, key in GRIP_SLIDERS.items():
-                try:
-                    value = ini.getfloat("DYNAMIC_TRACK", key)
-                    if math.isfinite(value):
-                        current[field] = value
-                except (ValueError, configparser.NoOptionError):
-                    pass
             values = tuple(ini.getfloat("DYNAMIC_TRACK", key, fallback=None) for key in GRIP_KEYS)
-            last = next((name for name, preset in TRACK_GRIP.items() if preset == values), last)
+            start, transfer, variation, _ = values
+            # LAP_GAIN counts laps. Only the three percentages have the slider's 0–100 range.
+            if all(value is None or 0 <= value <= 100 for value in (start, transfer, variation)):
+                if start is not None:
+                    current["start"] = start
+                if variation is not None:
+                    current["variation"] = variation
+                last = next((name for name, preset in TRACK_GRIP.items() if preset == values), "Custom")
     except (configparser.Error, ValueError, OSError):
         pass
     return {"presets": [{"name": name, "start": start, "variation": randomness}

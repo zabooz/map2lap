@@ -82,6 +82,19 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.assertEqual((200, True), self.started(grip="Dusty"))
         self.assertEqual("86", self.ini()["DYNAMIC_TRACK"]["SESSION_START"])
 
+    def test_out_of_range_last_session_cannot_supply_either_grip_slider(self):
+        for key in ("SESSION_START", "RANDOMNESS", "SESSION_TRANSFER"):
+            with self.subTest(key=key):
+                values = {"SESSION_START": 95, "RANDOMNESS": 2, "SESSION_TRANSFER": 90, "LAP_GAIN": 132}
+                values[key] = 200
+                self.race.write_text(RACE + "\n[DYNAMIC_TRACK]\n" + "".join(f"{k}={v}\n" for k, v in values.items()))
+                options = server.weather.grip_options(self.race)
+                self.assertIsNone(options["last"])
+                self.assertEqual(options["current"], {"start": 100, "variation": 0})
+                self.assertEqual((200, True), self.started(grip="Optimum"))
+                self.assertEqual(tuple(self.ini().getint("DYNAMIC_TRACK", k) for k in server.weather.GRIP_KEYS),
+                                 (100, 100, 0, 1))
+
     def test_custom_grip_overrides_only_selected_fields(self):
         self.race.write_text(RACE + "\n[DYNAMIC_TRACK]\nSESSION_START=87\nRANDOMNESS=4\nLAP_GAIN=37\n")
         self.assertEqual(server.weather.grip_options(self.race)["current"], {"start": 87, "variation": 4})
