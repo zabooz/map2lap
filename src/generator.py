@@ -25,7 +25,7 @@ import numpy as np
 from track import build_tiles     # (first: sets the asphalt mesh switches and the server path)
 from app import buildoptions, circuitlap, debugapp, mapcache, mytracks, settings, system, trackcode, version
 from app.paths import ROOT
-from scenery import farview, gates
+from scenery import dryness, farview, gates
 from track import aicorrections, ailinestate, fastlane, make_obj, make_track_folder, obj_to_kn5, objectlist, parallel, route_race
 
 blockworker = build_tiles.blockworker
@@ -636,7 +636,9 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
                                       geotags=(lat0, lon0), extra_description=desc, route=None if area else xy.tolist(),
                                       log=log, parts=parts, bounds=bounds,
                                       point_to_point=point_to_point, pitboxes=pitboxes,
-                                      trees=trees)
+                                      trees=trees, ground_colour_credit=dryness.SOURCE.attribution
+                                      if anc.get("ground_quality", "sd") == "sd" and
+                                      os.path.isfile(os.path.join(tiles_dir, "dryness.npz")) else "")
         # For the debug app: the route in AC coordinates (x east, z = -north). Areas remove the previous route, if any.
         route_txt = os.path.join(root, "data", "map2lap_route.txt")
         for old in (route_txt, os.path.join(root, "data", "ac_export_route.txt")):     # (the second: older builds)

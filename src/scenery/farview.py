@@ -24,7 +24,7 @@ from PIL import Image
 
 from app.paths import ROOT
 from track import make_obj, parallel      # (make_obj first: sets the path to the BeamNG.Earth server)
-from scenery import groundcover
+from scenery import dryness, groundcover
 
 import dem as demmod        # noqa: E402
 import farfield             # noqa: E402
@@ -117,7 +117,8 @@ def _box_dist(bbox, boxes):
                           np.maximum(0.0, np.maximum(boxes[:, 1] - y1, y0 - boxes[:, 3]))).min())
 
 
-def _init(cache_dir, tex_dir, core):
+def _init(cache_dir, tex_dir, core, tiles_dir=None):
+    _w["dry"] = dryness.load(tiles_dir) if tiles_dir else None
     net = netfetch.Fetcher(offline=False)
     _w["dem"] = demmod.Dem(os.path.join(cache_dir, "dem"), fetcher=net)
     _w["md"] = mapdata.MapData(cache_dir, fetcher=net)
@@ -175,7 +176,7 @@ def _up(a, n):
     return out[::-1]
 
 
-def _near_colours(frame, gi, gj, far, polygons_only):
+def _near_colours(frame, gi, gj, far, polygons_only, t=None):
     """Blend local map details into the north-up WorldCover colours of a near square."""
     S, n = farfield.level_size(GROUP_LEVEL), len(far)
     x0, y0 = gi * S, gj * S
@@ -202,6 +203,7 @@ def _near_colours(frame, gi, gj, far, polygons_only):
                 continue
             r0, c0 = (per - 1 - b) * tp, a * tp
             tile = ground[r0:r0 + tp, c0:c0 + tp][::-1]
+            local_t = t[r0:r0 + tp, c0:c0 + tp][::-1] if t is not None else None
             for layer in layers:
                 try:
                     m = layer(frame, _w["md"], tx, ty, farfield.BASE / tp)
@@ -211,7 +213,11 @@ def _near_colours(frame, gi, gj, far, polygons_only):
                 if m is not None:
                     for name in np.unique(m):
                         if name:  # no mapped polygon here: keep the underlying colour
-                            tile[m == name] = _w["colors"].get(name, _w["colors"][groundcover.DEFAULT])
+                            mask = m == name
+                            rgb = _w["colors"].get(name, _w["colors"][groundcover.DEFAULT])
+                            if local_t is not None and name in _w["dry"].shifts:
+                                rgb = _w["dry"].tint(rgb, name, local_t[mask])
+                            tile[mask] = rgb
     return ground * w[..., None] + far * (1 - w[..., None]), msgs
 
 
@@ -244,6 +250,13 @@ def _texture(lat0, lon0, level, i, j, near, path):
     gy, gx = np.gradient(elev, g, g)
     slope = _up(np.clip(np.hypot(gx, gy), 0, 1), n)
     colours = _w["classes"][codes]
+    dry = _w.get("dry")
+    t = dry.sample(x[0], y[:, :1]) if dry is not None else None
+    if dry is not None:
+        for code in (10, 20, 30):
+            mask = codes == code
+            if mask.any():
+                colours[mask] = dry.tint(_w["classes"][code], groundcover.CLASS_MAT[code], t[mask])
     missing = codes == 0
     if missing.any():
         E = _up(elev, n)[missing]
@@ -251,7 +264,7 @@ def _texture(lat0, lon0, level, i, j, near, path):
         pal = _w["pal"]      # flat row supplies base colours; rock is applied below
         colours[missing] = pal[len(pal) // 2, np.clip((u * pal.shape[1]).astype(int), 0, pal.shape[1] - 1)]
     if near:
-        colours, details = _near_colours(frame, i, j, colours, polygons_only=raster is None)
+        colours, details = _near_colours(frame, i, j, colours, polygons_only=raster is None, t=t)
         msgs.extend(details)
     rw = _rock_weight(slope)[..., None]
     img = (colours * (1 - rw) + np.asarray(ROCK) * rw) * groundcover.macro(x, y)
@@ -279,7 +292,8 @@ def build(tiles_dir, obj_dir, log=print, progress=None):
     n = parallel.workers(len(tiles))
     log(f"Distant terrain: {len(tiles)} tiles up to {RADIUS_M / 1000:.0f} km, {len(materials)} coloured squares, "
         f"{n} processes ...")
-    with parallel.pool(n, _init, (os.path.join(ROOT, "cache"), tex_dir, sorted(core))) as ex:
+    field_dir = tiles_dir if anc.get("ground_quality", "sd") == "sd" else None
+    with parallel.pool(n, _init, (os.path.join(ROOT, "cache"), tex_dir, sorted(core), field_dir)) as ex:
         futs = [ex.submit(_tile, anc["lat"], anc["lon"], t.level, t.i, t.j, anc["dem_zoom"]) for t in tiles]
         texs = {ex.submit(_texture, anc["lat"], anc["lon"], *key, key in near, os.path.join(tex_dir, name + ".jpg")): key
                 for key, name in materials.items()}

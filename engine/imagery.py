@@ -1,7 +1,7 @@
 """Satellite imagery for the visual tiles.
 
-Kept for later: an AC build draws its ground and roofs in comic textures (src/scenery/ground.py, buildings) and runs
-none of this (farfield only imports it); it is the pipeline photo-textured ground or roofs would start from.
+AC's SD ground uses raw EOX 2016 tiles to measure regional dryness (scenery/dryness.py).
+Its ground and roof textures are drawn in code. The photo rendering pipeline below serves imagery clients.
 
 Sources (all Web-Mercator XYZ, 256 px tiles, no key; verified):
   usgs     USGS The National Map ImageryOnly. Public domain. US only, z <= 16 (~1.9 m/px at 36 N).
@@ -564,7 +564,7 @@ class Imagery:
             self.fetch_ms.append(r.elapsed * 1000)
             del self.fetch_ms[:-2000]
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = f"{path}.{threading.get_ident()}.tmp"
+        tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
         with open(tmp, "wb") as f:
             f.write(data)
         staging.replace_cached(tmp, path)

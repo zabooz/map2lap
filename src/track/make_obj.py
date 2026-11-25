@@ -31,7 +31,7 @@ import medians              # noqa: E402
 import parking              # noqa: E402
 import roads as roadsmod    # noqa: E402
 import vegetation           # noqa: E402
-from scenery import bushes, cars, facades, fences, ground, groundcover, leisure, propsmesh, roadtex, rocks, trees, water  # noqa: E402
+from scenery import bushes, cars, dryness, facades, fences, ground, groundcover, leisure, propsmesh, roadtex, rocks, trees, water  # noqa: E402
 from track import buildscenery, editorinfo, objectlist, parallel  # noqa: E402
 
 TILES = os.path.join(ROOT, "out", "tiles")
@@ -724,6 +724,7 @@ def _init_scenery(tiles_dir, tex_dir):
             walls += json.load(f)
     veg = vegetation.Vegetation(blockworker._s.md, os.path.join(ROOT, "cache"))
     veg.dem = dem               # (rocks by slope)
+    _ctx["dry"] = dryness.load(tiles_dir) if anc.get("ground_quality", "sd") == "sd" else None
     _ctx.update(anc=anc, tiles_dir=tiles_dir, frame=frame, elev=elev, raw=raw, veg=veg, g=g, tex_dir=tex_dir, walls=walls)
 
 
@@ -732,7 +733,8 @@ def main(tiles_dir=TILES, out_dir=OUT, log=print, progress=None):
     out_dir/parts, the materials in out_dir/track.mtl; returns (objects, vertices, triangles, part files in tile
     order)."""
     with open(os.path.join(tiles_dir, "anchor.json"), encoding="utf-8") as f:
-        tiles = [tuple(t) for t in json.load(f)["tiles"]]
+        anc = json.load(f)
+    tiles = [tuple(t) for t in anc["tiles"]]
     parts_dir = os.path.join(out_dir, "parts")
     os.makedirs(parts_dir, exist_ok=True)
     parts = [os.path.join(parts_dir, f"t_{tx}_{ty}.obj") for tx, ty in tiles]
@@ -744,8 +746,11 @@ def main(tiles_dir=TILES, out_dir=OUT, log=print, progress=None):
     n = parallel.workers(len(tiles))
     log(f"Scenery with {n} processes ...")
     objects, nv, tris, unknown = 0, 0, {}, set()
-    with open(os.path.join(tiles_dir, "anchor.json"), encoding="utf-8") as f:
-        anc = json.load(f)
+    if anc.get("ground_quality", "sd") == "sd":
+        from scenery import farview
+        boxes = farview._boxes(tiles)
+        region = (*boxes[:, :2].min(axis=0) - farview.RADIUS_M, *boxes[:, 2:].max(axis=0) + farview.RADIUS_M)
+        dryness.write(tiles_dir, tex_dir, anc, region, os.path.join(ROOT, "cache"), log)
     shutters = shutters_for_anchor(anc["lat"], anc["lon"])
     # (beside the workers: no worker reads what it makes, and after them its ~9 s were the whole machine waiting)
     with ThreadPoolExecutor(1) as beside, parallel.pool(n, _init_scenery, (tiles_dir, tex_dir)) as ex:
@@ -806,7 +811,8 @@ def _scenery_tile(tx, ty, part_path):
     gmat = f"ground_{tx}_{ty}"
     P, UV, ggroups, _ = ground.build(frame, anc["aid"], tx, ty, _ctx["g"], blockworker._s.dem, anc["dem_zoom"],
                                      depth, blockworker._s.md, TEX_SRC, _ctx["tex_dir"],
-                                     os.path.join(_ctx["tex_dir"], f"{gmat}.jpg"), log, _ctx["walls"], paint=obj.editor)
+                                     os.path.join(_ctx["tex_dir"], f"{gmat}.jpg"), log, _ctx["walls"],
+                                     paint=obj.editor, dry=_ctx["dry"])
     grid = P[:ground.LATTICE ** 2]      # (the terrain's lattice: where the cheap bushes stand, bushes.tile_items)
     for pre, T in ggroups.items():
         obj.add(f"{pre}_ground_{tx}_{ty}", gmat, P, UV, T)

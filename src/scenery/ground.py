@@ -277,7 +277,7 @@ def _paint_paths(idx, paths, x0, y0):
     return out
 
 
-def _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn, paint=None):
+def _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn, paint=None, dry=None, t=None):
     """img with the segments (m, 4) in pixels, half widths hws (pixels), look (ROAD_LOOKS number per segment)
     painted in, anti-aliased. worn: the roads' patches and cracks (WEAR) and a dirt track's grass strip."""
     white = np.array([(255.0, 255.0, 255.0, 1.0)], np.float32)
@@ -306,6 +306,8 @@ def _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn, paint=None):
             am = alpha > 0
             grass = _sample(_texture(os.path.join(gc_dir, "gc_meadow.png"), int(round(TERRAIN_UV_M / sp))),
                             wx[am], wy[am], TERRAIN_UV_M)
+            if dry is not None:
+                grass = dry.tint(grass, "gc_meadow", t[am])
             w = (alpha[am] / 255.0)[:, None] * 0.85
             img[am] = img[am] * (1 - w) + grass * w
             if paint is not None:
@@ -491,7 +493,7 @@ def fill_tunnel_cut_edges(holes, u, x0, y0, square, footprints):
             np.asarray(t, np.int64).reshape(-1, 3), np.asarray(owner, np.int64))
 
 
-def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex, log=print, walls=(), paint=None):
+def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex, log=print, walls=(), paint=None, dry=None):
     """Terrain of tile (tx, ty): (ENU vertices, UV, triangles by AC prefix,
     texture file). Vertices start with the lattice, then wall cuts and tunnel
     edge patches. depth (n, n) lowers water; walls are cut lines. Writes the
@@ -609,7 +611,14 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     sp = TILE / TEX_PX
     col, row = np.meshgrid(np.arange(TEX_PX), np.arange(TEX_PX))
     wx, wy = x0 + (col + 0.5) * sp, y1 - (row + 0.5) * sp
-    mats = groundcover.materials(frame, md, tx, ty, GC_PX_M, record=paint) if paint is not None else groundcover.materials(frame, md, tx, ty, GC_PX_M)
+    options = {"record": paint} if paint is not None else {}
+    if dry is not None:
+        options["water"] = "water"  # The meadow texture under water keeps its original colour.
+    mats = groundcover.materials(frame, md, tx, ty, GC_PX_M, **options)
+    submerged = mats == "water" if dry is not None else None
+    if submerged is not None:
+        mats[submerged] = groundcover.DEFAULT
+    t = dry.sample(wx[0], wy[:, :1]) if dry is not None else None
     mi = np.clip(((wx - x0) / GC_PX_M).astype(np.int64), 0, mats.shape[1] - 1)
     mj = np.clip(((wy - y0) / GC_PX_M).astype(np.int64), 0, mats.shape[0] - 1)
     names, ids = np.unique(mats, return_inverse=True)        # (numbers: comparing names per pixel took 40 % of a tile)
@@ -622,8 +631,14 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         m = pm == k
         if not m.any():
             continue
-        img[m] = _sample(_texture(os.path.join(gc_dir, f"{name}.png"), int(round(TERRAIN_UV_M / sp))), wx[m], wy[m],
-                         TERRAIN_UV_M)
+        rgb = _sample(_texture(os.path.join(gc_dir, f"{name}.png"), int(round(TERRAIN_UV_M / sp))),
+                      wx[m], wy[m], TERRAIN_UV_M)
+        if dry is not None and name in dry.shifts:
+            amount = t[m]
+            if name == groundcover.DEFAULT and submerged.any():
+                amount[submerged[mj[m], mi[m]]] = 0
+            rgb = dry.tint(rgb, name, amount)
+        img[m] = rgb
     # large-scale colour variation (groundcover.macro) on the ground, not on the roads: computed per 1 m, smoothed
     # onto the pixels
     nm = int(round(TILE / GC_PX_M))
@@ -648,10 +663,10 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     # Streams and rivers (STREAMS): wet bank, water on top or a stone bed for dry ones; the roads go over them
     got = _streams(frame, md, tx, ty, 1.0 / sp) if md is not None else None
     if got is not None:
-        segs, hw, hb, dry = got
+        segs, hw, hb, dry_stream = got
         one, white = np.zeros(len(segs), np.uint8), np.array([(255.0, 255.0, 255.0, 1.0)], np.float32)
-        for half, sel, rgb in ((hb, np.ones(len(segs), bool), STREAM_BANK), (hw, ~dry, STREAM_WATER),
-                               (hw, dry, STREAM_DRY)):
+        for half, sel, rgb in ((hb, np.ones(len(segs), bool), STREAM_BANK), (hw, ~dry_stream, STREAM_WATER),
+                               (hw, dry_stream, STREAM_DRY)):
             if not sel.any():
                 continue
             a = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), np.ascontiguousarray(segs[sel]),
@@ -719,6 +734,6 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         if got is not None:
             segs, hws, look = got
             _paint_looks(img, np.ascontiguousarray(segs, np.float64), np.ascontiguousarray(hws, np.float64),
-                         np.ascontiguousarray(look, np.uint8), wx, wy, sp, gc_dir, worn=True, paint=paint)
+                         np.ascontiguousarray(look, np.uint8), wx, wy, sp, gc_dir, worn=True, paint=paint, dry=dry, t=t)
     Image.fromarray(phased(np.clip(img, 0, 255).astype(np.uint8), (tx, ty))).save(out_tex, quality=88)
     return P, UV, groups, out_tex

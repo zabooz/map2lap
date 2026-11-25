@@ -58,6 +58,8 @@ BeamNG.Earth (`blockworker.build`, `grading.Grader.apply`, `roads/`):
   inside you drive on the floor slab from `deck`; the portal frame hides the 2 m steps.
 
 For AC (`ground.py`, `make_obj.collision_prefix`):
+- SD shifts meadow, scrub and forest-floor colours with regional dryness measured from EOX vegetation or inferred
+  from Köppen climate on land, while HD uses the original palette.
 - The ground's lattice is normally 2 m. The optional 1 m grid shares its spacing with water and draped
   markings, without changing source elevations or the legacy BeamNG heightmap; see [build options](architecture.md#terrain-and-scenery-build-options).
 - One mesh for looks **and** physics per tile. Object name per cell by BeamNG.Earth's surface: asphalt/cobbles →

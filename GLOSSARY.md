@@ -166,6 +166,10 @@ _Avoid_: block, chunk, cell
 A tile’s baked ground texture: 2048 px in SD, 4096 px in HD, with 1/64 of each edge reserved for a repeated-edge guard, at world phase
 (`scenery/ground.phased`). Save reuses it as a layer. _Avoid_: base copy, ring image.
 
+**Ground dryness**:
+A regional value from 0 (green) to 1 (dry) that shifts SD meadow, scrub and forest-floor colours across the corridor and
+distant view ([ground rendering](docs/ac-rules.md#how-the-ground-is-built)).
+
 **Geotile**:
 A square of a global Web-Mercator grid (zoom 17, about 240 m) with its own frame; bridge and tunnel chains are solved
 in it, so they come out the same whatever the anchor.
