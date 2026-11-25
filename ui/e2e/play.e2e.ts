@@ -30,6 +30,7 @@ test("Play switches between Hotlap and a Race grid without moving the dialog", a
   await expect(dialog.getByRole("combobox", {name: "Laps"})).toHaveValue("2");
   await expect(opponents).toHaveValue("5");
   await dialog.getByRole("slider", {name: "Strength"}).fill("92");
+  await expect(dialog.getByRole("slider", {name: "Aggression"})).toHaveValue("50");
   await dialog.getByRole("slider", {name: "Aggression"}).fill("24");
   await dialog.getByRole("combobox", {name: "Opponent car"}).selectOption("car_a");
   expect(await dialog.boundingBox()).toEqual(bounds);

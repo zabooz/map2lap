@@ -400,12 +400,13 @@ def _opponent_limit(track_dir):
 
 def _race_ai(ai, track_dir, installed):
     """Validate a Race's opponent count, common strength, aggression and optional car."""
+    # Aggression 50 by default: at 0 opponents held back from the car ahead and rarely overtook (2026-11-25).
     if ai is None:
-        return 0, 95, 0, ""
+        return 0, 95, 50, ""
     if not isinstance(ai, dict):
         raise ValueError("Invalid AI settings")
     opponents, strength, aggression, car = (ai.get(key, default) for key, default in
-                                            (("opponents", 0), ("strength", 95), ("aggression", 0), ("car", "")))
+                                            (("opponents", 0), ("strength", 95), ("aggression", 50), ("car", "")))
     limit = _opponent_limit(track_dir)
     if type(opponents) is not int or not 0 <= opponents <= limit:
         raise ValueError(f"Choose up to {limit} AI opponents" if limit else "This track has no AI grid and line")

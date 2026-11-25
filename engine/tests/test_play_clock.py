@@ -363,6 +363,13 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.assertFalse(self.ini().has_section("CAR_1"))
         self.assertFalse(self.ini().has_option("SESSION_0", "STARTING_POSITION"))
 
+    def test_race_ai_aggression_defaults_to_half(self):
+        self.install_timed_route()
+        self.install_ai()
+        self.race.write_text(RACE + "\n[CAR_0]\nDRIVER_NAME=Player\nSKIN=one\n")
+        self.assertEqual((200, True), self.started(session="race", ai={"opponents": 1}))
+        self.assertEqual(50, self.ini()["CAR_1"].getint("AI_AGGRESSION"))
+
     def test_ai_options_are_checked_before_starting(self):
         self.install_timed_route()
         self.install_ai()
