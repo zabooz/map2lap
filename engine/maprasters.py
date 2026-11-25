@@ -89,11 +89,11 @@ def worldcover_tile_name(lat_sw, lon_sw):
     return f"{'N' if lat_sw >= 0 else 'S'}{abs(lat_sw):02d}{'E' if lon_sw >= 0 else 'W'}{abs(lon_sw):03d}"
 
 
-def worldcover_window(bounds):
-    """Global WorldCover pixel window (col0, row0, col1, row1) covering a lat/lon box: columns from
-    -180 deg, rows from +90 deg."""
+def worldcover_window(bounds, level=0):
+    """Global pixel window (col0, row0, col1, row1) covering bounds at WorldCover level (0 is native).
+    Columns start at -180°, rows at +90°, with 2**level native pixels per overview pixel edge. Pure."""
     lon0, lat0, lon1, lat1 = bounds
-    p = WORLDCOVER_PPD
+    p = WORLDCOVER_PPD / (1 << level)
     return (int(math.floor((lon0 + 180.0) * p + 1e-9)), int(math.floor((90.0 - lat1) * p + 1e-9)),
             int(math.ceil((lon1 + 180.0) * p - 1e-9)), int(math.ceil((90.0 - lat0) * p - 1e-9)))
 
@@ -114,9 +114,9 @@ class Rasters:
         self._cogs = OrderedDict()
         self._lock = threading.Lock()
 
-    def _cog(self, source, release, name, url, kind):
+    def _cog(self, source, release, name, url, kind, level=0):
         """The parsed COG of one file, or None if the file does not exist."""
-        key = (source, name)
+        key = (source, name, level)
         with self._lock:
             c = self._cogs.get(key)
             if c is not None:
@@ -124,7 +124,7 @@ class Rasters:
                 return c
         remote = rangeread.RemoteFile(url, None, os.path.join(self.raw_dir, source, release, name), self.fetcher)
         try:
-            c = cogmod.Cog(remote, kind)
+            c = cogmod.Cog(remote, kind, level=level)
         except rangeread.Missing:
             return None
         with self._lock:
@@ -135,16 +135,23 @@ class Rasters:
 
     def worldcover(self, cell, kind="demand"):
         """The cell's land-cover Raster (uint8 classes, EPSG:4326 native pixels)."""
-        col0, row0, col1, row1 = worldcover_window(cell.bounds())
-        p, f = WORLDCOVER_PPD, WORLDCOVER_FILE_DEG * WORLDCOVER_PPD
+        return self.worldcover_box(cell.bounds(), 0, kind)
+
+    def worldcover_box(self, bounds, level, kind="demand"):
+        """Land-cover classes for (west, south, east, north). Longitudes may extend across the date line."""
+        if not 0 <= level <= 5:     # the 562 px overview no longer divides the native grid exactly
+            raise ValueError(f"unsupported WorldCover overview {level}")
+        col0, row0, col1, row1 = worldcover_window(bounds, level)
+        p = WORLDCOVER_PPD / (1 << level)
+        f = WORLDCOVER_FILE_DEG * WORLDCOVER_PPD // (1 << level)
         out = np.zeros((row1 - row0, col1 - col0), np.uint8)
         files = []
         for fr in range(row0 // f, (row1 - 1) // f + 1):
             for fc in range(col0 // f, (col1 - 1) // f + 1):
                 lat_sw = 90 - (fr + 1) * WORLDCOVER_FILE_DEG
-                lon_sw = fc * WORLDCOVER_FILE_DEG - 180
+                lon_sw = (fc * WORLDCOVER_FILE_DEG) % 360 - 180
                 name = worldcover_tile_name(lat_sw, lon_sw)
-                c = self._cog("worldcover", WORLDCOVER_RELEASE, name, WORLDCOVER_URL.format(tile=name), kind)
+                c = self._cog("worldcover", WORLDCOVER_RELEASE, name, WORLDCOVER_URL.format(tile=name), kind, level)
                 if c is None:
                     continue
                 if c.dtype != np.uint8 or c.width != f or abs(c.sx - 1.0 / p) > 1e-12:

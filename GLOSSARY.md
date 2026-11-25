@@ -337,7 +337,7 @@ The surface drawn on a water level: the objects `nocol_water_*`, and `nocol_foam
 One run of the generator: route, tiles, scenery, distant view, kn5, into a track folder in AC.
 
 **Distant view**:
-The coarse terrain around the corridor up to 40 km (`scenery/farview.py`, the OBJ part `far.obj`). It uses the raw elevation:
+The coarse terrain around the corridor up to 40 km, coloured from ESA WorldCover (`scenery/farview.py`, the OBJ part `far.obj`). It uses the raw elevation:
 no grading, no lowering. `measure.py --build` and `from_debug.py --upto obj` leave it out.
 _Avoid_: horizon, far terrain
 

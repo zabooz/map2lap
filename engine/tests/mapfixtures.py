@@ -12,6 +12,7 @@ Everything a cell of the map-data pipeline reads, generated deterministically at
     counting requests, with injectable failures per host.
 Pixel values follow formulas (worldcover_class, canopy_value) so tests can check any window.
 """
+import io
 import json
 import os
 import re
@@ -23,6 +24,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+from PIL.TiffImagePlugin import AppendingTiffWriter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import mapcells  # noqa: E402
@@ -134,14 +136,28 @@ def canopy_value(col, row):
     return ((np.asarray(col) + 3 * np.asarray(row)) % 40).astype(np.uint8)
 
 
-def worldcover_tiff(lat_sw, lon_sw, cells):
-    """The WorldCover file with SW corner (lat_sw, lon_sw); tiles under `cells` filled, the rest sparse."""
-    p, size, tile = maprasters.WORLDCOVER_PPD, 3 * maprasters.WORLDCOVER_PPD, 1024
+def worldcover_tiff(lat_sw, lon_sw, cells, *, overview=False):
+    """Sparse WorldCover file covering cells, optionally with a half-resolution overview. Pure."""
+    native = _worldcover_page(lat_sw, lon_sw, cells, 0)
+    if not overview:
+        return native
+    buf = io.BytesIO(native)
+    with AppendingTiffWriter(buf) as writer:
+        writer.write(_worldcover_page(lat_sw, lon_sw, cells, 1))
+        writer.finalize()
+    return buf.getvalue()
+
+
+def _worldcover_page(lat_sw, lon_sw, cells, level):
+    """TIFF page at level, taking the top-left native class of each overview pixel. Pure."""
+    scale = 1 << level
+    p, tile = maprasters.WORLDCOVER_PPD // scale, 1024
+    size = 3 * p
     col_f = (lon_sw + 180) * p
     row_f = (90 - (lat_sw + 3)) * p
     need = set()
     for c in cells:
-        c0, r0, c1, r1 = maprasters.worldcover_window(c.bounds())
+        c0, r0, c1, r1 = maprasters.worldcover_window(c.bounds(), level)
         for ty in range((r0 - row_f) // tile, (r1 - 1 - row_f) // tile + 1):
             for tx in range((c0 - col_f) // tile, (c1 - 1 - col_f) // tile + 1):
                 need.add((tx, ty))
@@ -150,7 +166,7 @@ def worldcover_tiff(lat_sw, lon_sw, cells):
         if (tx, ty) not in need:
             return None
         cc, rr = np.meshgrid(np.arange(tile) + col_f + tx * tile, np.arange(tile) + row_f + ty * tile)
-        return worldcover_class(cc, rr)
+        return worldcover_class(cc * scale, rr * scale)
     return tiff_bytes(size, size, tile, tile_fn, pixel_scale=(1.0 / p, 1.0 / p), tiepoint=(lon_sw, lat_sw + 3),
                       epsg=4326, nodata=0)
 

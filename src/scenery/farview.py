@@ -7,19 +7,17 @@ the levels and to the corridor). Unlike there (chosen by the player's position a
 static here: a tile is split while it is closer to the corridor than K_FACTOR * K(L) * its edge (K: BeamNG.Earth's
 table), and the corridor's L0 tiles stay out (the detail terrain lies there).
 
-Colour:
-- near (up to FADE_M[1] from the corridor): per GROUP_LEVEL square (2 km) a texture (TEX_PX) in the mean colours of our
-  comic ground (groundcover.materials: WorldCover and land_use, plus lakes), steep slopes rock; between FADE_M[0] and
-  FADE_M[1] blended into
-- the colour table as there without aerial imagery: u = height, v = slope (mirrored around v = 0.5, so it doesn't
-  matter which way round v is read), green, alpine meadow, rock, snow on top. So the transition has no edge, neither at
-  the corridor's edge nor further out.
+Each square takes the mean comic ground colours for its WorldCover classes, with rock on steep slopes.
+Near the corridor land_use and lakes refine the colours and fade into WorldCover between the FADE_M distances.
+If a WorldCover read fails, near squares paint local polygons over the palette colours. Outer squares use the
+height/slope palette with their original mesh UVs.
 
     part = farview.build(tiles_dir, obj_dir, log)     # obj_dir/parts/far.obj (not t_*: the measuring tools read those)
 """
 import json
 import os
 from concurrent.futures import as_completed
+from functools import partial
 
 import numpy as np
 from PIL import Image
@@ -40,16 +38,15 @@ GROUP_LEVEL = 3             # finer tiles per 2 km square in one object (fewer d
 # BeamNG.Earth refines only around the player, here along the whole corridor edge: half as far (a 13.5 km route,
 # +-1 km: 910 instead of 1750 tiles, 1.2 instead of 2.4 million vertices)
 K_FACTOR = 0.5
-MATERIAL = "far"            # the colour table; the textured squares: ground_far_<i>_<j> (obj_to_kn5: like the terrain)
+MATERIAL = "far"            # fallback height/slope palette
 LAYOUT = farfield.V131      # 32 cells: L0 every 8 m, L1 16 m ... L6 512 m
-FADE_M = (1200.0, 2400.0)   # m from the corridor: ground colours up to here, then the colour table (L2 tiles reach ~2.5 km)
+FADE_M = (1200.0, 2400.0)   # m from the corridor over which local map details fade into WorldCover
 TEX_PX = 512                # per 2 km square: 4 m per pixel
-HEIGHT_GRID = 65            # height and slope grid per square (32 m), refined onto the pixels
+TEX_FAR_PX = 256            # 8 m per pixel on a 2 km square, 128 m on a 32 km square
+HEIGHT_GRID = 65            # height and slope samples per square edge, refined onto the pixels
 
-# Colour table: (height m, RGB) like the comic ground textures (groundcover: meadow 96,158,66; forest 72,122,56; rock
-# 142,140,134); low down between meadow and forest (forest and meadow can't be told apart from far away)
-# (Hohe Tauern: tree line ~2000 m, alpine meadows up to ~2700 m, rock above, glaciers from ~3000 m). Darker and more
-# saturated than the ground textures: in the evening sun rock and snow glowed yellowish white
+# Fallback colours (height in m, RGB) where WorldCover is missing. The height bands fit only the Alps:
+# in the Hohe Tauern the tree line is around 2000 m, with alpine meadows up to 2700 m and glaciers from 3000 m.
 LAND = ((0, (76, 128, 54)), (1700, (70, 120, 52)), (2100, (96, 128, 68)), (2600, (112, 122, 80)),
         (2900, (122, 120, 114)), (3150, (164, 166, 170)), (3350, (210, 214, 222)))
 ROCK = (122, 120, 114)
@@ -131,6 +128,22 @@ def _init(cache_dir, tex_dir, core):
         if name.startswith("gc_") and name.endswith(".png"):
             colors[name[:-4]] = np.asarray(Image.open(os.path.join(tex_dir, name)).convert("RGB"), np.float32).mean((0, 1))
     _w["colors"] = colors
+    _w["classes"] = _class_colours(colors)
+
+
+def _class_colours(colors):
+    """Map all uint8 class codes to the supplied mean ground colours. Pure."""
+    classes = np.tile(np.asarray(colors[groundcover.DEFAULT], np.float32), (256, 1))
+    for code, name in groundcover.CLASS_MAT.items():
+        classes[code] = colors.get(name, colors[groundcover.DEFAULT])
+    classes[80] = WATER
+    return classes
+
+
+def _overview_for_texel(metres):
+    """Coarsest supported WorldCover overview at least as fine as a texel of metres. Pure."""
+    # Nominal native pixels are 10 m. Each overview doubles their side length.
+    return int(np.clip(np.floor(np.log2(metres / 10)), 0, 5))
 
 
 def _tile(lat0, lon0, level, i, j, near_zoom):
@@ -162,25 +175,10 @@ def _up(a, n):
     return out[::-1]
 
 
-def _texture(lat0, lon0, gi, gj, path):
-    """The texture of the square (GROUP_LEVEL, gi, gj) to path (JPG; worker process); returns messages."""
-    S = farfield.level_size(GROUP_LEVEL)
+def _near_colours(frame, gi, gj, far, polygons_only):
+    """Blend local map details into the north-up WorldCover colours of a near square."""
+    S, n = farfield.level_size(GROUP_LEVEL), len(far)
     x0, y0 = gi * S, gj * S
-    frame = geodesy.EnuFrame(lat0, lon0)
-    n, k = TEX_PX, HEIGHT_GRID
-    # height and slope (the way farfield.build_tile picks its colour), then the colour table
-    g = np.arange(k) * S / (k - 1)
-    zoom = farfield.zoom_for_level(LAYOUT, lat0, 1)
-    elev, _ = parallel.retry_locked(lambda: heightmap.surface(frame, lambda la, lo: _w["dem"].sample(la, lo, zoom),
-                                                              x0 + g, y0 + g))
-    gy, gx = np.gradient(elev, y0 + g, x0 + g)
-    slope = _up(np.clip(np.hypot(gx, gy), 0.0, 1.0), n)
-    E = _up(elev, n)
-    u = np.where((E <= 0.5) & (slope < 0.02), farfield.WATER_U, farfield.u_from_elev(E))
-    v = 0.5 - 0.47 * slope
-    pal = _w["pal"]
-    far = pal[np.clip((v * pal.shape[0]).astype(np.int64), 0, pal.shape[0] - 1),
-              np.clip((u * pal.shape[1]).astype(np.int64), 0, pal.shape[1] - 1)]
     # share of the ground colours by the distance to the corridor (computed coarse, refined)
     c = np.arange(17) * S / 16
     near = _w["boxes"][(_w["boxes"][:, 2] > x0 - FADE_M[1]) & (_w["boxes"][:, 0] < x0 + S + FADE_M[1]) &
@@ -192,35 +190,77 @@ def _texture(lat0, lon0, gi, gj, path):
     tp = n // per
     ground = far.copy()
     msgs = []
+    # The normal material lookup reads WorldCover again. During an outage the independent polygon
+    # layers still supply the mapped details, in their usual paint order.
+    layers = ((groundcover.landuse, groundcover.land) if polygons_only
+              else (partial(groundcover.materials, water="water"),))
     for a in range(per):
         for b in range(per):
             tx, ty = gi * per + a, gj * per + b
             box = (tx * farfield.BASE, ty * farfield.BASE, (tx + 1) * farfield.BASE, (ty + 1) * farfield.BASE)
             if (tx, ty) in _w["core"] or not len(near) or _box_dist(box, near) >= FADE_M[1]:
                 continue
-            try:
-                m = groundcover.materials(frame, _w["md"], tx, ty, farfield.BASE / tp, water="water")
-            except Exception as e:      # (missing map data: the colour table stays there)
-                msgs.append(f"Distant terrain colours, tile {tx},{ty}: {type(e).__name__}: {e}")
-                continue
-            col = np.zeros(m.shape + (3,), np.float32)
-            for name in np.unique(m):
-                col[m == name] = _w["colors"].get(name, _w["colors"]["gc_meadow"])
             r0, c0 = (per - 1 - b) * tp, a * tp
-            ground[r0:r0 + tp, c0:c0 + tp] = col[::-1]
+            tile = ground[r0:r0 + tp, c0:c0 + tp][::-1]
+            for layer in layers:
+                try:
+                    m = layer(frame, _w["md"], tx, ty, farfield.BASE / tp)
+                except Exception as e:
+                    msgs.append(f"Distant terrain colours, tile {tx},{ty}: {type(e).__name__}: {e}")
+                    continue
+                if m is not None:
+                    for name in np.unique(m):
+                        if name:  # no mapped polygon here: keep the underlying colour
+                            tile[m == name] = _w["colors"].get(name, _w["colors"][groundcover.DEFAULT])
+    return ground * w[..., None] + far * (1 - w[..., None]), msgs
+
+
+def _texture(lat0, lon0, level, i, j, near, path):
+    """Write the square's north-up JPG. Return success and log messages to the build process."""
+    S = farfield.level_size(level)
+    n = TEX_PX if near else TEX_FAR_PX
+    x0, y0 = i * S, j * S
+    frame = geodesy.EnuFrame(lat0, lon0)
+    px = (np.arange(n) + 0.5) * S / n
+    x, y = np.meshgrid(x0 + px, y0 + S - px)
+    lat, lon, _ = frame.enu_to_geodetic(x, y)
+    lon += 360 * np.rint((lon0 - lon) / 360)    # keep the sampled window local across the date line
+    overview = _overview_for_texel(S / n)
+    bounds = (lon.min(), lat.min(), lon.max(), lat.max())
+    msgs = []
+    try:
+        raster = parallel.retry_locked(lambda: _w["md"].rasters.worldcover_box(bounds, overview))
+    except Exception as e:
+        msgs.append(f"Distant terrain {level},{i},{j}: using far palette (WorldCover: {e})")
+        if not near:
+            return False, msgs
+        raster = None
+    codes = raster.sample(lon, lat) if raster is not None else np.zeros(lat.shape, np.uint8)
+
+    g = np.linspace(0, S, HEIGHT_GRID)
+    zoom = farfield.zoom_for_level(LAYOUT, lat0, 1 + level - GROUP_LEVEL)
+    elev, _ = parallel.retry_locked(lambda: heightmap.surface(frame, lambda la, lo: _w["dem"].sample(la, lo, zoom),
+                                                              x0 + g, y0 + g))
+    gy, gx = np.gradient(elev, g, g)
+    slope = _up(np.clip(np.hypot(gx, gy), 0, 1), n)
+    colours = _w["classes"][codes]
+    missing = codes == 0
+    if missing.any():
+        E = _up(elev, n)[missing]
+        u = np.where((E <= 0.5) & (slope[missing] < 0.02), farfield.WATER_U, farfield.u_from_elev(E))
+        pal = _w["pal"]      # flat row supplies base colours; rock is applied below
+        colours[missing] = pal[len(pal) // 2, np.clip((u * pal.shape[1]).astype(int), 0, pal.shape[1] - 1)]
+    if near:
+        colours, details = _near_colours(frame, i, j, colours, polygons_only=raster is None)
+        msgs.extend(details)
     rw = _rock_weight(slope)[..., None]
-    ground = ground * (1 - rw) + np.array(ROCK, np.float32) * rw
-    px = (np.arange(n) + 0.5) * S / n                   # large-scale colour variation like the detail terrain (seamless)
-    ground *= groundcover.macro(*np.meshgrid(x0 + px, y0 + S - px))
-    img = ground * w[..., None] + far * (1 - w[..., None])
+    img = (colours * (1 - rw) + np.asarray(ROCK) * rw) * groundcover.macro(x, y)
     Image.fromarray(np.uint8(np.clip(img, 0, 255) + 0.5)).save(path, quality=90)
-    return msgs
+    return True, msgs
 
 
 def build(tiles_dir, obj_dir, log=print, progress=None):
-    """The distant view to obj_dir/parts/far.obj, its materials into track.mtl (written by make_obj.main), the colour
-    table to textures/far.png and the textures of the near squares to textures/ground_far_<i>_<j>.jpg; returns the
-    path of the part file."""
+    """Write far.obj, its square textures and materials under obj_dir. Return the part path."""
     with open(os.path.join(tiles_dir, "anchor.json"), encoding="utf-8") as f:
         anc = json.load(f)
     core = {tuple(t) for t in anc["tiles"]}
@@ -231,20 +271,25 @@ def build(tiles_dir, obj_dir, log=print, progress=None):
     for t in tiles:
         sh = max(0, GROUP_LEVEL - t.level)
         groups.setdefault((max(t.level, GROUP_LEVEL), t.i >> sh, t.j >> sh), [])
-    textured = [key for key in groups if key[0] == GROUP_LEVEL and
-                _box_dist((key[1] * S, key[2] * S, (key[1] + 1) * S, (key[2] + 1) * S), boxes) < FADE_M[1]]
+    near = {key for key in groups if key[0] == GROUP_LEVEL and
+            _box_dist((key[1] * S, key[2] * S, (key[1] + 1) * S, (key[2] + 1) * S), boxes) < FADE_M[1]}
+    materials = {(level, i, j): (f"ground_far_{i}_{j}" if (level, i, j) in near else f"ground_far_{level}_{i}_{j}")
+                 for level, i, j in groups}
     tex_dir = os.path.join(obj_dir, "textures")
     n = parallel.workers(len(tiles))
-    log(f"Distant terrain: {len(tiles)} tiles up to {RADIUS_M / 1000:.0f} km, {len(textured)} coloured squares, "
+    log(f"Distant terrain: {len(tiles)} tiles up to {RADIUS_M / 1000:.0f} km, {len(materials)} coloured squares, "
         f"{n} processes ...")
     with parallel.pool(n, _init, (os.path.join(ROOT, "cache"), tex_dir, sorted(core))) as ex:
         futs = [ex.submit(_tile, anc["lat"], anc["lon"], t.level, t.i, t.j, anc["dem_zoom"]) for t in tiles]
-        texs = [ex.submit(_texture, anc["lat"], anc["lon"], i, j, os.path.join(tex_dir, f"ground_far_{i}_{j}.jpg"))
-                for _, i, j in textured]
-        for k, fut in enumerate(as_completed(futs + texs), 1):
+        texs = {ex.submit(_texture, anc["lat"], anc["lon"], *key, key in near, os.path.join(tex_dir, name + ".jpg")): key
+                for key, name in materials.items()}
+        for k, fut in enumerate(as_completed([*futs, *texs]), 1):
             got = fut.result()
-            if isinstance(got, list):
-                for m in got:
+            if fut in texs:
+                ok, messages = got
+                if not ok:
+                    del materials[texs[fut]]
+                for m in messages:
                     log(m)
             else:
                 level, i, j, P, UV, T = got
@@ -256,21 +301,22 @@ def build(tiles_dir, obj_dir, log=print, progress=None):
                 log(f"Distant terrain: {k}/{len(futs) + len(texs)}")
     path = os.path.join(obj_dir, "parts", "far.obj")
     obj = make_obj.Obj(path, header=False)
-    textured = set(textured)
     for key, parts in sorted(groups.items()):
         level, i, j = key
         P = np.concatenate([p for p, _, _ in parts])
         off = np.cumsum([0] + [len(p) for p, _, _ in parts[:-1]])
         T = np.concatenate([t + o for (_, _, t), o in zip(parts, off)])
-        if key in textured:         # (UV like the detail terrain: v north, texture row 0 = north)
-            obj.add(f"nocol_far_{level}_{i}_{j}", f"ground_far_{i}_{j}", P, (P[:, :2] - (i * S, j * S)) / S, T)
+        if key in materials:         # v north, texture row 0 = north
+            S = farfield.level_size(level)
+            obj.add(f"nocol_far_{level}_{i}_{j}", materials[key], P, (P[:, :2] - (i * S, j * S)) / S, T)
         else:
             obj.add(f"nocol_far_{level}_{i}_{j}", MATERIAL, P, np.concatenate([uv for _, uv, _ in parts]), T)
     obj.close()
     palette().save(os.path.join(tex_dir, "far.png"))
     with open(os.path.join(obj_dir, "track.mtl"), "a", encoding="utf-8") as f:
         f.write(f"newmtl {MATERIAL}\nKd 1 1 1\nmap_Kd textures/far.png\n\n")
-        for _, i, j in sorted(textured):
-            f.write(f"newmtl ground_far_{i}_{j}\nKd 1 1 1\nmap_Kd textures/ground_far_{i}_{j}.jpg\n\n")
+        for key in sorted(materials):
+            name = materials[key]
+            f.write(f"newmtl {name}\nKd 1 1 1\nmap_Kd textures/{name}.jpg\n\n")
     log(f"Distant terrain: {obj.objects} objects, {obj.nv:,} vertices")
     return path

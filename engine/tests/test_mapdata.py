@@ -687,6 +687,38 @@ class OvertureTest(Sources, SmallBlocks, unittest.TestCase):
         self.assertFalse(os.path.exists(md.path(mf.CELL, "buildings")))      # nothing cached
 
 
+class WorldCoverBoxTest(SmallBlocks, unittest.TestCase):
+    def test_overview_window_across_date_line(self):
+        p = maprasters.WORLDCOVER_PPD // 2
+        files = {}
+        for lon, sw, name in [(179.9999, 177, "N00E177"), (-179.9999, -180, "N00W180")]:
+            cell = mapcells.cell_of(1.0, lon)
+            url = maprasters.WORLDCOVER_URL.format(tile=name)
+            files[url] = mf.worldcover_tiff(0, sw, [cell], overview=True)
+        rasters = maprasters.Rasters(self.tmp, mf.fetcher(mf.Transport(files)))
+        # The box starts inside a pixel on each edge, with two columns on either side of 180°.
+        bounds = (180 - 1.75 / p, 1 - 1.75 / p, 180 + 1.75 / p, 1 + 0.75 / p)
+        native = rasters.worldcover_box(bounds, 0)
+        overview = rasters.worldcover_box(bounds, 1)
+        self.assertEqual(native.data.shape, (6, 8))
+        self.assertEqual(overview.files, ["N00E177", "N00W180"])
+        self.assertEqual((overview.dx, overview.dy), (1 / p, 1 / p))
+        self.assertAlmostEqual(overview.x0, 180 - 2 / p)
+        self.assertAlmostEqual(overview.y0, 1 + 1 / p)
+        cc, rr = np.meshgrid([360 * p - 2, 360 * p - 1, 0, 1], 89 * p + np.arange(-1, 2))
+        expected = mf.worldcover_class(cc * 2, rr * 2)
+        np.testing.assert_array_equal(overview.data, expected)
+        xs, ys = np.meshgrid(180 + (np.arange(4) - 1.5) / p, 1 + (0.5 - np.arange(3)) / p)
+        np.testing.assert_array_equal(overview.sample(xs, ys), expected)
+
+    def test_refuses_uneven_level_six_before_fetch(self):
+        transport = mf.Transport({})
+        rasters = maprasters.Rasters(self.tmp, mf.fetcher(transport))
+        with self.assertRaises(ValueError):
+            rasters.worldcover_box(mf.CELL.bounds(), 6)
+        self.assertEqual(transport.count(), 0)
+
+
 @needs_duckdb
 class RasterLayerTest(Sources, SmallBlocks, unittest.TestCase):
     def test_landcover_and_canopy(self):
