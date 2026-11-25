@@ -32,6 +32,11 @@ test("the left navigation stacks three named icons and marks the current workspa
   await expect(gear).toHaveAccessibleName("Settings");
   await expect(gear).toBeInViewport({ratio: 1});
   const gearBox = (await gear.boundingBox())!;
+  const report = nav.getByRole("button", {name: "Report a bug"});
+  await expect(report).toBeInViewport({ratio: 1});
+  const reportBox = (await report.boundingBox())!;
+  expect(reportBox.x).toBe(gearBox.x);
+  expect(gearBox.y - reportBox.y - reportBox.height).toBe(boxes[1].y - boxes[0].y - boxes[0].height);
   const rail = (await nav.boundingBox())!;
   expect(rail.y + rail.height - gearBox.y - gearBox.height).toBeLessThan(gearBox.height);
   await nav.getByTestId("nav-my-tracks").press("Enter");

@@ -1,5 +1,4 @@
 import {lazy, Suspense, useCallback, useLayoutEffect, useRef, useState, type ReactNode} from "react";
-import {createPortal} from "react-dom";
 import {post} from "./api";
 import styles from "./App.module.css";
 import {BuildPanel} from "./components/BuildPanel";
@@ -205,15 +204,9 @@ export function App() {
   );
 
   const feedback = useFeedback();
-  const [sceneHost, setSceneHost] = useState<HTMLDivElement | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const unread = feedback.reports.some(feedback.unread);
   const openFeedback = () => { setFeedbackOpen(true); void feedback.reload(true); };
-  const reportButton = <button type="button" data-testid="report-bug" className={styles.reportBug} title="Report a bug"
-    aria-label={unread ? "Report a bug · Unread updates" : "Report a bug"} aria-haspopup="dialog"
-    onClick={openFeedback}>
-    <BugIcon size={32} />{unread && <span aria-hidden="true" className={styles.attention}>!</span>}
-  </button>;
   const hint = HINTS[tab === "new" ? track.mode : tab];
 
   return (
@@ -229,6 +222,12 @@ export function App() {
           {workspaceButton("edit", "Editor", "nav-editor", <EditorIcon />)}
           <span className={styles.indicator} data-testid="nav-indicator" aria-hidden="true" />
         </div>
+        <button type="button" data-testid="report-bug" className={`${styles.destination} ${styles.reportBug}`}
+                title="Report a bug" aria-label={unread ? "Report a bug · Unread updates" : "Report a bug"}
+                aria-haspopup="dialog" onClick={openFeedback}>
+          <BugIcon />
+          {unread && <span aria-hidden="true" className={styles.attention}>!</span>}
+        </button>
         <button type="button" data-testid="nav-settings" className={`${styles.destination} ${styles.gear}`}
                 aria-label="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}
                 title={attention ?? "Settings"} onClick={() => setSettingsOpen(true)}>
@@ -292,7 +291,6 @@ export function App() {
       <main className={`${styles.main}${tab !== "edit" ? ` ${styles.withDetails}` : ""}`} inert={settingsOpen}>
         <div className={styles.mapSpace}>
           <TrackMap tab={tab} track={track} picked={picked} move={move} />
-          {tab === "edit" && sceneHost ? createPortal(reportButton, sceneHost) : reportButton}
           {hint && <div data-testid="map-hint" className={styles.hint}>{hint}</div>}
         </div>
         {tab !== "edit" && <aside data-testid="track-details" className={styles.details} aria-label="Track details">
@@ -308,7 +306,7 @@ export function App() {
         {editorSeen && (
           <ErrorBoundary message="The 3D view could not start">
             <Suspense fallback={null}>
-              <EditorScene onSceneHost={setSceneHost} routeTrack={!!editing && editing.kind !== "area"} name={shownEditTrack} title={editing?.title ?? ""} timedMode={timedMode(editing?.kind, editing?.ab_timing)}
+              <EditorScene routeTrack={!!editing && editing.kind !== "area"} name={shownEditTrack} title={editing?.title ?? ""} timedMode={timedMode(editing?.kind, editing?.ab_timing)}
                            taken={tracks.filter(t => t !== editing).map(t => t.title)}
                            built={editing?.built ?? null} visible={tab === "edit"} controls={controls} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost}
                            onStatus={reportEditLoad} onSaved={onSaved} onDelete={() => { if (editing) void deleteTrack(editing); }} />

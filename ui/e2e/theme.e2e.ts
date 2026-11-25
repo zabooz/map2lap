@@ -148,7 +148,7 @@ test("changing appearance leaves the rendered track unchanged", async ({page}) =
   await page.mouse.move(10, 10);
   await page.screenshot({path: test.info().outputPath("light-editor.png")});
   // A canvas screenshot includes HTML over the track. Only the 3D rendering should be theme-independent.
-  const hiddenControls = await page.addStyleTag({content: '[data-tool-options], #sun-clock, [data-testid="report-bug"] { visibility: hidden; }'});
+  const hiddenControls = await page.addStyleTag({content: '[data-tool-options], #sun-clock { visibility: hidden; }'});
   const before = await stillView(page);
   await chooser(page).getByRole("button", {name: "Dark", exact: true}).click();
   await page.mouse.move(10, 10);
