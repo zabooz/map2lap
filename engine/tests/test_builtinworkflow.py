@@ -138,6 +138,7 @@ class WorkflowTest(Base):
         car, fountain = self.add("car_saloon_red"), self.add("fountain")
         self.keep([car, fountain])
         view = trackview.index(self.ac, self.name)
+        self.assertEqual(["mesh", "mesh"], [m["collision"] for m in view["models"]])
         self.assertEqual("car", view["objects"][car["id"]]["kinds"][0])
         trackcopy.save(self.ac, self.name, "car_and_fountain", "Car and fountain")
         target = Path(self.ac, "content/tracks/car_and_fountain")

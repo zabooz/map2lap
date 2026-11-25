@@ -21,15 +21,15 @@ export async function picture(page: Page) {
   return stillView(page, VIEW_ALONE);
 }
 
-/** A point of the view that shows the near tree. */
-export async function findTree(page: Page) {
+/** Find a fixture tree on the centre line of the view. */
+export async function findTree(page: Page, id = NEAR_TREE) {
   const c = await centre(scene(page));
   for (let up = 40; up < c.y - 10; up += 12) {
     await page.mouse.move(c.x - 1, c.y - up);
     await page.mouse.move(c.x, c.y - up);
-    if (await expect(box(page)).toContainText(NEAR_TREE, {timeout: 300}).then(() => true, () => false)) return {x: c.x, y: c.y - up};
+    if (await expect(box(page)).toContainText(id, {timeout: 300}).then(() => true, () => false)) return {x: c.x, y: c.y - up};
   }
-  throw new Error("no tree found");
+  throw new Error(`no tree found: ${id}`);
 }
 
 export async function points(page: Page, at: {x: number; y: number}) {

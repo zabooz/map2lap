@@ -375,23 +375,18 @@ test("read again from a tree deleted alone to only its whole sort: the tree stay
   await expect.poll(async () => (await picture(page)).equals(empty)).toBe(true);
 });
 
-test("a tree deleted by itself stays out when its sort comes back", async ({page}) => {
-  test.slow();                          // (the mouse feels its way to the far tree)
+test("a tree deleted by itself stays out when its sort comes back", async ({page, backend}) => {
+  // The near spruce stands in front of the other, so both are reachable from the starting view.
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", tree_positions: [[128, -160], [128, -115]]});
   await openEditor(page);
+  const both = await picture(page);
   await deleteTree(page);
   const one = await picture(page);
-  const c = await centre(scene(page));
-  let far: {x: number; y: number} | null = null;       // (the far tree stands left of the road, high in the view)
-  for (let x = c.x - 520; x < c.x - 200 && !far; x += 18) {
-    for (let y = c.y - 370; y < c.y - 230 && !far; y += 18) {
-      await page.mouse.move(x - 1, y);
-      await page.mouse.move(x, y);
-      if (await expect(box(page)).toContainText(FAR_TREE, {timeout: 150}).then(() => true, () => false)) far = {x, y};
-    }
-  }
-  expect(far).not.toBeNull();
-  await deleteAllOf(page, far!);
+  expect(one.equals(both)).toBe(false);
+  const remaining = await findTree(page, FAR_TREE);
+  await deleteAllOf(page, remaining);
   await expect(page.locator("#edit-sorts")).toBeVisible();
+  await expect.poll(async () => (await picture(page)).equals(one)).toBe(false);
   await page.keyboard.press("Control+z");
   await expect.poll(async () => (await picture(page)).equals(one)).toBe(true);
 });
