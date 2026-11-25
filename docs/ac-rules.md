@@ -185,7 +185,17 @@ level. Mapped roundabouts and circular roads, including rings recognized from th
 keep their entry, circulation and exit even on a painted island. Separate fillets remain at distinct direction
 changes, when matching road widths are missing, or when the replacement fails.
 The racing line minimises squared horizontal curvature by moving samples across the full closed carriageway.
-Each moved centre needs 1 m for the half-car plus 1.5 m tracking reserve on both sides. The reference line’s
+The solver stops each curvature linearisation when both its relative energy change and the possible remaining
+gain within the offset bounds are at most 0.1%. A long gentle bend can start on an energy plateau.
+Each moved centre needs 1 m for the half-car plus 1.5 m tracking reserve on both sides. On collision terrain,
+up to 1 m of that reserve may cross a single inward raster tooth if full-width ground resumes on both sides
+within one cell diagonal along the line. The car retains at least 1.5 m of physical floor on the affected side.
+The proposal and final sweep apply the same rule. Decks, raised walks and walls keep their full clearance.
+For passing, SideLeft and SideRight stop at the visible mapped edge (half the road width plus 0.2 m)
+or at an earlier physical limit. The 1 m physics-grid allowance belongs to line fitting. Where only
+a built deck or stitch supplies a width, its measured edge bounds both. At an abutment, a slab under
+the traversed deck can project onto lower ground ahead. A failed car-width sweep excludes only slab
+faces whose entire swept footprint lies below the supporting deck. The reference line’s
 own measured sides and the selected route legs bound the move through junctions. Grid positions, timing
 crossings and circulating lanes stay pinned. Every final chord is checked on its driving level, and widths
 are measured again on the resulting line. Where a move fails, the original car-width-checked line resumes

@@ -24,10 +24,39 @@ class LaneCodeVersionTest(unittest.TestCase):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (9, "e48d92b5b7244050948d77ef7794b337c0ec6da0e32448fe48b558f0e19ab358")
+        expected = (13, "e23d0685be9e7e1255b53c5cdf532a5fd50866a59e2d85eda9fbe9eb96c79bf5")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments or refactors proven to preserve the generated line, update only the digest.")
+
+
+class RacingSolverTest(unittest.TestCase):
+    def solve(self, heading):
+        spacing = 1.5
+        centre = spacing * np.cumsum(np.column_stack((np.cos(heading), np.sin(heading))), axis=0)
+        tangent = np.gradient(centre, axis=0)
+        side = tangent[:, ::-1] * [-1, 1] / np.linalg.norm(tangent, axis=1)[:, None]
+        room = np.full(len(centre), .95)
+        offset = fastlane.airacing.offsets(centre, side, -room, room, False)
+        path = centre + side * offset[:, None]
+        curvature = fastlane.airacing._curvature(path[:-2], path[1:-1], path[2:])
+        return offset, spacing * (curvature**2).sum()
+
+    def test_winding_road_reaches_both_apices_and_converged_energy(self):
+        metres = np.arange(0, 1500, 1.5)
+        offset, energy = self.solve(.6*np.sin(2*np.pi*metres/300) + .3*np.sin(2*np.pi*metres/130))
+        # Reference integral on this fixture with 20,000 steps and eight linearisations.
+        self.assertLessEqual(energy, 1.01 * .225368)
+        # Strong interior right and left apices on the centreline.
+        np.testing.assert_allclose(offset[[302, 605]], [-.95, .95], atol=.01)
+
+    def test_long_motorway_bends_do_not_stop_at_the_initial_energy_plateau(self):
+        # Two full waves with 600 m between opposite apices and minimum radius 637 m.
+        metres = np.arange(0, 2400, 1.5)
+        offset, energy = self.solve(.30*np.sin(2*np.pi*metres/1200))
+        # Reference integral with 80,000 steps and eight linearisations.
+        self.assertLessEqual(energy, 1.01 * .00257853)
+        np.testing.assert_allclose(offset[[400, 800, 1200]], [-.95, .95, -.95], atol=.01)
 
 
 class AILineTest(unittest.TestCase):
@@ -38,7 +67,7 @@ class AILineTest(unittest.TestCase):
         self.lane = self.folder / "ai/fast_lane.ai"
 
     def write_track(self, route, *, circuit=False, road_start=-10, road_end=120, prefix="AC", height=9,
-                    strips=None, grid=None, obstacles=(), splits=()):
+                    strips=None, grid=None, obstacles=(), splits=(), mapped_width=None):
         forward = (1, 0, 0)
         root = obj_to_kn5.empty("root", (0, 0, 0), (0, 0, 1))
         grid = grid or [(x, 10, forward) for x in (17, 9, 1)]
@@ -64,10 +93,180 @@ class AILineTest(unittest.TestCase):
         (self.folder / "data/map2lap_route.txt").write_text(
             "anchor 0 0\n" + "".join(f"{x} {z}\n" for x, z in route))
 
+        if mapped_width is not None:
+            tile = self.folder / "roads.zip"
+            features = [{"spec": {"width": mapped_width}, "geometry": [[list(a), list(b)]]}
+                        for a, b in zip(route, route[1:])]
+            with ZipFile(tile, "w") as archive:
+                archive.writestr("tile.json", json.dumps({"features": features}))
+            editorinfo._publish(self.model, [("0_0", tile)])
+
     def generate(self, circuit=False):
         log = []
         fastlane.regenerate(self.model, circuit=circuit, log=log.append)
         return log
+
+    def gravel_bend(self, width):
+        path = np.array([[0., 0.], [80., 0.], [80., 80.]])
+        metres = fastlane._distances(path)
+        vertices = np.array([[-200., 0., -200.], [200., 0., -200.], [200., 0., 200.], [-200., 0., 200.]])
+        roads = {"1GRAVEL_ground": (None, vertices, None, np.array([[0, 1, 2], [0, 2, 3]]))}
+        road = fastlane._local_roads(roads)
+        rounded = fastlane._rounded(path, metres, np.array([True, False, True]), (metres, np.zeros(3)),
+                                    road, [(path, width)], ownership=True)
+        return rounded, path, road
+
+    def test_reference_car_stays_in_its_mapped_band_over_gravel(self):
+        (xz, _, half, _), _, _ = self.gravel_bend(5.5)
+        gap = np.minimum(abs(xz[:, 1]), abs(xz[:, 0] - 80))
+        np.testing.assert_allclose(half, 5.5 / 2 + 1.0)
+        self.assertLessEqual(gap.max() + fastlane.FILLET_CLEARANCE, half.min())
+        self.assertGreater(gap.max(), .1, "use the room for a supported arc")
+
+    def test_narrow_band_retains_its_centre_at_a_corner(self):
+        (xz, _, _, _), path, _ = self.gravel_bend(3)
+        np.testing.assert_array_equal(xz, path)
+
+    def test_narrow_surveyed_curve_keeps_the_centre_without_steering_at_each_map_knot(self):
+        # A 12 m radius hairpin sampled at 15 degree intervals on a 3 m road.
+        _, _, road = self.gravel_bend(3.)
+        angle = np.linspace(0., np.pi, 13)
+        path = 12 * np.column_stack((np.cos(angle), np.sin(angle)))
+        metres = fastlane._distances(path)
+        fixed = np.zeros(len(path), bool)
+        fixed[[0, -1]] = True
+        curve = fastlane._rounded(path, metres, fixed, (metres, metres * 0), road, [(path, 3.)])
+        for centre in path:
+            self.assertLess(np.linalg.norm(curve - centre, axis=1).min(), 1e-8)
+        stations = fastlane._distances(curve)
+        xz = fastlane._at(curve, stations, np.arange(0, stations[-1], fastlane.SPACING))
+        # On the established part of the circle the car should track the surveyed radius.
+        radius = 1 / np.maximum(abs(fastlane._curvature(xz, 1, False)[4:-4]), 1e-8)
+        np.testing.assert_allclose(radius, 12, rtol=.10)
+
+    def test_width_uses_owned_leg_when_the_offset_line_has_no_map_match(self):
+        # The centre is outside the bare 2.75 m match radius, inside the painted edge.
+        xyz = np.array([[0., 2.8], [5., 2.8]])
+        side = np.tile([0., -1.], (2, 1))
+        start, end = np.tile([-20., 0.], (2, 1)), np.tile([20., 0.], (2, 1))
+        ribbon = fastlane.airacing.RouteRibbon(None, start, end, np.full(2, 2.95), None, [], None, ())
+        widths = fastlane._own_widths(xyz, side, np.full((2, 2), 200.), [], False, route=ribbon)
+        np.testing.assert_allclose(widths, [[5.75, .15]] * 2)
+
+    def test_visible_cap_cannot_reopen_a_collision_side_opening(self):
+        # A spur in the raw collision area exceeds the side-opening threshold. Clipping
+        # its paint first could hide that spur from the neighbour-width check.
+        physical = np.full((9, 2), 3.)
+        physical[4, 0] = 6.
+        painted = np.full_like(physical, 2.95)
+        painted[4, 0] = 4.8
+        widths = fastlane._export_widths(physical, np.full_like(physical, 10.), painted, np.zeros(9, bool), False)
+        self.assertLessEqual(widths[4, 0], 3.)
+        self.assertTrue((widths <= painted).all())
+
+    def test_only_a_mapped_mouth_can_interpolate_past_its_own_band(self):
+        x = np.arange(9.)
+        xz = np.column_stack((x, x*0))
+        side = np.tile([0., 1.], (len(x), 1))
+        half = np.where(x == 4, 3., 4.)
+        ribbon = fastlane.airacing.RouteRibbon(None, xz - [1,0], xz + [1,0], half, x, [], None, ())
+        for mouth, expected in (([], 3.), ([(4., 0., .25)], 4.)):
+            limits = fastlane._own_widths(xz, side, np.full((len(x), 2), 200.), mouth, False, route=ribbon)
+            np.testing.assert_allclose(limits[4], expected)
+
+    def test_finite_span_matches_clipped_full_span_with_one_local_query(self):
+        _, _, road = self.gravel_bend(5.5)
+        calls = []
+        def lookup(x, z, margin):
+            calls.append(margin)
+            return road(x, z, margin)
+        point, side = np.zeros(3), np.array([1., 0., 0.])
+        full = fastlane._span(road, point, side, 0)[:2]
+        span = fastlane._span(lookup, point, side, 0, limits=(2.95, 1.5))[:2]
+        np.testing.assert_allclose(span, [max(full[0], -1.5), min(full[1], 2.95)])
+        self.assertEqual(calls, [3])
+
+    def test_absent_band_reports_route_metres_and_only_exports_the_checked_car(self):
+        self.write_track([(20, 10), (80, 10)])
+        log = self.generate()
+        self.assertRegex(" ".join(log), r"no road band at route metres? -?\d")
+        _, detail, _ = fastlane.read_lane(self.lane)
+        np.testing.assert_allclose(detail["left"], fastlane.CAR_HALF_WIDTH)
+        np.testing.assert_allclose(detail["right"], fastlane.CAR_HALF_WIDTH)
+
+    def test_built_ribbon_ends_at_its_own_edges_above_gravel(self):
+        faces = np.array([[0, 1, 2], [0, 2, 3]])
+        ground = np.array([[-30., 0., -80.], [130., 0., -80.], [130., 0., 80.], [-30., 0., 80.]])
+        path = np.array([[0., 0.], [100., 0.]])
+        metres = fastlane._distances(path)
+        for name in fastlane.aicorridor.BUILT:
+            # The road reaches the deck over a diagonal joint. Its lateral edges are 3 m from the axis.
+            deck = np.array([[0., 0., -3.], [102., 0., -3.], [102., 0., 3.], [4., 0., 3.]])
+            road = fastlane._local_roads({name: (None, deck, None, faces), "1GRAVEL_ground": (None, ground, None, faces)})
+            for mapped in ([], [(path, 5.5)], [(path, 16.)]):
+                (_, _, half), _ = fastlane._leg_bands(path, metres, (metres, [0., 0.]), road, mapped)
+                np.testing.assert_allclose(half, [3.])
+            side = np.array([0., 0., 1.])
+            np.testing.assert_allclose(fastlane._span(road, np.array([50., 0., 0.]), side, 50, (8.,8.))[:2], [-3.,3.])
+            self.assertTrue(fastlane._fits_chord(road, np.array([1.5, 0., 0.]), np.array([3., 0., 0.]), 1.))
+
+    def test_export_uses_visible_road_edge_while_solver_keeps_physics_band(self):
+        import surface
+        self.write_track([(-10, 10), (120, 10)], mapped_width=6.5)
+        self.generate()
+        _, detail, _ = fastlane.read_lane(self.lane)
+        for side in ("left", "right"):
+            np.testing.assert_allclose(detail[side], 3.25 + surface.PHOTO_ROAD_EDGE_M, atol=1e-5)
+        (_, _, solver_half, _), _, _ = self.gravel_bend(6.5)
+        np.testing.assert_allclose(solver_half, 3.25 + fastlane.AI_ROAD_EDGE_M)
+
+    def test_swept_car_crosses_buried_slab_at_deck_end_but_still_hits_wall(self):
+        # At the abutment the lower terrain beside the car becomes exposed. The slab
+        # behind it is covered by the deck over its entire footprint.
+        faces = np.array([[0, 1, 2], [0, 2, 3]])
+        def strip(x0, x1, z0, z1, y0, y1):
+            vertices = [[x0,y0,z0], [x1,y0,z0], [x1,y1,z1], [x0,y1,z1]]
+            return None, np.array(vertices, float), None, faces
+        meshes = {"1ROAD_deck": strip(-8, 0, -4, 4, 0, 0),
+                  "1WALL_slab": strip(-8, 0, -4, 4, -.5, -.5),
+                  "1ROAD_ground_main": strip(-8, 8, -4, .2, 0, 0),
+                  "1ROAD_ground_side": strip(-8, 8, .2, 4, 0, -3.8)}
+        chord = np.array([[-.65, 0., 0.], [.85, 0., 0.]])
+        self.assertTrue(fastlane._fits_chord(fastlane._local_roads(meshes), *chord, 1.))
+        meshes["1WALL_post"] = strip(-.32, -.30, .8, .8, -.1, 1.)
+        self.assertFalse(fastlane._fits_chord(fastlane._local_roads(meshes), *chord, 1.))
+        del meshes["1WALL_post"]
+        meshes["1WALL_slab"] = strip(-8, .5, -4, 4, -.5, -.5)
+        self.assertFalse(fastlane._fits_chord(fastlane._local_roads(meshes), *chord, 1.))
+
+    def test_ai_road_edge_controls_band_and_fingerprint(self):
+        from unittest.mock import patch
+        import surface
+        from track import ailinestate
+        self.write_track([(20, 10), (80, 10)], mapped_width=6)
+        inputs = fastlane.lane_inputs(self.model, False, print)
+        old = ailinestate.fingerprint(inputs, False)
+        with patch.object(surface, "PHOTO_ROAD_EDGE_M", surface.PHOTO_ROAD_EDGE_M * 2):
+            self.assertNotEqual(old, ailinestate.fingerprint(inputs, False))
+        with patch.object(fastlane, "AI_ROAD_EDGE_M", .6):
+            (_, _, half, _), _, _ = self.gravel_bend(5.5)
+            np.testing.assert_allclose(half, 5.5 / 2 + .6)
+            self.assertNotEqual(old, ailinestate.fingerprint(inputs, False))
+
+    def test_road_bound_preview_only_queries_the_owned_band(self):
+        from unittest.mock import patch
+        from server_editor import _move_preview
+        self.write_track([(-10, 10), (120, 10)], mapped_width=8)
+        self.generate()
+        move = {"id": "nudge", "kind": "move", "free": False, "range": 10, "routeOffset": .3,
+                "anchor": {"metre": 60, "level": 9, "origin": [0,0], "context": [[45,10],[50,10],[55,10]]}}
+        with patch.object(fastlane, "_span", wraps=fastlane._span) as span:
+            preview = _move_preview(self.model, {"aiCorrections": [move]})
+            self.assertFalse(preview["skipped"])
+            self.assertTrue(preview["samples"])
+            for call in span.call_args_list:
+                self.assertIsNotNone(call.args[4])
+                self.assertLess(max(call.args[4]), 4 + fastlane.AI_ROAD_EDGE_M + .5)  # includes the .3 m move and its tangent
 
     def test_saved_move_survives_calculation_on_its_racing_line_and_invalidates_metadata(self):
         from track import ailinestate
@@ -327,9 +526,11 @@ class AILineTest(unittest.TestCase):
         np.testing.assert_array_equal(points["id"], np.arange(len(points)))
         np.testing.assert_allclose(np.diff(points["length"]), np.linalg.norm(np.diff(xyz, axis=0), axis=1), atol=1e-5)
         np.testing.assert_allclose(detail["length"][[0, -1]], 0)
-        np.testing.assert_allclose(detail["left"], 10)   # up × forward points towards decreasing Z here
-        np.testing.assert_allclose(detail["right"], 45)
-        self.assertEqual(b"", tail)
+        np.testing.assert_allclose(detail["left"], fastlane.CAR_HALF_WIDTH)
+        np.testing.assert_allclose(detail["right"], fastlane.CAR_HALF_WIDTH)
+        self.assertEqual(bytes(4), tail)  # v7 HasGrid = 0 after the detail records.
+        self.assertEqual(16 + len(points)*20 + 4 + len(points)*fastlane.DETAIL.itemsize + 4,
+                         self.lane.stat().st_size)
         self.assertRegex(log[-1], r"AI line: \d+ points in")
 
     def test_open_line_follows_the_saved_bent_runout_to_its_end(self):
@@ -450,7 +651,8 @@ class AILineTest(unittest.TestCase):
         editorinfo._publish(self.model, [("0_0", tile)])
         scan = kn5.scan(self.model)
         road = fastlane._local_roads(fastlane._roads(self.model, scan["meshes"]))
-        _, reference, _ = fastlane._sample(route, scan["points"], True, road)
+        mapped, rings = fastlane.aibends.lane_roads(editorinfo.archives(self.model), print)
+        _, reference, _ = fastlane._sample(route, scan["points"], True, road, mapped, rings)
         self.assertTrue(fastlane.regenerate(self.model, circuit=True, log=log))
         p, d, _ = fastlane.read_lane(self.lane)
         return reference.astype("f4"), p["pos"][:, [0, 2]], d
@@ -533,7 +735,7 @@ class AILineTest(unittest.TestCase):
 
     def test_corner_is_rounded_with_room_for_both_sides_of_the_car(self):
         strips = [(-10, 60, 5, 15), (50, 60, 5, 50), (3, 60, 40, 50), (3, 13, 5, 50)]
-        self.write_track([(8, 10), (55, 10), (55, 45), (8, 45), (8, 10)], circuit=True, strips=strips)
+        self.write_track([(8, 10), (55, 10), (55, 45), (8, 45), (8, 10)], circuit=True, strips=strips, mapped_width=10)
         self.generate(circuit=True)
         points, detail, _ = fastlane.read_lane(self.lane)
         xz = points["pos"][:, [0, 2]]
@@ -564,7 +766,7 @@ class AILineTest(unittest.TestCase):
     def test_wall_cuts_road_at_car_height_only_and_racing_kerb_is_passable(self):
         def slab(z, low, high):
             return [(25, low, z), (70, low, z), (70, high, z), (25, high, z)]
-        self.write_track([(20, 10), (80, 10)], obstacles=[
+        self.write_track([(20, 10), (80, 10)], mapped_width=12, obstacles=[
             ("1WALL_parked_car", slab(13, 9.2, 10.4)),
             ("1WALL_tunnel_roof", slab(11, 14, 15)),
             ("1WALL_lower_road", slab(11, 5, 8)),
@@ -575,6 +777,91 @@ class AILineTest(unittest.TestCase):
         p, d, _ = fastlane.read_lane(self.lane)
         middle = (p["pos"][:, 0] > 30) & (p["pos"][:, 0] < 65)
         np.testing.assert_allclose(d["right"][middle], 3)
+
+    def test_ground_teeth_only_use_tracking_reserve_with_broad_floor_on_both_sides(self):
+        # A box-shaped bite starting halfway between two stored samples. The rotated
+        # case reaches the diagonal length of one terrain cell along the driving line.
+        from acgrid import CELL
+        faces = np.array([[0, 1, 2], [0, 2, 3]])
+        for length, depth, angle, obstacle, fits in (
+            (CELL, 1., 0., None, True), (CELL*np.sqrt(2), .9, np.pi/4, None, True),
+            (4., .8, 0., None, False), (6., .8, 0., None, False), (CELL, 1.1, 0., None, False),
+            (CELL, .8, 0., "1WALL_post", False), (CELL, .8, 0., "1KERB_walkcol_0", False),
+        ):
+            with self.subTest(length=length, depth=depth, angle=angle, obstacle=obstacle):
+                # The broad flanks contain the requested 2.5 m reserve on both sides.
+                rim = fastlane.RACING_CLEARANCE
+                outline = [(-8, -4), (8, -4), (8, rim), (length, rim),
+                           (length, rim-depth), (0, rim-depth), (0, rim), (-8, rim)]
+                triangles = np.array([[0, 1, 5], [1, 4, 5], [1, 2, 4], [2, 3, 4], [0, 5, 6], [0, 6, 7]])
+                def xyz(points):
+                    x, z = np.array(points).T
+                    return np.column_stack((x*np.cos(angle)-z*np.sin(angle), x*0, x*np.sin(angle)+z*np.cos(angle)))
+                meshes = {"1ROAD_ground_0_0": (None, xyz(outline), None, triangles)}
+                if obstacle:
+                    post = xyz([(.1, 2), (.2, 2), (.2, 2), (.1, 2)])
+                    post[2:, 1] = 1.
+                    meshes[obstacle] = None, post, None, faces
+                road = fastlane._local_roads(meshes)
+                start, end = xyz([(-.5, 0), (1, 0)])
+                self.assertEqual(fits, fastlane._fits_chord(road, start, end, rim, tracking=True))
+
+                # Give the proposal the same requested width and inspect the offending
+                # side at a stored point, independently of the swept chord above.
+                base = xyz([(-1.35, 0), (.15, 0), (1.65, 0)])
+                sides = fastlane._frame(base, False)[3]
+                raw, tracking = fastlane._tracking_spans(base, sides, [0, 1.5, 3], road, False, np.full((3, 2), rim))
+                self.assertLess(-raw[1][0], rim)
+                self.assertEqual(fits, tracking[1, 1] >= rim-1e-8)
+
+                if angle == 0.:
+                    from unittest.mock import patch
+                    # Force the same straight translated candidate through the full end
+                    # check. An invalid proposal must take the local repair path.
+                    metres = np.arange(0., 12.1, 1.5)
+                    base = xyz([(m-6, -.4) for m in metres])
+                    axis = base[:, fastlane.XZ]
+                    ribbon = fastlane.airacing.RouteRibbon(np.zeros(len(base), bool), axis-[8, 0], axis+[8, 0],
+                                                           np.full(len(base), 5.), metres, [], None, ())
+                    shift = np.full(len(base), -.4 + fastlane.GRID_XZ_TOL)
+                    with patch.object(fastlane.airacing, "offsets", return_value=shift), \
+                         patch.object(fastlane, "_restore", wraps=fastlane._restore) as restore:
+                        points, _ = fastlane._racing_records(base, metres, road, False, [], ribbon, lambda _: None)
+                    self.assertEqual(not fits, restore.called)
+                    if fits:
+                        np.testing.assert_allclose(points["pos"][:, 2], -fastlane.GRID_XZ_TOL, atol=1e-7)
+
+    def test_oblique_line_crosses_a_single_axis_aligned_ground_cell(self):
+        # One missing 2 x 2 m cell on an otherwise straight shoulder. At 15 degrees
+        # the tracking edge spends 2 / cos(15°) = 2.07 m in the cell.
+        angle = np.deg2rad(15.)
+        forward = np.array([np.cos(angle), 0., np.sin(angle)])
+        left = np.array([-np.sin(angle), 0., np.cos(angle)])
+        edge = np.array([1., 0., .6])
+        centre = edge - fastlane.RACING_CLEARANCE * left
+        xs = [-10, 0, 2, 10]
+        zs = [-10, 0, 2]
+        vertices = np.array([(x, 0., z) for z in zs for x in xs])
+        triangles = []
+        for row in range(2):
+            for col in range(3):
+                if (row, col) != (1, 1):
+                    a = 4*row + col
+                    triangles.extend(((a, a+1, a+5), (a, a+5, a+4)))
+        meshes = fastlane._RoadMeshes({"1ROAD_ground_0_0": (None, vertices, None, np.array(triangles))})
+        for cell, expected in ((2, True), (1, False)):
+            meshes.cell = cell
+            road = fastlane._local_roads(meshes)
+            self.assertEqual(expected, fastlane._fits_chord(road, centre-forward, centre+forward,
+                                                             fastlane.RACING_CLEARANCE, tracking=True))
+
+    def test_installed_terrain_grid_changes_the_line_fingerprint(self):
+        from track import ailinestate
+        self.write_track([(20, 10), (80, 10)], mapped_width=6)
+        fingerprint = lambda: ailinestate.fingerprint(fastlane.lane_inputs(self.model, False, print), False)
+        original = fingerprint()
+        (self.folder / "data/map2lap.json").write_text(json.dumps({"terrain_cell_m": 1}))
+        self.assertNotEqual(original, fingerprint())
 
     def test_thin_post_between_samples_blocks_the_swept_car_on_a_straight(self):
         post = [(41.2, 9., 10.5), (41.21, 9., 10.5), (41.21, 10., 10.5), (41.2, 10., 10.5)]
@@ -614,11 +901,11 @@ class AILineTest(unittest.TestCase):
         self.assertIn("car width", log[-1])
 
     def test_side_street_does_not_widen_the_main_road(self):
-        self.write_track([(20, 10), (80, 10)], strips=[(-10, 120, 5, 15), (45, 55, 15, 315)])
+        self.write_track([(-10, 10), (120, 10)], mapped_width=10, strips=[(-10, 120, 5, 15), (45, 55, 15, 315)])
         self.generate()
         points, detail, _ = fastlane.read_lane(self.lane)
         across_junction = np.abs(points["pos"][:, 0] - 50) < 4
-        np.testing.assert_allclose(detail["right"][across_junction], 5, atol=0.1)
+        np.testing.assert_allclose(detail["right"][across_junction], 5.2, atol=0.01)
         np.testing.assert_allclose(detail["left"], 5, atol=0.1)
 
     def test_mapped_road_excludes_the_extra_collision_strip(self):
@@ -631,8 +918,8 @@ class AILineTest(unittest.TestCase):
         editorinfo._publish(self.model, [("0_0", tile)])
         self.generate()
         _, detail, _ = fastlane.read_lane(self.lane)
-        np.testing.assert_allclose(detail["left"], 5, atol=0.1)
-        np.testing.assert_allclose(detail["right"], 3, atol=0.1)
+        np.testing.assert_allclose(detail["left"], 5.2, atol=0.01)
+        np.testing.assert_allclose(detail["right"], 3.2, atol=0.01)
 
     def test_route_starts_at_rear_slot_if_its_run_in_has_no_road(self):
         self.write_track([(20, 10), (80, 10)], road_start=0)
@@ -680,7 +967,7 @@ class AILineTest(unittest.TestCase):
         rim = np.arange(1, len(island))
         roads["1KERB_walkcol_island"] = None, island, None, np.column_stack((np.zeros_like(rim), rim, np.roll(rim, -1)))
         road = fastlane._local_roads(roads)
-        stations, xz, height = fastlane._sample(path, {"AC_TIME_0_L": root, "AC_TIME_0_R": right}, True, road)
+        stations, xz, height = fastlane._sample(path, {"AC_TIME_0_L": root, "AC_TIME_0_R": right}, True, road, [(np.vstack((path, path[0])), 12)])
         xyz = fastlane._surface(stations, xz, road, height, True)
         _, detail = fastlane._records(xyz, stations, road, True)
         np.testing.assert_allclose(detail["radius"][25:325], 100, atol=6)
@@ -695,7 +982,7 @@ class AILineTest(unittest.TestCase):
         roads = {"1ROAD_corner": (None, vertices, None, np.array([[0, 1, 2], [0, 2, 3]]))}
         road = fastlane._local_roads(roads)
         rounded = fastlane._rounded(path, metres, np.array([True, False, False, True]),
-                                    (metres, np.zeros(len(path))), road)
+                                    (metres, np.zeros(len(path))), road, [(path, 20)])
         x, z = rounded[1]
         # Sharing the 9 m chord equally cuts just 4.5 m from the sharp corner. The gentle bend needs about 0.75 m.
         self.assertGreater(40 - x, 8)

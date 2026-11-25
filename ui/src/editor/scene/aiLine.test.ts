@@ -1,7 +1,7 @@
 import {expect, test} from "bun:test";
 import {Vector3} from "three";
 import type {Place} from "../types";
-import {laneBand, laneEdges, laneSpeedColour, pickLanePoint, SPEED_COLOURS} from "./aiLine";
+import {displayEdges, laneBand, laneEdges, laneSpeedColour, pickLanePoint, SPEED_COLOURS} from "./aiLine";
 
 test("speed colours reach the ends of the legend and a constant speed has a defined colour", () => {
   expect(laneSpeedColour(3, 5, 25).getHexString()).toBe(SPEED_COLOURS[0].slice(1));
@@ -13,6 +13,33 @@ test("speed colours reach the ends of the legend and a constant speed has a defi
 test("the lane sides use separate horizontal widths and follow a bank", () => {
   expect(laneEdges([10, 4, 30], [1, 0], [0, 1, 0.25], 2, 4))
     .toEqual([[10, 4.5, 28], [10, 3, 34]]);
+});
+
+test("display smooths raster teeth on a bank while preserving the measured samples and a sustained narrowing", () => {
+  const at: Place[] = Array.from({length:31}, (_, i) => [i * 1.5, 0, 0]);
+  const widths = at.map((_, i) => i >= 16 ? 2 : 3 + (i % 2 ? .6 : -.6));
+  const raw = at.map((p, i) => laneEdges(p, [1, 0], [0, 1, .2], widths[i], 4));
+  const edges = displayEdges(at, raw, false);
+  for (let i = 4; i < 12; i++) {
+    expect(Math.abs(edges[i][0][2] + 3)).toBeLessThan(.1);
+    expect(edges[i][0][1]).toBeCloseTo(-.2 * edges[i][0][2]);
+    expect(raw[i][0][2]).toBeCloseTo(-widths[i]);
+    expect(edges[i][1]).toEqual(raw[i][1]);
+  }
+  expect(edges[0]).toEqual(raw[0]);
+  expect(edges[24]).toEqual(raw[24]);
+  expect(edges[at.length-1]).toEqual(raw[at.length-1]);
+});
+
+test("display smooths across the lap seam just like any other part of a circuit", () => {
+  const n = 40;
+  const at: Place[] = Array.from({length:n}, (_, i) => [10*Math.cos(i*2*Math.PI/n), 0, 10*Math.sin(i*2*Math.PI/n)]);
+  const raw = at.map((p, i) => laneEdges(p, [-p[2], p[0]], [0, 1, 0], i ? 3 : 4, 2));
+  const rotate = <T,>(rows:T[]) => [...rows.slice(10), ...rows.slice(0,10)];
+  const edges = displayEdges(at, raw, true);
+  expect(edges[0][0][0] - at[0][0]).toBeLessThan(3.5);
+  const rotated = displayEdges(rotate(at), rotate(raw), true);
+  for (let i=0; i<n; i++) expect(rotated[i][0][0]).toBeCloseTo(rotate(edges)[i][0][0], 8);
 });
 
 test("the speed band joins both side limits and closes only on a circuit", () => {

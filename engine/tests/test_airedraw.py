@@ -69,8 +69,8 @@ class RedrawTest(unittest.TestCase):
         self.write_track([(20,10),(80,10)], splits=[("AC_TIME_1",50)])
         self.generate()
         automatic = self.lane.read_bytes()
-        # The same unedited KN5 exported with lane code version 5.
-        self.assertEqual("12e9dd84907c2e41c88d7f6472ca8965812f61f1e73c74a7ca883d0bf57a9bd3",
+        # The unedited manifest-free footprint includes the v7 no-grid field after the detail records.
+        self.assertEqual("8270d327c56886b2f52fbbe8cd108d41be10f14c6d2db5071482abb34735afa3",
                          hashlib.sha256(automatic).hexdigest())
         for offset in (.3, 8):
             edits = [dict(id="side", kind="move", free=False, range=10, routeOffset=-offset,
@@ -90,7 +90,7 @@ class RedrawTest(unittest.TestCase):
 
     def test_preview_side_edges_match_the_saved_line_at_the_drawn_samples(self):
         from server_editor import _move_preview
-        self.write_track([(20,10),(20,10),(80,10)], strips=[(-10,120,0,25)])
+        self.write_track([(20,10),(20,10),(80,10)], strips=[(-10,120,0,25)], mapped_width=6.5)
         for edit in (self.redraw(20,40,[[50,9,11]]),
                      dict(id="side",kind="move",free=False,range=10,routeOffset=-1,anchor=self.anchor(30))):
             self.save(edit)
@@ -100,6 +100,8 @@ class RedrawTest(unittest.TestCase):
             pts, detail, _ = fastlane.read_lane(self.lane)
             for x,y,z,yellow,lx,ly,lz,rx,ry,rz in rows[1:-1]:
                 i = np.linalg.norm(pts["pos"]-[x,y,z],axis=1).argmin()
+                self.assertAlmostEqual(lz, 10 - 3.45, delta=.01)
+                self.assertAlmostEqual(rz, 10 + 3.45, delta=.01)
                 self.assertAlmostEqual(detail["left"][i], np.hypot(lx-x,lz-z),delta=.01)
                 self.assertAlmostEqual(detail["right"][i], np.hypot(rx-x,rz-z),delta=.01)
 

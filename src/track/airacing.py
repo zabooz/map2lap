@@ -20,6 +20,8 @@ class RouteRibbon(NamedTuple):
     splits: tuple
     finish: float | None = None  # The actual stage gate can precede the end of the saved route.
 
+    painted: tuple | None = None  # Mapped axis endpoints and visible half-width at each sample.
+
 
 def _curvature(a, b, c):
     """Signed inverse circumradius at b for arrays of three consecutive X/Z samples. Pure."""
@@ -27,6 +29,56 @@ def _curvature(a, b, c):
     scale = np.linalg.norm(u, axis=1) * np.linalg.norm(v, axis=1) * np.linalg.norm(c - a, axis=1)
     return np.divide(2 * (u[:, 0]*v[:, 1] - u[:, 1]*v[:, 0]), scale,
                      out=np.zeros_like(scale), where=scale > 0)
+
+
+def _solve_offsets(x, lower, upper, left, mid, right, residual):
+    """Solve one box-constrained linearisation of the weighted curvature integral. Pure."""
+    diag = mid**2 + np.roll(left**2, -1) + np.roll(right**2, 1)
+    near = mid*right + np.roll(left*mid, -1)
+    far = np.roll(left*right, -1)
+    back_near, back_far = np.roll(near, 1), np.roll(far, 2)
+    # The absolute row sums majorise J.T @ J. Local step sizes keep one short chord
+    # from slowing every sample on a mountain stage.
+    rows = diag + abs(near) + abs(back_near) + abs(far) + abs(back_far)
+    rate = np.divide(1., rows, out=np.zeros_like(rows), where=rows > 0)
+    bias = rate * (mid*residual + np.roll(left*residual, -1) + np.roll(right*residual, 1))
+    diag, near, far = rate*diag, rate*near, rate*far
+    back_near, back_far = rate*back_near, rate*back_far
+    error = residual + left*np.roll(x, 1) + mid*x + right*np.roll(x, -1)
+    previous = np.sum(error**2)
+    check_at = 1
+    momentum = 0
+    y = x
+    padded = np.empty(len(x) + 4)
+    # The cap only bounds work on pathological inputs. Long, gentle motorway bends
+    # can keep improving for tens of thousands of steps after a hairpin has settled.
+    for iteration in range(1, 100_001):
+        padded[:2], padded[2:-2], padded[-2:] = y[-2:], y, y[:2]
+        gradient = (bias + diag*y + near*padded[3:-1] + back_near*padded[1:-3]
+                    + far*padded[4:] + back_far*padded[:-4])
+        step = np.clip(y - gradient, lower, upper)
+        if iteration == check_at:
+            error = residual + left*np.roll(step, 1) + mid*step + right*np.roll(step, -1)
+            energy = np.sum(error**2)
+            # A long bend can start on a plateau. The tangent to this convex energy
+            # bounds the improvement still possible anywhere in the allowed interval.
+            # Stop when both the observed and possible gain are within 0.1% of energy.
+            tolerance = .001 * energy
+            if abs(previous - energy) <= tolerance:
+                slope = 2*(mid*error + np.roll(left*error, -1) + np.roll(right*error, 1))
+                gain = np.sum(np.maximum(slope*(step-lower), slope*(step-upper)))
+                if gain <= tolerance:
+                    return step
+            previous = energy
+            check_at += max(1, check_at // 2)
+        change = step - x
+        # Restart the acceleration when its momentum points back up the gradient.
+        if np.sum(rows*(y-step)*change) > 0:
+            momentum = 0
+        y = step + (momentum / (momentum + 3)) * change
+        momentum += 1
+        x = step
+    return x
 
 
 def offsets(xz, normals, lower, upper, circuit):
@@ -47,27 +99,8 @@ def offsets(xz, normals, lower, upper, circuit):
         left = (_curvature(a + np.roll(delta, 1, axis=0), points, c) - k) * weight / eps
         mid = (_curvature(a, points + delta, c) - k) * weight / eps
         right = (_curvature(a, points, c + np.roll(delta, -1, axis=0)) - k) * weight / eps
-        diag = mid**2 + np.roll(left**2, -1) + np.roll(right**2, 1)
-        near = mid*right + np.roll(left*mid, -1)
-        far = np.roll(left*right, -1)
-        # The maximum absolute row sum bounds the gradient's Lipschitz constant.
-        bound = np.max(diag + abs(near) + np.roll(abs(near), 1) + abs(far) + np.roll(abs(far), 2))
-        if bound == 0:
-            break
         residual = weight*k - left*np.roll(x, 1) - mid*x - right*np.roll(x, -1)
-        bias = (mid*residual + np.roll(left*residual, -1) + np.roll(right*residual, 1)) / bound
-        diag, near, far = diag/bound, near/bound, far/bound
-        # Accelerated projected gradient. Each iteration uses the same five diagonals.
-        y = x
-        for i in range(240):
-            grad = (bias + diag*y + near*np.roll(y, -1) + np.roll(near*y, 1)
-                    + far*np.roll(y, -2) + np.roll(far*y, 2))
-            step = np.clip(y - grad, lower, upper)
-            if np.max(abs(step - x)) < 1e-6:
-                x = step
-                break
-            y = step + (i / (i + 3)) * (step - x)
-            x = step
+        x = _solve_offsets(x, lower, upper, left, mid, right, residual)
     return x
 
 

@@ -101,7 +101,13 @@ class _PreviewBand:
     def __init__(self, reference, mapped, sections):
         points, _, ribbon, _, road, route = reference
         xyz = points["pos"].astype(float)
-        forward, side = fastlane._frame(xyz, route.circuit)[2:]
+        side = fastlane._frame(xyz, route.circuit)[3]
+        self.band = fastlane._band_widths(xyz[:,fastlane.XZ], side[:,fastlane.XZ], ribbon)
+        self.painted = fastlane._painted_widths(xyz[:, fastlane.XZ], side[:, fastlane.XZ], ribbon.painted)
+        self.ribbon = ribbon
+        self.areas = fastlane.obj_to_kn5._junction_geometry(mapped)[0]
+        self.junctions = fastlane._in_junctions(xyz[:,fastlane.XZ], self.areas)
+        self.closed = route.circuit
         if sections:
             self.reference, measured = sections[0]
             self.physical = measured[:, :2]
@@ -109,30 +115,39 @@ class _PreviewBand:
             self.reference = xyz
             # A diagnostic guide can have holes. Its other road widths still bound nearby junction openings.
             self.physical = np.zeros((len(xyz), 2))
+            limits = fastlane._junction_limits(self.band, self.junctions, np.isfinite(ribbon.half_width), self.closed)
             for i, point in enumerate(xyz):
                 try:
-                    self.physical[i] = fastlane._section(road, point, side[i], ribbon.metres[i])[:2]
+                    self.physical[i] = fastlane._section(road, point, side[i], ribbon.metres[i], limits=limits[i])[:2]
                 except fastlane.NoLine:
                     continue
-        self.roads = mapped
-        self.bounds = np.array([(line.min(axis=0)-w/2, line.max(axis=0)+w/2) for line,w in mapped]).reshape(-1,2,2)
-        self.areas = fastlane.obj_to_kn5._junction_geometry(mapped)[0]
-        self.mapped = fastlane._mapped_widths(xyz[:,fastlane.XZ], fastlane._unit(forward[:,fastlane.XZ]), mapped)
-        self.junctions = fastlane._in_junctions(xyz[:,fastlane.XZ], self.areas)
-        self.closed = route.circuit
 
-    def rows(self, xyz, indices, source, sections, yellow, forward, side):
-        """XYZ, colour flag and both banked edge positions, with the final record width rules."""
+
+    def limits(self, xyz, indices, source, side, free):
+        """Search limits at edited stations and at their adjoining junctions. Pure."""
         pts = xyz[indices]
         xz = pts[:,fastlane.XZ]
-        near = (self.bounds[:,0] <= xz.max(axis=0)).all(axis=1) & (self.bounds[:,1] >= xz.min(axis=0)).all(axis=1)
-        roads = [self.roads[i] for i in np.flatnonzero(near)]
-        physical, mapped, junctions = self.physical[source], self.mapped[source], self.junctions[source]
-        physical[indices] = sections[:,:2]
-        mapped[indices] = fastlane._mapped_widths(xz, fastlane._unit(forward[indices][:,fastlane.XZ]), roads)
+        owners = source[indices]
+        route = self.ribbon
+        local = route._replace(start=route.start[owners], end=route.end[owners], half_width=route.half_width[owners])
+        band = self.band[source]
+        band[indices] = fastlane._band_widths(xz, side[indices][:,fastlane.XZ], local)
+        junctions = self.junctions[source]
         junctions[indices] = fastlane._in_junctions(xz, self.areas)
-        widths = fastlane._junction_widths(physical, np.minimum(physical,mapped), junctions, self.closed)
-        widths = widths[indices]
+        limits = fastlane._junction_limits(band, junctions, np.isfinite(route.half_width[source]), self.closed)
+        limits[indices[free]] = np.inf
+        return limits, junctions
+
+    def rows(self, xyz, indices, source, sections, yellow, side, limits, junctions):
+        """XYZ, colour flag and banked edges of the same owned legs used during export."""
+        pts = xyz[indices]
+        physical = self.physical[source]
+        physical[indices] = sections[:, :2]
+        painted = self.painted[source]
+        owners = source[indices]
+        painted[indices] = fastlane._painted_widths(pts[:, fastlane.XZ], side[indices][:, fastlane.XZ],
+                                                     tuple(value[owners] for value in self.ribbon.painted))
+        widths = fastlane._export_widths(physical, limits, painted, junctions, self.closed)[indices]
         transverse = side[indices] + sections[:,2,None]*fastlane.UP
         return np.column_stack((pts, yellow, pts + transverse*widths[:,0,None], pts - transverse*widths[:,1,None]))
 
@@ -208,10 +223,10 @@ def _ink_preview(ref, wider, item, section, band):
         outside[i] = [x,y,z]
     full = np.vstack((outside[before], xyz, outside[after]))
     indices = len(before) + np.arange(len(xyz))
-    source = np.r_[before, np.zeros(len(xyz), int), after]
+    source = np.r_[before, fastlane.nearest_stations(ribbon.metres, section.metres), after]
     metres = np.r_[ribbon.metres[before], section.metres, ribbon.metres[after]]
     fastlane.check_splits(full, ribbon.splits, route.circuit)
-    forward, sides = fastlane._frame(full,route.circuit)[2:]
+    sides = fastlane._frame(full,route.circuit)[3]
     edited = np.r_[changed[before], np.ones(len(xyz),bool), changed[after]]
     fastlane.aicorrections.check_centreline(full, metres, edited, route.circuit, fastlane.obj_to_kn5.LEVEL_GAP_M)
     dirty = edited.copy()
@@ -220,19 +235,21 @@ def _ink_preview(ref, wider, item, section, band):
     if route.circuit:
         dirty[[0,-1]] |= edited[[-1,0]]
     measured = np.flatnonzero(dirty)
+    limits, junctions = band.limits(full, measured, source, sides, item["free"] & np.isin(measured, indices))
     sections, yellow = [], []
     for i in measured:
         authored = indices[0] <= i <= indices[-1]
         query = floor if authored else road
         previous = full[i-1] if i or route.circuit else full[i]
-        measure = fastlane._section(query,full[i],sides[i],metres[i])
+        measure = fastlane._section(query, full[i], sides[i], metres[i],
+                                    limits=np.maximum(limits[i], fastlane.FILLET_CLEARANCE))
         sections.append(measure)
         if (edited[i] and (not fastlane._fits_chord(query,previous,full[i],fastlane.FILLET_CLEARANCE)
                            or min(measure[:2]) < fastlane.FILLET_CLEARANCE)):
             raise ValueError(f"Insufficient clearance at route metre {metres[i]:.1f}")
         yellow.append(authored and item["free"] and
                       not fastlane._fits_chord(road,previous,full[i],fastlane.FILLET_CLEARANCE))
-    rows = band.rows(full, measured, source, np.asarray(sections), yellow, forward, sides)
+    rows = band.rows(full, measured, source, np.asarray(sections), yellow, sides, limits, junctions)
     return rows[np.searchsorted(measured, indices)].tolist()
 
 
@@ -280,14 +297,17 @@ def _move_preview(model, body):
         indices = np.flatnonzero(mask)
         samples = []
         if len(indices):
-            forward, sides = fastlane._frame(moved, circuit)[2:]
+            sides = fastlane._frame(moved, circuit)[3]
             fastlane.aicorrections.check_centreline(moved, ribbon.metres, mask, circuit, fastlane.obj_to_kn5.LEVEL_GAP_M)
-            rows = band.rows(moved, indices, np.arange(len(moved)), np.array([measured[i] for i in indices]),
-                             np.isin(indices,yellow), forward, sides)
+            source = np.arange(len(moved))
+            free = np.array([fastlane._query(queries,i) is wider for i in indices])
+            limits, junctions = band.limits(moved, indices, source, sides, free)
+            rows = band.rows(moved, indices, source, np.array([measured[i] for i in indices]),
+                             np.isin(indices,yellow), sides, limits, junctions)
             samples = np.column_stack((indices,rows)).tolist()
         return samples, yellow
 
-    (samples, yellow), rejected = fastlane.checked_moves(ref, moves, preview, wider, measured)
+    (samples, yellow), rejected = fastlane.checked_moves(ref, moves, preview, wider, measured, band.areas)
     skipped.update(rejected)
     record = ailinestate._record(model.parent)
     if record.get("skipped") and record.get("corrections") == items:

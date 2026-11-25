@@ -1,4 +1,49 @@
 {
+ "sahara_gravel_test": {
+  "title": "Sahara Gravel Test",
+  "about": "Libya: two bends of a 5.5 m road through bare ground with gravel collision",
+  "points": [
+   [
+    26.066504,
+    13.080232
+   ],
+   [
+    26.06413,
+    13.074198
+   ],
+   [
+    26.064315,
+    13.07261
+   ]
+  ],
+  "width": 120.0,
+  "spots": [
+   [
+    "622-691",
+    "the long approach to the shallow bend beside bare ground"
+   ],
+   [
+    "800-838",
+    "the second curve beside the same gravel terrain"
+   ]
+  ],
+  "reference": {
+   "off_road_m": 0,
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
+   "length_m": 948,
+   "over_05g_m": 0,
+   "lanes_over_05g_m": 0,
+   "max_g": 0.11,
+   "max_g_at_m": 704.0,
+   "edges_m": 0,
+   "transitions": 0,
+   "max_g_transition": 0.0,
+   "warp_m": 0,
+   "max_warp": 0.0,
+   "max_warp_at_m": 0.0
+  }
+ },
  "stausee_kreuzung_test": {
   "title": "Stausee Kreuzung Test",
   "about": "Stausee near Völkermarkt: a narrow tertiary road down to a junction, a 21 m connector, then a junction where a trunk goes on as a primary and the route turns onto it (roads of different widths meeting at a junction)",

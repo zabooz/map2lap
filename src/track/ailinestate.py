@@ -14,7 +14,7 @@ from track import aicorrections, fastlane
 FILE = Path("data/map2lap_ai.json")
 # When line code changes, bump this and update LaneCodeVersionTest in engine/tests/test_fastlane.py.
 # For comments or refactors proven to leave the generated line unchanged, update only the test's source digest.
-CODE_VERSION = 9
+CODE_VERSION = 13
 ERRORS = (AssertionError, IndexError, KeyError, OSError, ValueError, struct.error)
 
 
@@ -37,6 +37,9 @@ def fingerprint(inputs, circuit):
         digest.update(raw)
 
     field(struct.pack("<I?", CODE_VERSION, circuit))
+    field(struct.pack("<d", getattr(meshes, "cell", fastlane.aicorridor.acgrid.CELL)))
+    if mapped:
+        field(struct.pack("<2d", fastlane.AI_ROAD_EDGE_M, fastlane.surface.PHOTO_ROAD_EDGE_M))
     field(json.dumps(corrections, sort_keys=True, separators=(",", ":"), allow_nan=False).encode())
     if corrections:
         field(np.asarray(origin, dtype="<f8").tobytes())

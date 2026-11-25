@@ -11,6 +11,8 @@ export const EDGE_COLOUR = "#eef8ff";
 const SPEED_STOPS = SPEED_COLOURS.map(hex => new THREE.Color(hex));
 const LIFT_M = 0.3;                 // As with Bank road, clear the road surface and its paint.
 const LINE_PX = 2;
+// One road-car length on either side damps individual terrain cells in the overlay.
+const EDGE_WINDOW_M = 5;
 const HOVER_PX = 8;                 // Pointer can be a few pixels off the thin centre line.
 /** The slow-to-fast colour over this line's speed range, in its native m/s. Pure. */
 export function laneSpeedColour(speed: number, slow: number, fast: number) {
@@ -28,6 +30,44 @@ export function laneEdges([x, y, z]: Place, [fx, fz]: [number, number], [nx, ny,
     return [x + dx, y - (ny ? (nx * dx + nz * dz) / ny : 0), z + dz];
   };
   return [edge(left), edge(-right)];
+}
+
+/** Average each side's width along the road, preserving open endpoints and the circuit seam. Pure. */
+function displayWidths(at: Place[], edges: [Place, Place][], closed: boolean) {
+  const count = at.length;
+  const widths = edges.map((pair, i) => pair.map(p => Math.hypot(p[0]-at[i][0], p[2]-at[i][2])));
+  const stations = [0];
+  for (let i = 0; i < count; i++) {
+    const next = at[(i+1) % count];
+    const step = i+1 < count || closed ? Math.hypot(next[0]-at[i][0], next[2]-at[i][2]) : 0;
+    stations.push(stations[i] + step);
+  }
+  const length = stations[count];
+  const steps = at.map((_, i) => stations[i+1] - stations[i]);
+  const spans = steps.map((step, i) => step + (i ? steps[i-1] : closed ? steps[count-1] : 0));
+  return widths.map(([left,right], i) => {
+    const radius = closed ? Math.min(EDGE_WINDOW_M, length/2) : Math.min(EDGE_WINDOW_M, stations[i], length-stations[i]);
+    // Weight by the road length represented by each sample, including on densely sampled redraws.
+    let weight = 0, leftDelta = 0, rightDelta = 0;
+    const add = (j:number, distance:number) => {
+      const w = Math.min(spans[j], 2*radius) * (radius-distance);
+      weight += w;
+      leftDelta += w * (widths[j][0]-left);
+      rightDelta += w * (widths[j][1]-right);
+    };
+    add(i, 0);
+    for (const direction of [-1, 1]) {
+      let distance = 0, previous = i;
+      for (let j = (i+direction+count) % count; j !== i; j = (j+direction+count) % count) {
+        // The open window ends at or before the endpoint in either direction.
+        distance += steps[direction > 0 ? previous : j];
+        if (distance >= radius) break;
+        add(j, distance);
+        previous = j;
+      }
+    }
+    return weight ? [left+leftDelta/weight, right+rightDelta/weight] : [left,right];
+  });
 }
 
 /** Display edges along the banked cross-sections. Pure. Signed intersections of neighbouring
@@ -50,15 +90,17 @@ export function displayEdges(at: Place[], measured: [Place, Place][], closed: bo
     limit(i,(dx*bz-dz*bx)/det);
     limit(j,(dx*az-dz*ax)/det);
   }
+  const widths = displayWidths(at, measured, closed);
   return measured.map(([left,right], i) => {
     const [x,y,z] = at[i];
-    const clip = (p:Place, radius:number):Place => {
+    const edge = (p:Place, side:number):Place => {
       const width = Math.hypot(p[0]-x,p[2]-z);
-      if (width <= radius) return p;
-      const scale = radius/width;
+      const visible = Math.min(widths[i][side], limits[i][side]);
+      if (!width || width === visible) return p;
+      const scale = visible/width;
       return [x+(p[0]-x)*scale,y+(p[1]-y)*scale,z+(p[2]-z)*scale];
     };
-    return [clip(left,limits[i][0]),clip(right,limits[i][1])];
+    return [edge(left,0),edge(right,1)];
   });
 }
 

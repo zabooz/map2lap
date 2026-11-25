@@ -61,7 +61,8 @@ they are skipped until redrawn. The racing-line solver holds the moved samples f
 
 Redraw starts and ends with a click on the line in driving order. Intermediate ground clicks shape the curve.
 The preview replaces the installed band along the measured stroke. Both bands show collision cross-sections and mapped
-side limits. In a tight bend the displayed inside edge stops where adjacent cross-sections meet. The point inspector
+side limits. The overlay averages each side’s width over one car length in either direction to soften raster teeth,
+keeping the sampled centreline and the bank at each point. In a tight bend the displayed inside edge stops where adjacent cross-sections meet. The point inspector
 and AI file retain the measured widths.
 Free is selected initially. Shift switches Road/Free, Ctrl switches Move/Redraw. Switching keeps the measured correction bands visible.
 Changing modes or pressing Escape discards an unfinished stroke. Right-click a saved correction to remove it. Free mode belongs to each new correction.
