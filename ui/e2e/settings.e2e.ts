@@ -65,6 +65,7 @@ test("the CPU share is saved when let go, its line follows", async ({page}) => {
   await page.goto("/");
   await openSettings(page, "General");
   const slider = page.getByLabel("CPU usage");
+  expect((await saved(page)).cores).toBe(75);
   await slider.focus();
   await page.keyboard.press("ArrowLeft");
   const value = Number(await slider.inputValue());

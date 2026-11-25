@@ -17,7 +17,7 @@
             color: var(--muted); }
 .group input[type=text], .group select, .group .pathRow button { background: var(--panel); }
 .bugLink { flex: none; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--raised);
-           color: inherit; font-weight: 600; text-align: center; text-decoration: none; }
+           color: inherit; font-weight: 600; text-align: center; cursor: pointer; }
 .bugLink:hover { background: var(--panel); }
 .pathRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .pathRow button { padding: 0 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--raised);

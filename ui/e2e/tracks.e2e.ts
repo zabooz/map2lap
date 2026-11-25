@@ -75,6 +75,45 @@ test("My tracks: the list, a picked track on the card, its code, old ones marked
   await expect(card(page).getByRole("textbox", {name: "Track code"})).toHaveValue(/^M2L1-/);
   await list.filter({hasText: "Gamma Old"}).click();
   await expect(card(page)).toContainText("Old version");
+  const search = page.getByTestId("my-tracks-search");
+  await search.fill("  bEtA  ");
+  await expect(list).toHaveCount(1);
+  await expect(card(page)).toContainText("Beta Test");
+  await search.fill("no such track");
+  await expect(page.getByTestId("my-tracks-list")).toHaveText("No matching tracks.");
+  await expect(page.getByTestId("build-action")).toBeDisabled();
+  await search.fill("");
+  await expect(list).toHaveCount(3);
+  await expect(card(page)).toContainText("Gamma Old");
+});
+
+test("My tracks combines track type and search", async ({page}) => {
+  await page.route("**/api/tracks", async route => {
+    const response = await route.fetch();
+    const data = await response.json();
+    Object.assign(data.tracks.find((t: {name: string}) => t.name === "beta"), {kind: "circuit"});
+    Object.assign(data.tracks.find((t: {name: string}) => t.name === "gamma"),
+      {kind: "area", area: [42.9, 9.36, 42.91, 9.37], area_m: [800, 1100]});
+    await route.fulfill({json: data});
+  });
+  await page.goto("/");
+  await page.getByTestId("nav-my-tracks").click();
+  const filter = page.getByTestId("my-tracks-type");
+  const rows = page.getByTestId("my-tracks-list").getByRole("button");
+  await expect(rows).toHaveCount(3);
+  for (const [type, title] of [["route", "Alpha Test"], ["circuit", "Beta Test"], ["area", "Gamma Old"]]) {
+    await filter.selectOption(type);
+    await expect(rows).toHaveCount(1);
+    await expect(rows).toContainText(title);
+  }
+  await page.getByTestId("my-tracks-search").fill("beta");
+  await expect(rows).toHaveCount(0);
+  await filter.selectOption("all");
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText("Beta Test");
+  await page.getByTestId("my-tracks-edit").click();
+  await expect(page.getByTestId("nav-editor")).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("combobox", {name: "Track", exact: true})).toHaveValue("beta");
 });
 
 test("My tracks: rebuild, copy, Play and delete", async ({page, backend}) => {

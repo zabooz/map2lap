@@ -1,9 +1,12 @@
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useLayoutEffect, useRef, useState} from "react";
 import {post} from "../api";
 import {statusName, type Ticket, type useFeedback} from "../hooks/useFeedback";
+import {ToastHost} from "./Toasts";
+import {BRIEF_TOAST_MS, toasts} from "./toastStore";
 import {BugIcon} from "./icons";
 import styles from "./FeedbackDialog.module.css";
 
+const SENT = "feedback-sent";
 const MB = 1024 ** 2;
 const TYPES = ["image/png", "image/jpeg", "image/webp"];
 const EMPTY = {message: "", kind: "bug", code: "", files: [] as File[], error: "", codeError: "", sending: false};
@@ -52,7 +55,8 @@ function Composer({draft, reply, change, add, send}: {
           onChange={e => change({code: e.target.value, codeError: ""})} /></label>
         {draft.codeError && <p id="feedback-code-error" role="alert" className={styles.error}>{draft.codeError}</p>}
       </>}
-      <label>{reply ? "Reply" : "Description"}<textarea rows={reply ? 3 : 5} required maxLength={5000} value={draft.message}
+      <label>{!reply && "Description"}<textarea rows={reply ? 2 : 5} aria-label={reply ? "Reply" : undefined}
+        placeholder={reply ? "Write a reply…" : undefined} required maxLength={5000} value={draft.message}
         onChange={e => change({message: e.target.value})} /></label>
       <div className={styles.images}>
         <input ref={picker} type="file" hidden multiple accept={TYPES.join(",")} data-testid="image-files"
@@ -70,7 +74,16 @@ function Composer({draft, reply, change, add, send}: {
 }
 
 function History({ticket}: {ticket: Ticket}) {
-  return <ol className={styles.history} data-testid="history">{ticket.messages.map(entry => {
+  const list = useRef<HTMLOListElement>(null);
+  const atEnd = useRef(true);
+  const latest = ticket.messages.at(-1);
+  const ownMessage = latest?.type === "message" && latest.author === "sender";
+  useLayoutEffect(() => {
+    const el = list.current!;
+    if (atEnd.current || ownMessage) el.scrollTop = el.scrollHeight;
+  }, [latest?.id, ownMessage]);
+  return <ol ref={list} className={styles.history} data-testid="history"
+    onScroll={e => { const el = e.currentTarget; atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 2; }}>{ticket.messages.map(entry => {
     const date = new Date(entry.created_at);
     return <li key={entry.id} data-event={entry.type === "status" ? "status" : entry.author}>
       <div className={styles.byline}><strong>{entry.type === "status" ? `Status changed to ${statusName[entry.status]}`
@@ -85,7 +98,7 @@ export function FeedbackDialog({feedback, close}: {feedback: ReturnType<typeof u
   const dialog = useRef<HTMLDialogElement>(null);
   const [selected, select] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
-  const [notice, setNotice] = useState("");
+  const pressedBackdrop = useRef(false);
   const pending = useRef(new Set<number>());
   useEffect(() => {
     const element = dialog.current!;
@@ -107,7 +120,6 @@ export function FeedbackDialog({feedback, close}: {feedback: ReturnType<typeof u
     if (!draft?.message.trim() || pending.current.has(id)) return;
     pending.current.add(id);
     change(id, {sending: true, error: "", codeError: ""});
-    setNotice("");
     try {
       const images = await Promise.all(draft.files.map(encoded));
       const answer = await post<{id: number; field: string}>(id ? `/api/feedback/${id}/messages` : "/api/feedback",
@@ -115,7 +127,9 @@ export function FeedbackDialog({feedback, close}: {feedback: ReturnType<typeof u
       if (answer.error) change(id, answer.field === "track_code" ? {codeError: answer.error} : {error: answer.error});
       else {
         change(id, {...EMPTY, sending: true});
-        setNotice(id ? "Reply sent." : `Ticket #${answer.id} sent.`);
+        toasts.remove(SENT);
+        toasts.post({id: SENT, tone: "success", title: id ? "Reply sent." : `Ticket #${answer.id} sent.`,
+          duration: BRIEF_TOAST_MS, dismissible: false});
         await feedback.reload(true);
       }
     } catch {
@@ -127,37 +141,43 @@ export function FeedbackDialog({feedback, close}: {feedback: ReturnType<typeof u
   };
   const composer = (id: number) => <Composer draft={drafts[id] ?? EMPTY} reply={!!id} change={patch => change(id, patch)}
     add={files => add(id, files)} send={() => void send(id)} />;
-  const target = (el: EventTarget) => {
-    const region = el instanceof Element && el.closest<HTMLElement>("[data-composer]");
-    return region ? Number(region.dataset.composer) : selected ?? 0;
-  };
+  const active = feedback.reports.find(ticket => ticket.id === selected);
   return <dialog ref={dialog} aria-labelledby="feedback-title" className={styles.dialog}
     onCancel={e => { e.preventDefault(); close(); }}
-    onPaste={e => { if (e.clipboardData.files.length) { e.preventDefault(); add(target(e.target), e.clipboardData.files); } }}
+    onPointerDown={e => { pressedBackdrop.current = e.target === e.currentTarget; }}
+    onClick={e => { if (pressedBackdrop.current && e.target === e.currentTarget) close(); }}
+    onPaste={e => { if (e.clipboardData.files.length) { e.preventDefault(); add(active?.id ?? 0, e.clipboardData.files); } }}
     onDragOver={e => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
-    onDrop={e => { if (e.dataTransfer.files.length) { e.preventDefault(); add(target(e.target), e.dataTransfer.files); } }}>
+    onDrop={e => { if (e.dataTransfer.files.length) { e.preventDefault(); add(active?.id ?? 0, e.dataTransfer.files); } }}>
+    <ToastHost only={SENT} />
     <header className={styles.header}><BugIcon /><h2 id="feedback-title">Bug reports &amp; feedback</h2>
       <button aria-label="Close feedback" className={styles.close} onClick={close}>×</button></header>
     <div className={styles.columns}>
-      <section className={styles.newTicket} data-composer={0}><h3>New ticket</h3>{composer(0)}
-        <p role="status" className={styles.notice}>{notice}</p></section>
-      <section className={styles.tickets}><h3>Your tickets</h3>
+      <nav className={styles.tickets} aria-label="Ticket navigation">
+        <button className={styles.create} data-testid="feedback-new" aria-current={!active ? "page" : undefined}
+          onClick={() => select(null)}><span aria-hidden="true">+</span>New ticket</button>
+        <h3>Your tickets</h3>
         {feedback.error && <p role="status" className={styles.error}>{feedback.error}</p>}
-        {!feedback.error && !feedback.reports.length && <p className={styles.empty}>Your tickets and replies will appear here.</p>}
-        {feedback.reports.map(ticket => {
-          const open = selected === ticket.id;
-          return <article className={styles.ticket} key={ticket.id}>
-            <button className={styles.summary} data-testid={`ticket-${ticket.id}`} aria-expanded={open}
-              onClick={() => { select(open ? null : ticket.id); if (!open || feedback.unread(ticket)) void feedback.read(ticket); }}>
-              <span className={styles.meta}>#{ticket.id} · {ticket.kind === "bug" ? "Bug" : "Feedback & ideas"}
-                {feedback.unread(ticket) && <b aria-label="Unread update">!</b>}</span>
-              <span className={styles.status} data-status={ticket.status}>{statusName[ticket.status]}</span>
-              <span className={styles.subject}>{ticket.messages.find(m => m.type === "message")?.text}</span>
-            </button>
-            {open && <div className={styles.thread} data-composer={ticket.id}><History ticket={ticket}/>{composer(ticket.id)}</div>}
-          </article>;
-        })}
-      </section>
+        {!feedback.error && !feedback.reports.length && <p className={styles.empty}>No tickets yet.</p>}
+        <div className={styles.ticketList}>
+          {feedback.reports.map(ticket => <button key={ticket.id} className={styles.summary} data-testid={`ticket-${ticket.id}`}
+            aria-current={active?.id === ticket.id ? "page" : undefined}
+            onClick={() => { select(ticket.id); void feedback.read(ticket); }}>
+            <span className={styles.meta}>#{ticket.id} · {ticket.kind === "bug" ? "Bug" : "Feedback & ideas"}
+              {feedback.unread(ticket) && <b aria-label="Unread update">!</b>}</span>
+            <span className={styles.status} data-status={ticket.status}>{statusName[ticket.status]}</span>
+            <span className={styles.subject}>{ticket.messages.find(m => m.type === "message")?.text}</span>
+          </button>)}
+        </div>
+      </nav>
+      {active ? <section className={styles.thread} aria-labelledby="feedback-heading">
+        <header className={styles.threadHead}><h3 id="feedback-heading">Ticket #{active.id}</h3>
+          <span className={styles.status} data-status={active.status}>{statusName[active.status]}</span></header>
+        <History key={active.id} ticket={active} />
+        <div className={styles.replyBox}>{composer(active.id)}</div>
+      </section> : <section className={styles.newTicket} aria-labelledby="feedback-heading">
+        <h3 id="feedback-heading">New ticket</h3>{composer(0)}
+      </section>}
     </div>
   </dialog>;
 }

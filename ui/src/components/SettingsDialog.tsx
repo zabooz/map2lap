@@ -72,7 +72,7 @@ function Play({settings: s, onCar}: {settings: ReturnType<typeof useSettings>; o
 
 function BuildSpeed({settings: s}: {settings: ReturnType<typeof useSettings>}) {
   const [moving, setMoving] = useState<number | null>(null);
-  const threads = s.settings?.threads ?? 2, pct = moving ?? s.settings?.cores ?? 50;
+  const threads = s.settings?.threads ?? 2, pct = moving ?? s.settings?.cores ?? 75;
   // as parallel.workers: the share of the threads, at most all but one
   const n = Math.max(1, Math.min(threads - 1, Math.round(threads * pct / 100)));
   const commit = () => {
@@ -280,7 +280,7 @@ const TABS = [["general", "General"], ["map2lap", "Map2Lap"], ["editor", "Editor
 
 /** Settings: the gear's popup over the page, always the same height (switching its tabs doesn't jump); closed by its ×, a
     click beside it or Esc. Mounted while open; all its tabs stay mounted (what the server counted stays). */
-export function SettingsDialog({settings, release, patch, focusTarget, busy, controls, onControls, onCar, onClose}: {
+export function SettingsDialog({settings, release, patch, focusTarget, busy, controls, onControls, onCar, onClose, onReportBug}: {
   settings: ReturnType<typeof useSettings>;
   release: ReturnType<typeof useRelease>;
   patch: ReturnType<typeof useCspStatus>;
@@ -289,6 +289,7 @@ export function SettingsDialog({settings, release, patch, focusTarget, busy, con
   controls: Controls;
   onControls: (c: Controls) => void;
   onCar: () => void;
+  onReportBug: () => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<(typeof TABS)[number][0]>("general");
@@ -324,7 +325,7 @@ export function SettingsDialog({settings, release, patch, focusTarget, busy, con
           ))}
         </nav>
         <div className={styles.tab} role="tabpanel" hidden={tab !== "general"}>
-          <a className={styles.bugLink} href="https://github.com/zabooz/map2lap/issues" target="_blank" rel="noopener">Found a bug?</a>
+          <button type="button" className={styles.bugLink} data-testid="settings-report-bug" aria-haspopup="dialog" onClick={onReportBug}>Found a bug?</button>
           <Installation settings={settings} release={release} patch={patch} />
           <BuildSpeed settings={settings} />
           <Storage settings={settings} busy={busy} />

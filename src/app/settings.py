@@ -19,7 +19,7 @@ from app.paths import ROOT
 
 FILE = os.path.join(ROOT, "settings.json")
 LOCK = threading.RLock()
-DEFAULTS = {"ac_path": None, "clean": False, "cores": 50, "cache_gb": 20,     # (20 GB: BeamNG.Earth's default)
+DEFAULTS = {"ac_path": None, "clean": False, "cores": 75, "cache_gb": 20,     # (20 GB: BeamNG.Earth's default)
             "car": None, "debug_app": False, "weather_effects": True,
             "feedback_key": None, "feedback_seen": {}}
 

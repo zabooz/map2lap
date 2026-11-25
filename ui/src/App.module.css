@@ -45,7 +45,7 @@
 .count.warn { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
 /* Forms and lists scroll in low windows; actions stay whole. */
 .panes { position: relative; flex: 0 1 auto; min-height: 0; display: flex; }
-.panes.mine { flex: 1 1 180px; min-height: 145px; }
+.panes.mine { flex: 0 1 50%; min-height: 160px; margin-bottom: 12px; }
 
 .actions { flex: none; display: grid; grid-template-columns: 1fr; gap: 8px; }
 .actions button { height: 42px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised);
@@ -53,12 +53,11 @@
 .actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .actions button.danger { background: var(--panel); border-color: var(--error); color: var(--error); }
 .actions button:disabled { opacity: .45; cursor: default; }
-.actions.mine { grid-template-columns: 1fr 1fr 1fr; }
-.actions.edited { grid-template-columns: 1fr 1fr; }
+.actions.mine { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .actions button.playAct { background: var(--ok); border-color: var(--ok); color: var(--ok-ink); }
 
 /* The map and the track details use separate columns, like the Editor and its inspector. */
-.main { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.main { --report-button-size: 52px; position: relative; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
 .main.withDetails { grid-template-columns: minmax(0, 1fr) clamp(246px, 22vw, 320px); }
 .mapSpace { position: relative; min-width: 0; min-height: 0; }
 .details { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; overflow: auto;
@@ -73,10 +72,10 @@
   .main.withDetails { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: 50vh auto; }
   .details { border-left: 0; border-top: 1px solid var(--line); }
   .sidebar { grid-row: 2; grid-column: 2; height: auto; border-right: 0; }
-  .panes.mine { flex: none; height: max(200px, 44vh); }
+  .panes.mine { flex: none; height: max(150px, 50dvh); }
 }
 
-.reportBug { position: absolute; right: 12px; bottom: 12px; z-index: 1501; width: 44px; height: 44px; display: grid;
+.reportBug { position: absolute; right: 12px; bottom: 12px; z-index: 1501; width: var(--report-button-size); height: var(--report-button-size); display: grid;
   place-items: center; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text);
   box-shadow: var(--shadow); cursor: pointer; }
 .reportBug:hover { color: var(--accent); border-color: var(--accent); }

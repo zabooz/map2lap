@@ -62,6 +62,10 @@ test("the settings open as a popup and close by its x, Esc and beside it", async
   await page.getByTestId("nav-settings").click();
   await page.getByTestId("settings-backdrop").click({position: {x: 2, y: 2}});
   await expect(dialog).toBeHidden();
+  await page.getByTestId("nav-settings").click();
+  await dialog.getByTestId("settings-report-bug").click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByTestId("new-report")).toBeVisible();
 });
 
 test("a reload stays on its tab", async ({page}) => {

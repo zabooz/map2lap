@@ -16,7 +16,7 @@ import {activeInstallation, settingsAttention} from "./components/settingsAttent
 import {FeedbackDialog} from "./components/FeedbackDialog";
 import {useFeedback} from "./hooks/useFeedback";
 import {BugIcon, EditorIcon, GearIcon, MyTracksIcon, NewTrackIcon} from "./components/icons";
-import {groupOf, MyTracksPane} from "./components/MyTracksPane";
+import {groupOf, MyTracksPane, trackMode, type TrackFilter} from "./components/MyTracksPane";
 import {NewTrackPane} from "./components/NewTrackPane";
 import {SettingsDialog} from "./components/SettingsDialog";
 import {CardCode, PlayButton, StatusCard} from "./components/StatusCard";
@@ -61,6 +61,8 @@ export function App() {
     return () => fade?.cancel();
   }, [tab]);
   const [editorSeen, setEditorSeen] = useState(tab === "edit");
+  const [trackFilter, setTrackFilter] = useState<TrackFilter>("all");
+  const [trackSearch, setTrackSearch] = useState("");
   const [group, setGroup] = useStored<TrackGroup>("map2lap.myTracks", "built", GROUPS);
   const [editTrack, setEditTrack] = useStored<string>("map2lap.editTrack", "");
   const [editStatus, setEditStatus] = useState<EditorLoadStatus>({text: ""});
@@ -104,8 +106,11 @@ export function App() {
   const acOk = settings.settings?.ac_ok ?? true;       // (an AC folder to install into: without it nothing can be built)
 
   const mine = tab === "mine", {busy, status} = build;
-  const picked = mine ? tracks.find(t => t.name === picks[group] && groupOf(t) === group)
-    ?? tracks.find(t => groupOf(t) === group) : undefined;
+  const groupTracks = tracks.filter(t => groupOf(t) === group);
+  const query = trackSearch.trim().toLowerCase();
+  const shownTracks = groupTracks.filter(t => (trackFilter === "all" || trackMode(t) === trackFilter)
+    && (t.title.toLowerCase().includes(query) || t.name.toLowerCase().includes(query)));
+  const picked = mine ? shownTracks.find(t => t.name === picks[group]) ?? shownTracks[0] : undefined;
   const pick = picked?.name ?? null;
   const showBuildOptions = tab === "new" || (mine && group === "built" && !!picked);
   const options: BuildOptions = mine ? {terrain_cell_m: picked?.terrain_cell_m ?? 2, parked_cars: picked?.parked_cars ?? true,
@@ -146,12 +151,15 @@ export function App() {
     return refused;
   };
 
+  const editPickedTrack = () => {
+    if (!picked) return;
+    setEditTrack(picked.name);
+    chooseTab("edit");
+  };
+
   const onGo = () => {
     if (busy) void build.stop();
-    else if (picked?.edited) {
-      setEditTrack(picked.name);
-      chooseTab("edit");
-    }
+    else if (picked?.edited) editPickedTrack();
     else if (mine) {
       const warning = picked?.draft ? `This track has ${picked.draft} unsaved ${picked.draft === 1 ? "change" : "changes"} in the Editor.\n\nThey no longer fit a new build and stay out until you give them up. Go on?` : null;
       if (picked && (!warning || confirm(warning))) void start("/api/rebuild", {name: picked.name, ...options,
@@ -200,10 +208,11 @@ export function App() {
   const [sceneHost, setSceneHost] = useState<HTMLDivElement | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const unread = feedback.reports.some(feedback.unread);
+  const openFeedback = () => { setFeedbackOpen(true); void feedback.reload(true); };
   const reportButton = <button type="button" data-testid="report-bug" className={styles.reportBug} title="Report a bug"
     aria-label={unread ? "Report a bug · Unread updates" : "Report a bug"} aria-haspopup="dialog"
-    onClick={() => { setFeedbackOpen(true); void feedback.reload(true); }}>
-    <BugIcon />{unread && <span aria-hidden="true" className={styles.attention}>!</span>}
+    onClick={openFeedback}>
+    <BugIcon size={32} />{unread && <span aria-hidden="true" className={styles.attention}>!</span>}
   </button>;
   const hint = HINTS[tab === "new" ? track.mode : tab];
 
@@ -245,7 +254,9 @@ export function App() {
           <div id="work" className="view" hidden={tab === "edit"}>
             <div className={`${styles.panes}${mine ? ` ${styles.mine}` : ""}`}>
               <NewTrackPane track={track} off={tab !== "new"} busy={busy} onMove={setMove} />
-              {mine && <MyTracksPane tracks={tracks} group={group} pick={pick}
+              {mine && <MyTracksPane tracks={shownTracks} group={group} pick={pick} search={trackSearch} filter={trackFilter}
+                onFilter={value => { setTrackFilter(value); setShowResult(false); }}
+                onSearch={value => { setTrackSearch(value); setShowResult(false); }}
                 onGroup={value => { setGroup(value); setShowResult(false); }} onPick={pickTrack} />}
             </div>
 
@@ -253,7 +264,7 @@ export function App() {
                         corridor={(mine ? picked && !picked.area : track.mode !== "area") ? {width, onWidth: setWidth} : undefined}
                         disabled={busy} />}
 
-            <div id="actions" className={`${styles.actions}${mine ? ` ${group === "edited" ? styles.edited : styles.mine}` : ""}`}>
+            <div id="actions" className={`${styles.actions}${mine ? ` ${styles.mine}` : ""}`}>
               {mine && group === "built" && (
                 <button title={acOk ? "Keep this track and build a new one next to it" : NO_AC}
                         disabled={busy || !picked || !acOk}
@@ -263,6 +274,10 @@ export function App() {
                         }}>Build as copy</button>
               )}
               <button data-testid="build-action" id="go" className={busy ? styles.danger : styles.primary} title={goTitle} disabled={goDisabled} onClick={onGo}>{goText}</button>
+              {mine && group === "built" && (
+                <button type="button" data-testid="my-tracks-edit" title="Open this track in the Editor"
+                        disabled={busy || !acOk || !picked?.kn5_bytes} onClick={editPickedTrack}>Edit</button>
+              )}
               {mine && (
                 <button className={styles.playAct} title={playTitle(picked?.kind)} onClick={() => { if (picked) void startPlay(picked.name, picked.kind, picked.ab_timing); }}
                         disabled={busy || !picked?.kn5_bytes || starting || !acOk}>{starting ? "Starting …" : "▶ Play"}</button>
@@ -284,7 +299,7 @@ export function App() {
           <ThemeSwitch top />
           <StatusCard status={status} showResult={showResult} tab={tab} mode={track.mode} group={group} picked={picked}
                       installed={installed} title={track.title.trim()} selection={track.selection} width={track.width}
-                      options={options} hasTracks={tracks.some(t => groupOf(t) === group)} version={version}
+                      options={options} hasTracks={groupTracks.length > 0} version={version}
                       playButton={playButton} footer={!busy && !result && picked && (
             <CardCode code={picked.edited ? null : picked.code ?? ""} onDelete={() => void deleteTrack(picked)} />
           )} />
@@ -305,10 +320,10 @@ export function App() {
       {feedbackOpen && <FeedbackDialog feedback={feedback} close={() => setFeedbackOpen(false)} />}
       {settingsOpen && (
         <SettingsDialog settings={settings} release={release} patch={patch} focusTarget={settingsTarget} busy={busy} controls={controls} onControls={saveControls}
-                        onCar={() => void reload()} onClose={closeSettings} />
+                        onCar={() => void reload()} onClose={closeSettings} onReportBug={() => { closeSettings(); openFeedback(); }} />
       )}
       {playDialog}
-      <ToastHost />
+      {!feedbackOpen && <ToastHost />}
       {installation && <InstallationToast key={`${settings.settings?.ac_path}:${installation.id}`} notice={installation} hidden={settingsOpen}
         onOpen={openInstallation} onDismiss={() => { if (installation.id.startsWith("csp-version-")) setAcknowledgedCspVersion(installation.id); }} />}
     </>

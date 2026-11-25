@@ -34,8 +34,9 @@ export function Toasts({messages, onDismiss}: {messages: readonly Toast[]; onDis
 }
 
 /** The page's one stack of toasts, whatever part posted them (toastStore). */
-export function ToastHost() {
+export function ToastHost({only}: {only?: string} = {}) {
   const list = useSyncExternalStore(toasts.subscribe, toasts.toasts);
-  return <Toasts messages={list.map(t => t.action ? {...t, action: {label: t.action.label, run: () => toasts.run(t.id)}} : t)}
+  const visible = only ? list.filter(t => t.id === only) : list;
+  return <Toasts messages={visible.map(t => t.action ? {...t, action: {label: t.action.label, run: () => toasts.run(t.id)}} : t)}
     onDismiss={id => toasts.dismiss(id)} />;
 }
