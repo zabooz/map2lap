@@ -37,7 +37,7 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
 import generator  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app import (ailanejobs, builtroad, csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadbend, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, trackstitch, tracksource, tracksurfaces,  # noqa: E402
+from app import (ailanejobs, builtroad, csp, debugapp, feedback, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadbend, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, trackstitch, tracksource, tracksurfaces,  # noqa: E402
                  trackdetail, trackinspect, trackpaint, trackview, updater, version, weather)
 from app.paths import ROOT, SRC  # noqa: E402
 from server_editor import EditorHandlers, IMAGE_TYPES  # noqa: E402
@@ -888,7 +888,37 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
             return self._send(413, {"error": "Too many changes"})
         self._edits_answer(lambda: trackedits.save_telling(settings.ac_path(), edits[1], body))
 
+    def _feedback(self, route=None):
+        """Serve local feedback JSON. Only this page can submit or acknowledge a ticket."""
+        headers = {"Cache-Control": "no-store"}
+        try:
+            if self.command == "GET":
+                if (self.headers.get("Host") or "").rsplit(":", 1)[0] not in LOCAL_HOSTS:
+                    return self._send(403, {"error": "Only the Map2Lap page can read tickets."})
+                return self._send(200, feedback.history(opened=self.path.endswith("?open=1")), headers=headers)
+            if not self._own_page():
+                return self._send(403, {"error": "Only the Map2Lap page can change tickets."})
+            length = int(self.headers.get("Content-Length", 0))
+            if not 0 <= length <= feedback.BODY_BYTES:
+                return self._send(413, {"error": "The upload is too large."})
+            body = self._body()
+            if not isinstance(body, dict):
+                raise ValueError()
+            if route[2] == "seen":
+                return self._send(200, feedback.mark_seen(route[1], body.get("entry")))
+            return self._send(201, feedback.send(body, route[1]))
+        except feedback.FeedbackError as exc:
+            if "retry_after" in exc.answer:
+                headers["Retry-After"] = str(exc.answer["retry_after"])
+            return self._send(exc.status, exc.answer, headers=headers)
+        except ValueError:
+            return self._send(400, {"error": "Invalid feedback request."})
+        except OSError:
+            return self._send(500, {"error": "Could not read or save feedback settings."})
+
     def do_GET(self):
+        if self.path in ("/api/feedback", "/api/feedback?open=1"):
+            return self._feedback()
         lane = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/progress", self.path)
         if lane:
             name = lane[1]
@@ -1006,6 +1036,8 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                 self._send(200, f.read(), WEB_TYPES.get(os.path.splitext(file)[1], "application/octet-stream"))
 
     def do_POST(self):
+        if route := re.fullmatch(r"/api/feedback(?:/([1-9][0-9]*)/(messages|seen))?", self.path):
+            return self._feedback(route)
         move = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/move-preview", self.path)
         if move:
             if not self._own_page():

@@ -46,6 +46,7 @@ GRID = 16
 ANCHOR = (42.9, 9.36)
 BUILD_STEP_S = 0.3
 calls = []                  # what the page asked of the stand-ins
+reports = []
 release = {}                # the newest release version.latest answers
 stopped = threading.Event()
 ac_open = threading.Event()
@@ -364,6 +365,7 @@ def remove_tree(path):
 
 def fill():
     """Everything as new: the tracks, a car, the settings."""
+    reports.clear()
     calls.clear()
     release.clear()
     stopped.clear()
@@ -384,6 +386,27 @@ def fill():
     if os.path.exists(settings.FILE):
         os.remove(settings.FILE)
     settings.save({"ac_path": AC, "clean": False, "debug_app": False})
+
+
+def feedback_entry(ticket, **entry):
+    """Append a message or status to the fixture's ticket history."""
+    number = 1 + sum(len(report["messages"]) for report in reports)
+    ticket["messages"].append({"id": number, "created_at": "2026-11-25T10:00:00Z", **entry})
+    return number
+
+
+def feedback_service(key, suffix="", fields=None, images=()):
+    """Stand in for the remote installation's inbox, without making an HTTP request."""
+    if fields is None:
+        return {"reports": reports}
+    if not suffix:
+        ticket = {"id": len(reports) + 1, "kind": fields["kind"], "messages": []}
+        reports.insert(0, ticket)
+    else:
+        ticket = next(report for report in reports if report["id"] == int(suffix.split("/")[1]))
+    ticket["status"] = "new"
+    number = feedback_entry(ticket, type="message", author="sender", text=fields["message"], images=len(images))
+    return {"id": number if suffix else ticket["id"]}
 
 
 def stand_ins():
@@ -418,6 +441,7 @@ def stand_ins():
     version.latest = lambda fresh=False: dict(release) or {"version": version.VERSION, "url": "https://example.invalid/", "archive": None}
     updater.possible = lambda root=None: False
     # Ordinary page tests start with a working patch; installation warnings supply their own local-status responses.
+    server.feedback._call = feedback_service
     server.csp.inspect = lambda ac: {"status": "installed", "version": "0.2.11", "build": 3465, "enabled": True}
     mapcache.usage = lambda: (5000000, 3)
     mapcache.clear = lambda: (calls.append(["map data cleared"]), 5000000)[1]
@@ -517,6 +541,13 @@ class Handler(server.Handler):
         body = self._body()
         if self.path == "/__test/reset":
             fill()
+        elif self.path == "/__test/feedback-news":
+            ticket = next(report for report in reports if report["id"] == body["id"])
+            if "status" in body:
+                ticket["status"] = body["status"]
+                feedback_entry(ticket, type="status", status=body["status"])
+            else:
+                feedback_entry(ticket, type="message", author="admin", text=body["text"], images=0)
         elif self.path == "/__test/hold-lane":
             (lane_publish.clear if body["hold"] else lane_publish.set)()
         elif self.path == "/__test/ac-running":

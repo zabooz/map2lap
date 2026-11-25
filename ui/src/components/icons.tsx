@@ -26,6 +26,10 @@ export const CopyIcon = () => (
 export const TickIcon = () => <Icon size={15} weight={2.6}><path d="M20 6 9 17l-5-5" /></Icon>;
 export const CodeIcon = () => <Icon size={12} weight={2.6}><path d="M8 6 2 12l6 6M16 6l6 6-6 6" /></Icon>;
 export const TrashIcon = () => <Icon size={16}><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" /></Icon>;
+export const BugIcon = () => (
+  <Icon size={22}><path d="m8 3 2 2m6-2-2 2M8 9a4 4 0 0 1 8 0M6 12l-3-2m3 5H3m4 3-3 3m14-9 3-2m-3 5h3m-4 3 3 3" />
+    <rect x="6.5" y="9" width="11" height="12" rx="5.5" /><path d="M12 10v6" /></Icon>
+);
 export const GearIcon = () => (
   <Icon size={26}>
     <circle cx="12" cy="12" r="3" />

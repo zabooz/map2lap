@@ -1,4 +1,5 @@
 import {lazy, Suspense, useCallback, useLayoutEffect, useRef, useState, type ReactNode} from "react";
+import {createPortal} from "react-dom";
 import {post} from "./api";
 import styles from "./App.module.css";
 import {BuildPanel} from "./components/BuildPanel";
@@ -12,7 +13,9 @@ import {loadingToast} from "./editor/editorToasts";
 import type {Say} from "./editor/scene/view";
 import {installationNotice, type InstallationTarget} from "./components/installationNotice";
 import {activeInstallation, settingsAttention} from "./components/settingsAttention";
-import {EditorIcon, GearIcon, MyTracksIcon, NewTrackIcon} from "./components/icons";
+import {FeedbackDialog} from "./components/FeedbackDialog";
+import {useFeedback} from "./hooks/useFeedback";
+import {BugIcon, EditorIcon, GearIcon, MyTracksIcon, NewTrackIcon} from "./components/icons";
 import {groupOf, MyTracksPane} from "./components/MyTracksPane";
 import {NewTrackPane} from "./components/NewTrackPane";
 import {SettingsDialog} from "./components/SettingsDialog";
@@ -193,6 +196,15 @@ export function App() {
     </button>
   );
 
+  const feedback = useFeedback();
+  const [sceneHost, setSceneHost] = useState<HTMLDivElement | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const unread = feedback.reports.some(feedback.unread);
+  const reportButton = <button type="button" data-testid="report-bug" className={styles.reportBug} title="Report a bug"
+    aria-label={unread ? "Report a bug · Unread updates" : "Report a bug"} aria-haspopup="dialog"
+    onClick={() => { setFeedbackOpen(true); void feedback.reload(true); }}>
+    <BugIcon />{unread && <span aria-hidden="true" className={styles.attention}>!</span>}
+  </button>;
   const hint = HINTS[tab === "new" ? track.mode : tab];
 
   return (
@@ -265,6 +277,7 @@ export function App() {
       <main className={`${styles.main}${tab !== "edit" ? ` ${styles.withDetails}` : ""}`} inert={settingsOpen}>
         <div className={styles.mapSpace}>
           <TrackMap tab={tab} track={track} picked={picked} move={move} />
+          {tab === "edit" && sceneHost ? createPortal(reportButton, sceneHost) : reportButton}
           {hint && <div data-testid="map-hint" className={styles.hint}>{hint}</div>}
         </div>
         {tab !== "edit" && <aside data-testid="track-details" className={styles.details} aria-label="Track details">
@@ -280,7 +293,7 @@ export function App() {
         {editorSeen && (
           <ErrorBoundary message="The 3D view could not start">
             <Suspense fallback={null}>
-              <EditorScene routeTrack={!!editing && editing.kind !== "area"} name={shownEditTrack} title={editing?.title ?? ""} timedMode={timedMode(editing?.kind, editing?.ab_timing)}
+              <EditorScene onSceneHost={setSceneHost} routeTrack={!!editing && editing.kind !== "area"} name={shownEditTrack} title={editing?.title ?? ""} timedMode={timedMode(editing?.kind, editing?.ab_timing)}
                            taken={tracks.filter(t => t !== editing).map(t => t.title)}
                            built={editing?.built ?? null} visible={tab === "edit"} controls={controls} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost}
                            onStatus={reportEditLoad} onSaved={onSaved} onDelete={() => { if (editing) void deleteTrack(editing); }} />
@@ -289,6 +302,7 @@ export function App() {
         )}
       </main>
 
+      {feedbackOpen && <FeedbackDialog feedback={feedback} close={() => setFeedbackOpen(false)} />}
       {settingsOpen && (
         <SettingsDialog settings={settings} release={release} patch={patch} focusTarget={settingsTarget} busy={busy} controls={controls} onControls={saveControls}
                         onCar={() => void reload()} onClose={closeSettings} />

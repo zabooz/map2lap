@@ -75,3 +75,8 @@
   .sidebar { grid-row: 2; grid-column: 2; height: auto; border-right: 0; }
   .panes.mine { flex: none; height: max(200px, 44vh); }
 }
+
+.reportBug { position: absolute; right: 12px; bottom: 12px; z-index: 1501; width: 44px; height: 44px; display: grid;
+  place-items: center; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  box-shadow: var(--shadow); cursor: pointer; }
+.reportBug:hover { color: var(--accent); border-color: var(--accent); }

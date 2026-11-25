@@ -11,28 +11,40 @@
 """
 import json
 import os
+import tempfile
+import threading
 
 from app import system
 from app.paths import ROOT
 
 FILE = os.path.join(ROOT, "settings.json")
+LOCK = threading.RLock()
 DEFAULTS = {"ac_path": None, "clean": False, "cores": 50, "cache_gb": 20,     # (20 GB: BeamNG.Earth's default)
-            "car": None, "debug_app": False, "weather_effects": True}
+            "car": None, "debug_app": False, "weather_effects": True,
+            "feedback_key": None, "feedback_seen": {}}
 
 
 def load():
     try:
-        with open(FILE, encoding="utf-8") as f:
+        with LOCK, open(FILE, encoding="utf-8") as f:
             return {**DEFAULTS, **json.load(f)}
     except (OSError, ValueError):
         return dict(DEFAULTS)
 
 
 def save(values):
-    s = {**load(), **{k: v for k, v in values.items() if k in DEFAULTS}}
-    with open(FILE, "w", encoding="utf-8") as f:
-        json.dump(s, f, ensure_ascii=False, indent=1)
-    return s
+    # A preferences change and a ticket acknowledgement can arrive on different HTTP threads.
+    with LOCK:
+        s = {**load(), **{k: v for k, v in values.items() if k in DEFAULTS}}
+        tmp = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=os.path.dirname(FILE) or ".", delete=False)
+        try:
+            with tmp:
+                json.dump(s, tmp, ensure_ascii=False, indent=1)
+            os.replace(tmp.name, FILE)
+        finally:
+            if os.path.exists(tmp.name):
+                os.unlink(tmp.name)
+        return s
 
 
 def is_ac(path):
