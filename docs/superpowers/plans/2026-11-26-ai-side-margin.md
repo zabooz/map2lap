@@ -136,7 +136,8 @@ in `ui/`, `bun test`, Playwright (Chrome).
 
 - [ ] **Step 1: Write the failing test** `test_calculation_returns_one_route_metre_per_written_sample` in
   `engine/tests/test_fastlane.py`, next to `test_new_build_and_editor_recalculation_replace_passing_hints`: for the
-  existing fixture, with no corrections and with one move, `len(metres) == len(read_lane(lane)[0])`, metres finite.
+  existing fixture, with no corrections, one move, and a free redraw that changes the point count,
+  `len(metres) == len(read_lane(lane)[0])`, metres finite. Collect the metres from the finished redraw.
 - [ ] **Step 2: Run, expect FAIL** (calculate returns only `skipped`).
 - [ ] **Step 3: Implement** the `calculate`/`regenerate`/`_worker`/`_calculate` changes and the record field.
 - [ ] **Step 4: Write the failing test** `test_publish_uses_candidate_metres_not_the_installed_record`
@@ -253,6 +254,8 @@ in `ui/`, `bun test`, Playwright (Chrome).
 - Create: `ui/src/editor/scene/aiMargins.ts`: session `editMargins(el, scene, camera, guide, lane, preview, margins,
   pick, add, select)` with `dispose()`, `setSelected(id)`: A/B clicks snap to guide rows; draws each stretch on the
   band, the overridden side's edge highlighted, rejected ones red with reason as title; returns hover fraction.
+  Read the route metre from guide row column 3 (zero-based). Place the preview at fractions along the installed
+  line using its own sample correspondence. A redraw can give the guide and the installed line different counts.
 - Create: `ui/src/editor/tools/useAiMargins.tsx` (+ `.module.css`): fetches the preview (`ai-line/margins`) on draft
   change; controller with `click`, `removable`/`remove`, `clear`; bar `edit-ai-margin-set` with per side
   `ToolChoice` Auto / number field (min 0, max 1, step 0.05) and the effective value: "0.75 m · set" for a number,
@@ -261,10 +264,16 @@ in `ui/`, `bun test`, Playwright (Chrome).
   "Not applied: the AI line was replaced by hand".
 - Modify: `ui/src/editor/tools/useAiLine.tsx`: `AiLineMode` gains `"margin"` (shows the line, no move session);
   the Recalculate button is also enabled for `hints.state === "stale"` or `hints.unplaced === "recalculate"`.
+  Prefetch the guide once when an editable Route or Circuit finishes loading. Return the guide to all three AI
+  tools. While the request is pending, the active tool shows “Preparing the AI line for editing …”. Display
+  the preparation error in the active tool if it fails.
 - Modify: `ui/src/editor/EditTools.tsx`: mode for `"ai-margin"`, `useAiMargins` wired, controller registered.
 - Modify: `ui/e2e/server.py`: `GET /__test/ai-hints?name=` returns the track's `data/ai_hints.ini` text ("" if none);
   `POST /__test/ai-line-legacy {name}` removes `metres` from the track's `data/map2lap_ai.json`.
 - Test: `ui/e2e/tools.e2e.ts` new `test("Side margin overrides one side and reaches ai_hints.ini")`.
+  Exercise a point-count-changing redraw and compare the saved guide metres and exported installed-line fractions.
+  Hold the guide response on the test server. Assert one request before tool selection, the loading message during
+  the wait, and the same request count after switching between Move line, Redraw line and Side margin.
 
 - [ ] **Step 1: Write the failing unit tests:** toolDefs (`toolOfKey("m")?.tool === "ai-margin"`, AI group order
   `["ai-move", "ai-redraw", "ai-margin"]`); edits (`updateAiMargin` with both `null` removes; add/update/remove are

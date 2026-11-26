@@ -40,15 +40,18 @@ hook handles its own view marks but does not register another global click, pick
 
 ## AI line
 
-The AI group has two tools, Move line (L) and Redraw line (P); there is no separate show button. Taking up either one
-shows the installed `ai/fast_lane.ai` as a translucent speed band with side limits; Move line also shows the route metre
-and point data on hover. Switching between the two keeps the line and its guide without reading them again. Yellow is the lowest modelled speed and blue the highest. The legend spans the whole circuit
+Move line (L), Redraw line (P) and Side margin (M) show the installed `ai/fast_lane.ai` as a translucent speed band
+with side limits. Move line also shows the route metre and point data on hover. When an editable Route or Circuit
+finishes loading, the Editor prepares the guide in the background. All three tools share the same request and result
+when switching or returning to them. An active tool shows **Preparing the AI line for editing …** while it waits, or
+the error if preparation fails. Yellow is the lowest modelled speed and blue the highest. The legend spans the whole circuit
 or the stage from start gate to finish gate. Grid and runout colours clamp to this range. If an installed spline misses
 a timing gate, the legend spans the available samples. Save and Save as update the line in the background when its
 fingerprint changes. Until the replacement is ready, the old band stays visible, dimmed and labelled **Outdated**.
 If AC is open or a build is running, the update waits for the next Save, Recalculate or Race with opponents.
 Editor Play saves edits first. Only a Race with opponents needs a current line before launch.
-**Recalculate AI line** beside the tools saves pending edits first and can retry a failed or hand-replaced line.
+**Recalculate AI line** beside the tools saves pending edits first. It can retry a failed calculation or replace a manual
+line when the recipe has no side margins.
 The button is disabled while calculating or when everything is current. Progress and results appear in Notifications.
 In Move line, dragging the band moves it sideways; dragging inside an existing move adjusts it in one Undo step. New and adjusted moves taper on each side over at least
 15 m. Their peak added lateral slope is limited to 1 in 4 relative to the reference. The editor retains the stored range
@@ -65,18 +68,42 @@ The preview replaces the installed band along the measured stroke. Both bands sh
 side limits. The overlay averages each side’s width over one car length in either direction to soften raster teeth,
 keeping the sampled centreline and the bank at each point. In a tight bend the displayed inside edge stops where adjacent cross-sections meet. The point inspector
 and AI file retain the measured widths.
-Free is selected initially. Shift switches Road/Free in both tools. Switching keeps the measured correction bands visible.
+Free is selected initially. Shift switches Road/Free in Move and Redraw. Switching keeps the measured correction bands visible.
 Changing tools or pressing Escape discards an unfinished stroke; Escape without a stroke ends the tool. Right-click a saved correction to remove it. Free mode belongs to each new correction.
 Yellow marks off-road segments supported by a driving surface. Red marks an invalid section, with its reason and
 route metre on hover. At an open finish the dashed continuation accepts the end click for a free runout.
 Build as copy carries the correction recipe and resolves it on the new geometry.
 A hand-replaced line is identified by its checksum and remains available for a test drive.
 
-`GET /api/editor/<track>/ai-line` returns the status as JSON with the file status, revision, point count, circuit flag, calculation availability and input validity. Open lines also report the timed speed range in m/s when available. With
+`GET /api/editor/<track>/ai-line` returns JSON with the file status, revision, point count, circuit flag, calculation
+availability and input validity. Its `hints` field reports whether the installed INI is current, why margins are unplaced,
+and the reason for each rejected correction. Open lines also report the timed speed range in m/s when available. With
 `?r=<revision>` it returns cacheable `application/octet-stream` or HTTP 409 when the installed revision changed. The binary
 contract is 23 consecutive columns of `count` little-endian values each, 92 bytes per sample including all columns. Each column
 is Float32 except `id` (Int32). In order they are `x, y, z, distance, id, speed, gas, brake, lat_g, radius, left, right,
 camber, direction, normal_x, normal_y, normal_z, segment_length, forward_x, forward_y, forward_z, tag, grade`.
+
+### Side margin
+
+On a Route or Circuit, press **M** and click A then B on the installed band in driving order. A Circuit stretch can cross
+start/finish. Both sides start on **Auto**. Enter 0–1 m in steps of 0.05 for either side, then press Enter or leave the
+field. For example, setting Right to 0.75 m keeps the automatic left hint unless another correction sets it. Explicit
+0 m gives up zero width on that side. Returning both sides to Auto removes the correction.
+
+The band highlights each overridden edge. The bar shows the effective value or range across the selected stretch.
+Hover for the left and right hints at a point. Click a stretch or pick it from the list to edit it. **New stretch**
+lets A and B fall inside an existing margin. Opposite sides may overlap. A later correction overlapping an earlier one
+on the same side is rejected. A rejected stretch or surviving endpoint appears red, with the reason and route metre
+on hover. The list also keeps corrections whose anchors cannot be placed. X or Delete removes the picked correction.
+Ctrl+Z undoes an addition, adjustment or removal.
+
+The recipe stores these corrections in `edits.aiMargins`. Save as and Build as copy carry the anchors with it. The
+preview and INI use the same merge on the installed lane. Each mark takes its route metre from the guide and its
+driving level from the installed lane. A margin-only edit updates the hints and preserves the installed lane bytes.
+For an older calculated lane missing its sample route metres, **Recalculate AI line** records them once to place
+the margins. A hand-replaced lane uses automatic hints and shows its margins as **Not applied**.
+While AC is running, Save carries the previous INI. After AC closes, Recalculate or the next Race with opponents
+refreshes stale hints from the saved recipe, including after reopening the Editor.
 
 ## Selection and Inspector
 

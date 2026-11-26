@@ -168,7 +168,7 @@ Build and Rebuild generate `ai/fast_lane.ai` on the finished track. Editor Save 
 and updates it in the background when its inputs change. A Race with opponents requires a current or explicitly accepted manual line. Practice,
 Hotlap and solo Race skip this step. The Editor can explicitly recalculate the saved track's line.
 `data/map2lap_ai.json` fingerprints collision geometry, grid and timing markers, route, mapped road and
-ring facts, circuit mode, line-code version and the corrections from the Editor recipe. A separate file checksum
+ring facts, circuit mode, line-code version and the Move and Redraw corrections from the Editor recipe. A separate file checksum
 identifies hand-replaced lines so the driver can choose which line to use.
 
 Tangent arcs and the sampled line need a continuous 2 m strip of
@@ -210,12 +210,19 @@ the automatic line continues through their sections.
 Mapped road widths also limit broad collision strips. At intersections and local width bulges the sides interpolate
 along the route, bounded by the free cross section.
 
-Routes and Circuits write symmetric `DANGER_n` hints in `data/ai_hints.ini` from the installed line’s
-left and right widths. Each side gives up half the total width above 5.5 m (two 2 m cars, about 1.3 m
+Routes and Circuits derive symmetric automatic passing hints from the installed line’s left and right widths. Each side
+gives up half the total width above 5.5 m (two 2 m cars, about 1.3 m
 between bodies and 0.2 m spare), rounded to 0.25 m and capped at 1 m. Rounding can take up to
 0.25 m from the nominal 5.5 m remaining across both sides. Short changes share the smaller
-hint across about 50 m. Zero has no entry. START/END are fractions of the 3D line including a Circuit’s
-closing chord. In side-by-side traffic AC subtracts the hints only if more than 4 m remain. Free driving
+hint across about 50 m.
+
+A Side margin overrides `LEFT`, `RIGHT` or both between two route anchors, in 0.05 m steps from 0 to 1 m.
+`data/map2lap_ai.json` binds one route metre per final lane sample to the checksum of `fast_lane.ai`, including
+samples inserted by Redraw. The exporter maps the anchors to fractions of the installed lane’s 3D length,
+including a Circuit’s closing chord. It cuts sections wherever either side changes and splits at start/finish.
+`data/ai_hints.ini` numbers the resulting sections from `DANGER_0`, with nine decimals for `START` and `END`
+and two for `LEFT` and `RIGHT`. A section with two zeroes is omitted. A section with `LEFT=0.00` and
+`RIGHT=0.75` is written. In side-by-side traffic AC subtracts the hints only if more than 4 m remain. Free driving
 keeps the full widths. The associated corner factor is `1 − 0.2 × max(LEFT, RIGHT)`, at least 0.8,
 and can also affect the return from a lateral offset.
 
