@@ -68,6 +68,9 @@ Commands, browser-test requirements and React/CSS rules: [ui/AGENTS.md](ui/AGENT
 - **Style:** short functions, docstrings that name the inputs and say "Pure." when there are no side effects.
 - **Versions** (`src/app/version.py`) change only at a release: `VERSION` always, `TRACK_VERSION` when built tracks look or
   drive differently.
+- **CSP is a tool, never the limit.** We use Custom Shaders Patch where it helps, but "CSP has no API for it" does not
+  mean "impossible". If a feature needs it, we build our own: a native AC plugin, a DLL, a Lua app, a patch to AC's files.
+  Before calling something impossible, say what was actually tested, what was only searched for, and what other way exists.
 - **Assetto Corsa:** object name prefixes decide the physics (`1ROAD_`, `1GRAVEL_`, `1GRASS_`, `1KERB_`, `1WALL_`, `nocol_`).
   `WALL` stays undefined in `surfaces.ini`. At most 65,535 vertices per mesh. Frame rate and memory are the track's job.
 - **The generator page is for end users:** developer tools stay in `tools/`, status lives in fixed places, dialogs are
