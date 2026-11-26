@@ -147,7 +147,13 @@ class SideMarginTest(unittest.TestCase):
         self.assertSections(result, [[0., .25, 0, 1]])
         self.assertSections(self.render(self.margin(200, 270)), [[.75, 1., 0, 1]])
         self.assertIn("m1", self.render(self.margin(270, 300)).rejected)
-        self.assertIn("End precedes the start", self.render(self.margin(200, 100)).rejected["m1"])
+
+    def test_open_route_accepts_either_anchor_order_and_writes_identical_ini(self):
+        reverse = self.render(self.margin(109, 94, left=1., right=None))
+        self.assertEqual(reverse.rejected, {})
+        self.assertEqual(reverse.data, self.render(self.margin(94, 109, left=1., right=None)).data)
+        self.assertSections(reverse, [[0, 94/300, .5, .5], [94/300, 109/300, 1, .5],
+                                      [109/300, .5, .5, .5], [.5, 1, .75, .75]])
 
     def test_margin_schema(self):
         margin = self.margin()

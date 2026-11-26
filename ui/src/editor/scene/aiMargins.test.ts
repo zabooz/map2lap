@@ -47,7 +47,7 @@ test("a surviving endpoint of a rejected margin can be hovered and picked on its
     [{id:"bad", start:.5, left:.25, right:null, error:"Unresolved route anchor at route metre 80"}],
     () => Infinity, () => {}, id => selected.push(id));
   expect(edit.hover({index:0,t:.501})?.owner?.id).toBe("bad");
-  expect(element.title).toContain("route metre 80");
+  expect(element.title).toBe("");
   edit.click(new Vector2(.005,0));
   expect(selected).toEqual(["bad"]);
   edit.dispose();
@@ -68,4 +68,36 @@ test("a legacy anchor on the return trip projects onto the later passage of the 
   const rows = [0,5,10,15,20,25,30,35,40].map(m => [Math.min(m,40-m),0,0,m,0,1,3,3,0] as Row);
   const guide: MoveGuide = {rows, path:[[0,0],[20,0],[0,0]], length:40, closed:false, origin:[0,0], key:"road", tail:[], errors:{}};
   expect(projectGuideMark([35,0], guide, positions, laneFractions(positions,false))).toBeCloseTo(35/40);
+});
+
+test("margin strip meshes measure inward from the INI sides and show only the winning width", async () => {
+  const {Mesh, Group, Scene, PerspectiveCamera} = await import("three");
+  const {AiLineDraw} = await import("./aiLine");
+  const {editMargins} = await import("./aiMargins");
+  const {decodeAiLine} = await import("./aiLineData");
+  const scene = new Scene(), lane = new AiLineDraw(scene);
+  const words = new Float32Array(2*23);
+  words.set([0,100]); // Driving east (+X), AC SideLeft = up × forward = -Z.
+  for (const [column,v] of [[10,.4],[11,1.2],[15,1],[18,1]]) words.set([v,v],column*2);
+  lane.set(decodeAiLine({count:2,revision:"lane",closed:false,message:null,status:"ready"},words.buffer));
+  const edit = editMargins({title:"",clientHeight:600,removeAttribute() {}}, scene, new PerspectiveCamera(),
+    undefined, lane, {auto:[], sections:[[0,.5,1,.25],[.5,1,1,.5]], margins:{},unplaced:null},
+    [{id:"older",start:0,end:1,left:1,right:null},{id:"newer",start:.2,end:.4,left:.1,right:null}],
+    () => Infinity, () => {}, () => {});
+  edit.setSelected("older");
+  const group = scene.children.find(child => child instanceof Group)!;
+  const stripsAt = (x:number) => group.children.flatMap(mesh => {
+      if (!(mesh instanceof Mesh) || mesh.type !== "Mesh") return [];
+      const {position} = mesh.geometry.attributes;
+      if (position.getX(0) >= x || position.getX(position.count-1) <= x) return [];
+      const z = [position.getZ(0),position.getZ(1)].sort((a,b) => a-b);
+      return [{z:z.map(v => +v.toFixed(2)), opacity:mesh.material.opacity as number}];
+    }).sort((a,b) => a.z[0]-b.z[0]);
+  // LEFT's 1 m is capped at half the 1.6 m band. RIGHT Auto follows the server section.
+  expect(stripsAt(10).map(s => s.z)).toEqual([[-.4,.4],[.95,1.2]]);
+  expect(stripsAt(10)[0].opacity).toBeGreaterThan(stripsAt(10)[1].opacity);
+  expect(stripsAt(30).map(s => s.z)).toEqual([[-.4,-.3],[.95,1.2]]);
+  expect(stripsAt(75).map(s => s.z)).toEqual([[-.4,.4],[.7,1.2]]);
+  edit.dispose();
+  lane.set(null);
 });

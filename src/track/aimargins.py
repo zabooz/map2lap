@@ -79,8 +79,7 @@ def _extent(start, end, samples, circuit, length):
         raise ValueError(f"Empty side margin at route metre {start:.1f}")
     if circuit:
         return start % length, end % length
-    if end < start:
-        raise ValueError(f"End precedes the start at route metre {end:.1f}")
+    start, end = sorted((start, end))
     if end <= samples[0] or start >= samples[-1]:
         raise ValueError(f"Outside the AI line at route metre {start:.1f}")
     return max(start, samples[0]), min(end, samples[-1])

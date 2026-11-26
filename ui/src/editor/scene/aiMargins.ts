@@ -136,24 +136,58 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
     if (a == null || b == null) return [];
     return !closed && a>b ? [[b,a]] : intervals(a,b);
   };
-  function draw(range: MarginRange, selected: boolean) {
-    const colour = range.error ? "#ff5454" : range.unapplied ? (selected ? "#dfa6ff" : "#ac86d8") : selected ? "#ffc843" : "#f4e2a6";
-    for (const [a,b] of pieces(range)) {
-      const first = crossSection(a), last = crossSection(b);
-      const edges = [first.edges, ...rows.slice(first.i+1,last.i+1).map(r => r.edges), last.edges];
-      const outline = [...edges[0][0], ...edges[0][1], ...last.edges[0], ...last.edges[1]];
-      if (a < b) {
-        const fill = new THREE.Mesh(laneBand(edges, edges.map(() => [1,1,1]), false),
-          new THREE.MeshBasicMaterial({color: colour, transparent:true, opacity: selected ? .38 : .22,
-            side:THREE.DoubleSide, forceSinglePass:true, depthWrite:false, toneMapped:false}));
-        fill.renderOrder = 11;
-        marks.add(fill);
-        for (let i=1; i<edges.length; i++) {
-          if (range.left !== null || range.error) outline.push(...edges[i-1][0], ...edges[i][0]);
-          if (range.right !== null || range.error) outline.push(...edges[i-1][1], ...edges[i][1]);
-        }
+  const colourOf = (range: MarginRange) => {
+    const selected = range.id === selectedId;
+    return range.error ? "#ff5454" : range.unapplied ? (selected ? "#dfa6ff" : "#ac86d8") : selected ? "#ffc843" : "#f4e2a6";
+  };
+  const edgesBetween = (a:number, b:number) => {
+    const first = crossSection(a), last = crossSection(b);
+    return [first.edges, ...rows.slice(first.i+1,last.i+1).map(r => r.edges), last.edges];
+  };
+  function fill(edges: [Place,Place][], colour:string, opacity:number) {
+    const mesh = new THREE.Mesh(laneBand(edges, edges.map(() => [1,1,1]), false),
+      new THREE.MeshBasicMaterial({color:colour, transparent:true, opacity,
+        side:THREE.DoubleSide, forceSinglePass:true, depthWrite:false, toneMapped:false}));
+    mesh.renderOrder = 11;
+    marks.add(mesh);
+  }
+  function drawEnds(range:MarginRange, a:number, b:number) {
+    const first = crossSection(a).edges, last = crossSection(b).edges;
+    const outline = [...first[0], ...first[1], ...last[0], ...last[1]];
+    if (range.error && a < b) {
+      const edges = edgesBetween(a,b);
+      fill(edges,colourOf(range),range.id === selectedId ? .38 : .22);
+      for (let i=1; i<edges.length; i++) {
+        for (const side of [0,1]) outline.push(...edges[i-1][side], ...edges[i][side]);
       }
-      marks.add(bandLines(outline, colour, selected ? 4 : 3, 12));
+    }
+    marks.add(bandLines(outline, colourOf(range), range.id === selectedId ? 4 : 3, 12));
+  }
+  function drawStrips(ranges: MarginRange[], sections: Section[]) {
+    const spans = ranges.flatMap(range => pieces(range).map(([a,b]) => ({range,a,b})));
+    for (const {range,a,b} of spans) drawEnds(range,a,b);
+    // Split at both recipe and automatic transitions, even between two installed samples.
+    const cuts = [...new Set([...spans.flatMap(({a,b}) => [a,b]), ...sections.flatMap(([a,b]) => [a,b])])].sort((a,b) => a-b);
+    spans.reverse(); // Later recipe entries win each explicitly set side.
+    for (let i=1; i<cuts.length; i++) {
+      const a = cuts[i-1], b = cuts[i];
+      const covering = spans.filter(s => s.a <= a && b <= s.b && !s.range.error);
+      const latest = covering[0]?.range;
+      if (!latest) continue;
+      const section = sections.find(([start,end]) => start <= a && b <= end);
+      const edges = edgesBetween(a,b);
+      for (const side of ["left","right"] as const) {
+        const fixed = covering.find(s => s.range[side] !== null)?.range;
+        const width = fixed?.[side] ?? section?.[side === "left" ? 2 : 3] ?? 0;
+        if (!width) continue;
+        const outside = side === "left" ? 0 : 1;
+        const strip = edges.map((pair): [Place,Place] => {
+          const edge = pair[outside], other = pair[1-outside];
+          const across = Math.hypot(other[0]-edge[0],other[1]-edge[1],other[2]-edge[2]);
+          return [edge, between(edge,other,across ? Math.min(width/across,.5) : 0)];
+        });
+        fill(strip, colourOf(fixed ?? latest), fixed ? .95 : .38);
+      }
     }
   }
   function locate({index,t}: MarginHit) {
@@ -171,7 +205,9 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
   }
   function redraw(changed?: MarginRange) {
     clear();
-    for (const range of margins) draw(changed?.id === range.id ? changed : range, range.id === selectedId);
+    const ranges = changed ? margins.map(r => r.id === changed.id ? changed : r) : margins;
+    const sections: Section[] = changed ? preview.auto.map(([a,b,w]) => [a,b,w,w]) : preview.sections;
+    drawStrips(ranges, sections);
   }
   function markAt(hit: MarginHit): MarginMark | undefined {
     if (!guide?.rows.length) return;
@@ -217,7 +253,7 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
     },
     hover(hit: MarginHit | null) {
       const place = hit && locate(hit);
-      el.title = place?.owner?.error ?? (place?.owner?.unapplied ? "Not yet applied" : "");
+      el.title = place?.owner?.unapplied && !place.owner.error ? "Not yet applied" : "";
       return place;
     },
     click(mouse: THREE.Vector2 | null) {

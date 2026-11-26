@@ -3,7 +3,7 @@ import {createPortal} from "react-dom";
 import type {TimedMode} from "../types";
 import {useKerbs} from "./tools/useKerbs";
 import {useStitch} from "./tools/useStitch";
-import {ToolToasts} from "./tools/ToolToasts";
+import {ToolToasts, useToolToasts} from "./tools/ToolToasts";
 import {useCamera} from "./tools/Camera";
 import {CopyTool} from "./tools/Copy";
 import {hasUnsavedChanges, TrackEdits, type EditState} from "./state/edits";
@@ -81,12 +81,12 @@ export function EditTools({name, title, routeTrack, loaded, timedMode, visible, 
   const [tool, setTool] = useState<Tool>("select");
   const [copyTake, setCopyTake] = useState(0);
   const [note, setNoteState] = useState<string | null>(null);
-  const [toolToast, setToolToast] = useState<{text: string; n: number} | null>(null);
+  const {shown, show} = useToolToasts();
   /** A tool's note: kept for the Inspector's notes, and each one shown as a toast at the view's bottom right (ToolToasts). */
   const setNote = useCallback((text: string | null) => {
     setNoteState(text);
-    if (text) setToolToast(previous => ({text, n: (previous?.n ?? 0) + 1}));
-  }, []);
+    if (text) show(text);
+  }, [show]);
   const [viewFailed, setViewFailed] = useState<string | null>(null);
   const [copyFailed, setCopyFailed] = useState<string | null>(null);
   const [groupFailed, setGroupFailed] = useState<string | null>(null);
@@ -117,7 +117,7 @@ export function EditTools({name, title, routeTrack, loaded, timedMode, visible, 
   const [aiLineWrites, setAiLineWrites] = useState(0);
   const aiLine = useAiLine({name, view, routeTrack, loaded, mode: tool === "ai-move" ? "move" : tool === "ai-redraw" ? "redraw" : tool === "ai-margin" ? "margin" : null, writes: aiLineWrites,
     unsaved: unsavedAiDraft, edits, moves: state.aiCorrections, editable});
-  const margin = useAiMargins(name, view, edits, state.aiMargins, working("ai-margin"), aiLine);
+  const margin = useAiMargins(name, view, edits, state.aiMargins, working("ai-margin"), aiLine, setNote);
   const saving = useSave({lanePending: aiLine.pending && !aiLine.working, name, timedMode, edits, state, view, onSaved: savedName => {
     if (savedName === name) setAiLineWrites(writes => writes + 1);
     onSaved(savedName);
@@ -325,7 +325,7 @@ export function EditTools({name, title, routeTrack, loaded, timedMode, visible, 
           onHeight={rise => walls.change(wallIds, {rise})} onTexture={() => { setMenu(null); setLibraryTab("textures"); }}
           onOriginal={() => walls.change(wallIds, {material: null})} onReset={() => walls.change(wallIds, {reset: true})} /> : <TransformFields move={move} />)} />, inspectorHost)}
       {options}
-      <ToolToasts note={toolToast} />
+      <ToolToasts shown={shown} />
       {menu && (
         <ViewMenu at={menu} object={!!picked?.id} mark={editable ? markLabel : null} canDelete={removable.length > 0 && editable} onClose={closeMenu}
                   onReplace={run.replace} onEdit={editPicked} onMove={run.move} onDuplicate={run.copy}

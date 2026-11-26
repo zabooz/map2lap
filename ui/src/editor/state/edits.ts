@@ -447,19 +447,20 @@ export class TrackEdits {
   }
 
   /** Add a marked stretch with its first manual side as one Undo step. */
-  addAiMargin(margin: AiMargin) {
-    this.change({...this.edits(), aiMargins: [...this.now.aiMargins, margin]});
+  addAiMargin(margin: AiMargin, wheelSide?: "left" | "right") {
+    this.change({...this.edits(), aiMargins: [...this.now.aiMargins, margin]}, wheelSide && `margin:${margin.id}:${wheelSide}`);
   }
 
   /** Change the anchors or side settings for id. Returning the last manual side to Auto removes its stretch. */
-  updateAiMargin(id: string, patch: Partial<Omit<AiMargin, "id">>) {
+  updateAiMargin(id: string, patch: Partial<Omit<AiMargin, "id">>, wheelSide?: "left" | "right") {
     const current = this.now.aiMargins.find(m => m.id === id);
     if (!current) return;
     const next = {...current, ...patch};
     if (next.left === current.left && next.right === current.right &&
         next.start === current.start && next.end === current.end) return;
-    if (next.left === null && next.right === null) this.removeAiMargin(id);
-    else this.change({...this.edits(), aiMargins: this.now.aiMargins.map(m => m.id === id ? next : m)});
+    const aiMargins = next.left === null && next.right === null ? this.now.aiMargins.filter(m => m.id !== id)
+      : this.now.aiMargins.map(m => m.id === id ? next : m);
+    this.change({...this.edits(), aiMargins}, wheelSide && `margin:${id}:${wheelSide}`);
   }
 
   /** Remove the stretch with id as one Undo step. */
@@ -546,10 +547,9 @@ export class TrackEdits {
   /** Objects placed anew, each instead of how it was placed before; one placed as built is left out. join: a key, the change goes with the
       last one into one step to undo if that had the same key and came a moment ago (the notches of a wheel). */
   place(items: Placement[], join?: string) {
-    const ids = new Set(items.map(p => p.id)), now = performance.now();
+    const ids = new Set(items.map(p => p.id));
     const placed = [...this.now.placed.filter(p => !ids.has(p.id)), ...items.filter(p => !isUnplaced(p))];
-    if (!!join && this.joining?.key === join && now - this.joining.at < JOIN_MS && this.past.length > 0 && this.canEdit()) this.past.pop();
-    this.change({...this.edits(), placed}, join ? {key: join, at: now} : null);
+    this.change({...this.edits(), placed}, join);
   }
 
   /** How the object id is placed now, undefined: as built. */
@@ -634,10 +634,13 @@ export class TrackEdits {
     this.apply(next);
   }
 
-  private change(edits: Edits, joining: {key: string; at: number} | null = null) {
+  private change(edits: Edits, join?: string) {
     if (!this.canEdit()) return;
-    this.joining = joining;
-    this.past.push(this.edits());
+    const now = performance.now();
+    // A wheel burst keeps the snapshot from before its first notch.
+    if (!join || this.joining?.key !== join || now - this.joining.at >= JOIN_MS || !this.past.length)
+      this.past.push(this.edits());
+    this.joining = join ? {key:join, at:now} : null;
     if (this.past.length > HISTORY) this.past.shift();
     this.future = [];
     this.apply(edits);

@@ -81,7 +81,7 @@ export const TOOL_DEFS: ToolDef[] = [
       ["Save", "update an outdated line in the background"], ["Recalculate AI line", "save edits and update the line if needed"]]},
   {tool: "ai-margin", group: "ai", id: "edit-ai-margin", label: "Side margin", key: "M", selection: "none",
     hint: "Mark a stretch of the AI line and adjust its left or right passing margin (M)",
-    help: [["M", "turn Side margin on or off"], ["Click twice", "mark A then B on the line in driving order"],
+    help: [["M", "turn Side margin on or off"], ["Click twice", "mark either end first on a Route, or follow driving order on a Circuit"],
       ["Click a stretch", "select it"], ["Drag A or B", "resize the selected stretch"],
       ["Shift + wheel", "adjust left by 0.05 m"], ["Ctrl + wheel", "adjust right by 0.05 m"],
       ["Alt + wheel", "select and view the next or previous stretch in driving order"],

@@ -652,9 +652,9 @@ async function marginMarks(page: Page) {
   camera.position.set(128, 22, 5);
   camera.lookAt(128, 0, -40);
   camera.updateMatrixWorld();
-  const screenRow = (metre: number) => {
+  const screenRow = (metre: number, offsetX = 0) => {
     const row = guide.rows.find((r: number[]) => r[3] >= metre);
-    const p = new three.Vector3(row[0], row[1] + .34, row[2]).project(camera);
+    const p = new three.Vector3(row[0] + offsetX, row[1] + .34, row[2]).project(camera);
     const x = bounds.x + (p.x + 1) * bounds.width / 2, y = bounds.y + (1 - p.y) * bounds.height / 2;
     return {x, y, snapped:row[3] as number};
   };
@@ -694,6 +694,59 @@ async function passingHints(page: Page): Promise<Danger[]> {
 }
 
 test.describe("Side margin", () => {
+  test("fixed and Auto strips resize before the margins reply", async ({page, backend}) => {
+    await marginTrack(page, backend);
+    const {bar} = await marginMarks(page);
+    await expect(bar).toContainText("0.75 m · set");
+    const left = bar.getByRole("spinbutton",{name:"Left"});
+    await left.fill("0.25"); await left.press("Enter");
+    await expect(bar).toContainText("0.25 m · set");
+    await keysOnView(page);
+    await wheelWith(page, ["Alt"], -100); // Centre the camera on the stretch.
+    const middle = await centre(scene(page));
+    const strip = () => page.screenshot({clip:{x:Math.floor(middle.x)-75,y:Math.floor(middle.y)-12,width:150,height:24}});
+    const before = await strip();
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    await page.route("**/ai-line/margins", async route => { await pending; await route.continue(); });
+    try {
+      await left.fill("0.75"); await left.press("Enter");
+      await expect.poll(async () => (await strip()).equals(before)).toBe(false);
+      const fixed = await strip();
+      await bar.getByRole("group",{name:"Right"}).getByRole("button",{name:"Auto"}).click();
+      await expect.poll(async () => (await strip()).equals(fixed)).toBe(false);
+      const automatic = await strip();
+      await keysOnView(page);
+      await wheelWith(page, ["Control"], -100); // Auto to explicit 0 m.
+      await expect.poll(async () => (await strip()).equals(automatic)).toBe(false);
+      await bar.getByRole("group",{name:"Right"}).getByRole("button",{name:"Auto"}).click();
+    } finally { release(); }
+    await expect(bar).toContainText("0.25–0.50 m · Auto");
+    const screenshot = test.info().outputPath("side-margin-left-075-right-auto.png");
+    await page.screenshot({path:screenshot});
+    await test.info().attach("Left 0.75 m and Right Auto", {path:screenshot,contentType:"image/png"});
+  });
+
+  test("a newly rejected stretch emits one tool toast and hovering keeps one explanation", async ({page, backend}) => {
+    await marginTrack(page, backend);
+    const {bar,clickRow,moveRow} = await marginMarks(page);
+    await clickRow(80); await clickRow(80);
+    const right = bar.getByRole("spinbutton",{name:"Right"});
+    await right.fill("0.50"); await right.press("Enter");
+    const message = /Empty side margin at route metre/;
+    const toast = page.locator("#edit-tool-toasts p").filter({hasText:message});
+    await expect(toast).toHaveCount(1);
+    await moveRow(80);
+    await expect(bar).toContainText("Left ");
+    expect((await bar.innerText()).match(/Empty side margin/g)).toHaveLength(1);
+    await expect(scene(page)).not.toHaveAttribute("title",message);
+    await expect(toast).toHaveCount(0);
+    await right.fill("0.55"); await right.press("Enter");
+    await moveRow(100); await moveRow(80);
+    await expect(bar).toContainText("Left ");
+    await expect(toast).toHaveCount(0);
+  });
+
   test("one Recalculate click places a first margin on an older line", async ({page, backend}) => {
     const url = await marginTrack(page, backend);
     await backend.post("/__test/ai-line-legacy", {name: "alpha"});
@@ -770,7 +823,8 @@ test.describe("Side margin", () => {
     await expect(bar).toContainText(/not yet applied/i);
     expect(await passingHints(page)).toEqual(automatic);
     await page.mouse.move(AWAY.x, AWAY.y);
-    const {x,y} = screenRow(145);
+    // This northbound section has a 3.1 m right half-width and a 0.75 m reserve.
+    const {x,y} = screenRow(145, 2.8);
     const sample = () => page.screenshot({clip:{x:Math.floor(x)-2,y:Math.floor(y)-2,width:5,height:5}});
     const highlighted = await sample();
     await page.keyboard.press("x");
@@ -783,6 +837,21 @@ test.describe("Side margin", () => {
     await clickRow(95);
     await moveRow(80);
     await expect(scene(page)).toHaveAttribute("title", /not yet applied/i);
+  });
+
+  test("an open stretch marked backwards applies and cycles by its first metre", async ({page, backend}) => {
+    await marginTrack(page, backend);
+    const {bar,clickRow} = await marginMarks(page); // Right 0.75 on 106–185 m.
+    const right = bar.getByRole("spinbutton",{name:"Right"});
+    await clickRow(70); await clickRow(85);
+    await right.fill("0.40"); await right.press("Enter");
+    await expect(bar).toContainText("0.40 m · set");
+    await clickRow(200); await clickRow(80);
+    await right.fill("0.60"); await right.press("Enter");
+    await expect(bar).toContainText("0.60 m · set");
+    await keysOnView(page);
+    await wheelWith(page, ["Alt"], -100);
+    await expect(right).toHaveValue("0.75"); // In driving order the starts are 70, 80, 106 m.
   });
 
   test("dragging either margin endpoint makes one undo step on release", async ({page, backend}) => {

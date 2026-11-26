@@ -86,12 +86,13 @@ camber, direction, normal_x, normal_y, normal_z, segment_length, forward_x, forw
 ### Side margin
 
 Press **M** on a Route or Circuit. Click inside a highlighted stretch to select it. Click outside the existing
-stretches to mark A, then click B on the band. B can be inside another stretch. Follow driving order across
-start/finish on a Circuit. Drag either end of the selected stretch along the band. Releasing it records one Undo step.
+stretches to mark A, then click B on the band. B can be inside another stretch. On a Route either end can come first, including
+when dragging one end past the other. On a Circuit the stretch follows driving order from A to B across start/finish if needed.
+Drag either end of the selected stretch along the band. Releasing it records one Undo step.
 
 Both sides start on **Auto**. Shift + wheel adjusts the left reserve and Ctrl + wheel adjusts the right in 0.05 m
-steps up to 1 m. One step below 0 m returns that side to Auto. You can also type a value and press Enter or leave
-the field. An explicit 0 m releases the entire reserve on that side. Auto lets the previous correction or the
+steps up to 1 m. Consecutive wheel notches on the same stretch and side, less than a second apart, undo together.
+One step below 0 m returns that side to Auto. You can also type a value and press Enter or leave the field. An explicit 0 m releases the entire reserve on that side. Auto lets the previous correction or the
 automatic profile supply its value. Returning both sides to Auto removes the correction.
 
 On each overlapping metre, the most recently added stretch with a value for that side wins. The older stretch keeps
@@ -99,9 +100,10 @@ its anchors and values. Removing the newer stretch restores the older values. Al
 previous stretch in driving order and moves the camera to it. X or Delete removes the selection. Ctrl+Z undoes
 an addition, adjustment or removal.
 
-The band outlines the edited edges. The bar shows the effective value or range for each side, and hovering shows
-both hints at that point. A rejected stretch or surviving endpoint appears red with the reason on hover. On an older
-line without sample route metres, the Editor projects the anchors from the guide onto the installed line and draws
+Strips extend inward from each band edge by the effective margin, up to half the band width. A fixed margin is bright and Auto
+is pale. The bar shows the effective value or range for each side, and hovering shows both hints at that point.
+A rejected stretch or surviving endpoint appears red. A tool toast reports each new or changed error. Selecting
+the stretch shows the reason in the tool bar. On an older line without sample route metres, the Editor projects the anchors from the guide onto the installed line and draws
 the stretch in violet as **Not yet applied**. These approximate positions are for display only. **Recalculate AI line**
 records the missing metres once so the margins can take effect. A hand-replaced lane retains its automatic hints.
 

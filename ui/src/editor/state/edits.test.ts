@@ -598,3 +598,31 @@ test("Side margin add, update and remove each take one Undo step; Auto on both s
   edits.undo(); expect(edits.state().aiMargins).toEqual([margin]);
   edits.stop();
 });
+
+test("Side margin wheel notches undo together until the side, stretch, input or time changes", async () => {
+  const {edits} = await started();
+  const start = {metre:20, level:0, origin:[0,0], context:[[15,0],[20,0],[25,0]]};
+  const first = {id:"a",start,end:{...start,metre:40},left:null,right:.25};
+  edits.addAiMargin(first);
+  edits.addAiMargin({...first,id:"b"});
+  const right = (value:number, id="a") => edits.updateAiMargin(id,{right:value},"right");
+  const values = () => edits.state().aiMargins.map(m => [m.left,m.right]);
+  right(.30); right(.35); right(.40);
+  edits.undo(); expect(values()).toEqual([[null,.25],[null,.25]]);
+  edits.redo();
+  edits.updateAiMargin("a",{left:0},"left");
+  right(.45); right(.50);
+  right(.30,"b");
+  edits.undo(); expect(values()).toEqual([[0,.50],[null,.25]]);
+  edits.undo(); expect(values()).toEqual([[0,.40],[null,.25]]);
+  edits.undo(); expect(values()).toEqual([[null,.40],[null,.25]]);
+  right(.45);
+  edits.updateAiMargin("a",{right:.50}); // A committed field edit.
+  right(.55);
+  await Bun.sleep(1010);
+  right(.60);
+  for (const expected of [.55,.50,.45,.40]) {
+    edits.undo(); expect(values()[0][1]).toBe(expected);
+  }
+  edits.stop();
+});
