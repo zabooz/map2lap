@@ -1,7 +1,8 @@
 import {useEffect, useEffectEvent, useMemo, useRef, useState} from "react";
 import {post} from "../../api";
 import type {TrackView} from "../scene/view";
-import {effectiveRange, marginRange, type MarginLocation, type MarginMark, type MarginPreview, type MarginSide} from "../scene/aiMargins";
+import {effectiveRange, laneFractions, marginRange, projectGuideMark, type MarginLocation, type MarginMark, type MarginPreview, type MarginSide} from "../scene/aiMargins";
+import type {Place} from "../types";
 import type {AiMargin, TrackEdits} from "../state/edits";
 import {thenView, ToolChoice, ToolOptions} from "./ToolOptions";
 import type {ToolController} from "./toolHost";
@@ -35,7 +36,6 @@ export function useAiMargins(name: string, view: TrackView, edits: TrackEdits, m
                             ai: AiLine): ToolController {
   const {guide, lane, refresh, reloadInstalled} = ai;
   const [draftMarks, setMarked] = useState<Marked | null>(null);
-  const [markNew, setMarkNew] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [hover, setHover] = useState<{fraction: number; owner?: MarginLocation} | null>(null);
   const [reply, setReply] = useState<{margins: AiMargin[]; refresh: string; revision: string; data?: MarginPreview; error?: string}>();
@@ -67,18 +67,38 @@ export function useAiMargins(name: string, view: TrackView, edits: TrackEdits, m
     });
     return () => { current = false; };
   }, [enabled, revision, margins, refresh, laneKey, name, reloadInstalled]);
-  const current = reply?.margins === margins && reply.refresh === refresh && reply.revision === revision ? reply : null;
-  const preview = current?.data;
+  // Side-value edits leave the anchors in place. Keep those bands pickable while
+  // the server computes the new effective widths for this revision.
+  const sameLane = reply && reply.refresh === refresh && reply.revision === revision ? reply : null;
+  const current = sameLane?.margins === margins ? sameLane : null;
+  const preview = sameLane?.data;
+  const projection = useMemo(() => {
+    if (!lane || !preview?.unplaced || !guide) return;
+    const points = Array.from(lane.x, (x,i): Place => [x,lane.y[i],lane.z[i]]);
+    return {points, stations:laneFractions(points, lane.closed)};
+  }, [lane, preview?.unplaced, guide]);
   const ranges = useMemo(() => {
-    const drawn = margins.map(m => marginRange(m, preview?.margins[m.id]));
+    const drawn = margins.map(m => {
+      const placed = sameLane?.margins.find(saved => saved.id === m.id);
+      const anchorsMatch = placed?.start === m.start && placed.end === m.end;
+      const range = marginRange(m, anchorsMatch ? preview?.margins[m.id] : undefined);
+      const marks = anchorsMatch ? preview?.guideMarks?.[m.id] : undefined;
+      if (projection && guide && marks) {
+        range.unapplied = true;
+        range.error = marks.error;
+        for (const key of ["start","end"] as const) {
+          if (marks[key]) range[key] = projectGuideMark(marks[key],guide,projection.points,projection.stations);
+        }
+      }
+      return range;
+    });
     if (marked) drawn.push({...marginRange(pendingMargin(marked), {start: marked.a.fraction, end: (marked.b ?? marked.a).fraction}),
-      marking: marked.b ? "stretch" : "start"});
+      unapplied: preview?.metres === null, marking: marked.b ? "stretch" : "start"});
     return drawn;
-  }, [margins, marked, preview]);
-  const choose = (id: string | null) => { setSelected(id); setMarked(null); setMarkNew(false); };
+  }, [margins, marked, preview, sameLane, projection, guide]);
+  const choose = (id: string | null) => { setSelected(id); setMarked(null); };
   const selectEvent = useEffectEvent(choose);
   const addEvent = useEffectEvent((mark: MarginMark) => {
-    setMarkNew(false);
     if (marked && !marked.b) setMarked({...marked, b: mark});
     else {
       const id = crypto.randomUUID();
@@ -86,10 +106,20 @@ export function useAiMargins(name: string, view: TrackView, edits: TrackEdits, m
       setMarked({laneKey, id, a:mark});
     }
   });
+  const resizeEvent = useEffectEvent((id: string, key: "start"|"end", mark: MarginMark) => {
+    if (marked?.id === id) {
+      setMarked({...marked, [key === "start" ? "a" : "b"]:mark});
+      return;
+    }
+    const old = edits.state().aiMargins.find(m => m.id === id)?.[key];
+    if (old && (old.metre !== mark.anchor.metre || old.level !== mark.anchor.level))
+      edits.updateAiMargin(id, {[key]:mark.anchor});
+  });
   const session = useRef<ReturnType<TrackView["editAiMargins"]>>(null);
   useEffect(() => {
     if (!enabled || !lane || !preview) return;
-    const drawing = view.editAiMargins(guide, preview, ranges, mark => addEvent(mark), id => selectEvent(id), setHover);
+    const drawing = view.editAiMargins(guide, preview, ranges, mark => addEvent(mark), id => selectEvent(id), setHover,
+      (id,key,mark) => resizeEvent(id,key,mark));
     session.current = drawing;
     return () => { drawing?.dispose(); session.current = null; };
   }, [enabled, lane, preview, guide, ranges, view]);
@@ -99,29 +129,46 @@ export function useAiMargins(name: string, view: TrackView, edits: TrackEdits, m
   const target = existing ?? (marked?.b ? pendingMargin(marked) : null);
   const location = ranges.find(r => r.id === selected);
   const change = (side: MarginSide, value: number | null) => {
-    if (!target || target[side] === value) return;
-    if (existing) edits.updateAiMargin(existing.id, {[side]: value});
+    if (!target) return;
+    const stored = edits.state().aiMargins.find(m => m.id === target.id);
+    if ((stored ?? target)[side] === value) return;
+    if (stored) edits.updateAiMargin(stored.id, {[side]: value});
     else {
       edits.addAiMargin({...target, [side]: value});
       choose(target.id);
     }
   };
-  const values = preview?.sections ?? [];
+  const values = current?.data?.sections ?? [];
   const effective = (side: MarginSide) => {
     if (!target) return;
-    if (!preview || location?.start == null || location.end == null || location.start === location.end) return;
+    if (!current?.data || location?.start == null || location.end == null || location.start === location.end) return;
     const a = location.start, b = location.end;
     return lane?.closed || a < b ? effectiveRange(values, side, a, b) : effectiveRange(values, side, b, a);
   };
-  const shownHover = enabled && preview ? hover : null;
+  const shownHover = enabled && current?.data ? hover : null;
   const section = shownHover && values.find(([a,b]) => a <= shownHover.fraction &&
     (shownHover.fraction < b || (b === 1 && shownHover.fraction === 1)));
   const message = ai.guideError || current?.error || ai.lineMessage ||
     (ai.preparing || !preview ? "Preparing the AI line for editing …" : undefined);
   const note = preview?.unplaced === "manual" ? "Not applied: the AI line was replaced by hand"
-    : preview?.unplaced === "recalculate" ? "Recalculate the AI line to place side margins" : undefined;
+    : preview?.unplaced === "recalculate" || (marked && preview?.metres === null) ? "Not yet applied · Recalculate the AI line to place side margins" : undefined;
   return {
-    click: () => session.current?.click(markNew), activate: ai.controller.activate,
+    click: () => session.current?.click(), activate: ai.controller.activate,
+    takesWheel: !!target || margins.length > 0,
+    wheel: (keys, by) => {
+      if (keys === "alt" && margins.length) {
+        const ordered = ranges.filter(r => !r.marking).sort((a,b) => (a.start ?? Infinity) - (b.start ?? Infinity));
+        const index = ordered.findIndex(r => r.id === selected);
+        const next = index < 0 ? (by > 0 ? 0 : ordered.length-1) : (index+by+ordered.length)%ordered.length;
+        choose(ordered[next].id);
+        session.current?.focus(ordered[next].id);
+      } else if (target && (keys === "shift" || keys === "ctrl")) {
+        const side = keys === "shift" ? "left" : "right";
+        const latest = edits.state().aiMargins.find(m => m.id === target.id) ?? target;
+        const step = (latest[side] == null ? -1 : Math.round(latest[side]*20)) + by;
+        change(side, step < 0 ? null : Math.min(step,20)/20);
+      }
+    },
     removable: !!existing || !!marked,
     remove: () => {
       if (!existing && !marked) return false;
@@ -133,16 +180,7 @@ export function useAiMargins(name: string, view: TrackView, edits: TrackEdits, m
     clear: () => { choose(null); setHover(null); ai.controller.clear?.(); },
     options: <ToolOptions id="edit-ai-margin-set" title="Side margin" note={location?.error || note} actions={<>
       {message ? <span role="status">{message}</span> : !target && <span>{marked ? "Click B on the AI line" : "Click A on the AI line"}</span>}
-      {margins.length > 0 && guide && preview && <ToolChoice label="New stretch" hint="Mark A and B even inside another margin" on={markNew}
-        onClick={thenView(view, () => { choose(null); setMarkNew(true); })} />}
-      {margins.length > 0 && <select aria-label="Side margin stretch" value={existing?.id ?? ""} onChange={event => {
-        choose(event.currentTarget.value || null); view.focus();
-      }}>
-        <option value="">Pick a stretch</option>
-        {margins.map(m => <option key={m.id} value={m.id}>
-          {Math.round(m.start.metre)}–{Math.round(m.end.metre)} m{preview?.margins[m.id]?.error ? " · Not applied" : ""}
-        </option>)}
-      </select>}
+      {target && <span>{Math.round(target.start.metre)}–{Math.round(target.end.metre)} m</span>}
       {(["left","right"] as const).map(side => <SideField key={side} side={side} value={target?.[side] ?? null} enabled={!!target}
         effective={effective(side)} applied={!location?.error && !preview?.unplaced} view={view} change={value => change(side, value)} />)}
       {shownHover && <span className={styles.hover} title={shownHover.owner?.error}>

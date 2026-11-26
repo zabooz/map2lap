@@ -451,12 +451,13 @@ export class TrackEdits {
     this.change({...this.edits(), aiMargins: [...this.now.aiMargins, margin]});
   }
 
-  /** Change the side settings for id. Returning the last manual side to Auto removes its stretch. */
-  updateAiMargin(id: string, patch: Partial<Pick<AiMargin, "left" | "right">>) {
+  /** Change the anchors or side settings for id. Returning the last manual side to Auto removes its stretch. */
+  updateAiMargin(id: string, patch: Partial<Omit<AiMargin, "id">>) {
     const current = this.now.aiMargins.find(m => m.id === id);
     if (!current) return;
     const next = {...current, ...patch};
-    if (next.left === current.left && next.right === current.right) return;
+    if (next.left === current.left && next.right === current.right &&
+        next.start === current.start && next.end === current.end) return;
     if (next.left === null && next.right === null) this.removeAiMargin(id);
     else this.change({...this.edits(), aiMargins: this.now.aiMargins.map(m => m.id === id ? next : m)});
   }

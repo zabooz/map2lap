@@ -53,3 +53,19 @@ test("a surviving endpoint of a rejected margin can be hovered and picked on its
   edit.dispose();
   lane.set(null);
 });
+
+test("legacy display projects a guide metre to the installed segment on the anchor's level", async () => {
+  const {projectGuideMark} = await import("./aiMargins");
+  const positions: [number, number, number][] = [[0,0,0],[20,0,0],[20,10,0],[0,10,0]];
+  const rows = [0,5,10,15,20].map(m => [m,0,0,m,0,1,3,3,0] as Row);
+  const guide: MoveGuide = {rows, path:[[0,0],[20,0]], length:20, closed:false, origin:[0,0], key:"road", tail:[], errors:{}};
+  expect(projectGuideMark([5,10], guide, positions, laneFractions(positions,false))).toBeCloseTo(.9);
+});
+
+test("a legacy anchor on the return trip projects onto the later passage of the same carriageway", async () => {
+  const {projectGuideMark} = await import("./aiMargins");
+  const positions: [number, number, number][] = [[0,0,0],[10,0,0],[20,0,0],[0,0,0]];
+  const rows = [0,5,10,15,20,25,30,35,40].map(m => [Math.min(m,40-m),0,0,m,0,1,3,3,0] as Row);
+  const guide: MoveGuide = {rows, path:[[0,0],[20,0],[0,0]], length:40, closed:false, origin:[0,0], key:"road", tail:[], errors:{}};
+  expect(projectGuideMark([35,0], guide, positions, laneFractions(positions,false))).toBeCloseTo(35/40);
+});

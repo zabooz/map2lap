@@ -279,6 +279,18 @@ export class Navigation {
     }
   }
 
+  /** Centre an editing target in the view with the same overview as the start grid. */
+  showStretch(at: THREE.Vector3, forward: THREE.Vector3) {
+    this.stopRide();
+    this.zoomLeft = 0;
+    this.camera.position.copy(at).addScaledVector(forward.setY(0).normalize(), -START_BACK_M);
+    this.camera.position.y += START_UP_M;
+    this.camera.lookAt(at);
+    this.clearance = this.height = START_UP_M;
+    this.lastGround = at.y;
+    this.moved();
+  }
+
   placeCamera(data: NavigationTrack) {
     this.data = data;
     const at = new THREE.Vector3(), forward = new THREE.Vector3(0, 0, 1);

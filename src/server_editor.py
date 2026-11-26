@@ -288,7 +288,22 @@ def _margin_preview(model, body):
         raise ValueError(error)
     lane, revision = model.parent / fastlane.FILE, body.get("revision")
     _check_margin_revision(lane, revision)
-    preview = ailinestate.margin_preview(model.parent, mytracks.is_circuit(model.parent), margins)
+    circuit = mytracks.is_circuit(model.parent)
+    preview = ailinestate.margin_preview(model.parent, circuit, margins)
+    if preview["unplaced"]:
+        # The Editor can project these guide marks for display. Only checksum-bound
+        # sample metres can place a margin in the exported INI.
+        route = ailinestate._route(model.parent, circuit)
+        preview["guideMarks"] = {}
+        for margin in margins:
+            marks = preview["guideMarks"][margin["id"]] = {}
+            for key in ("start", "end"):
+                try:
+                    if route is None:
+                        raise ValueError("Saved route unavailable")
+                    marks[key] = list(route.resolve(margin[key]))
+                except ValueError as error:
+                    marks["error"] = str(error)
     if body.get("withMetres") is True:
         # Redraw can resample the installed spline independently of the automatic editing guide.
         metres = ailinestate.lane_metres(model.parent, lane)

@@ -95,16 +95,23 @@ class SideMarginTest(unittest.TestCase):
         result = self.render(self.margin(380., 20., right=.75))
         self.assertSections(result, [[0., .05, 0, .75], [.95, 1., 0, .75]])
 
-    def test_same_side_overlap_is_rejected_and_left_right_overlap_is_not(self):
+    def test_later_side_overrides_only_inside_its_stretch_and_auto_keeps_the_earlier_value(self):
         self.write(self.route.path, 5.)
-        first = self.margin(30, 120)
-        later = self.margin(60, 90, right=.75, id="later")
+        first = self.margin(30, 120, left=.25, right=1.)
+        later = self.margin(60, 90, left=None, right=.75, id="later")
+        original = json.dumps(first)
         result = self.render(first, later)
-        self.assertIn("Overlaps side margin at route metre", result.rejected["later"])
-        self.assertSections(result, [[.1, .4, 0, 1]])
-        result = self.render(first, dict(later, left=.75, right=None))
         self.assertEqual(result.rejected, {})
-        self.assertSections(result, [[.1, .2, 0, 1], [.2, .3, .75, 1], [.3, .4, 0, 1]])
+        self.assertSections(result, [[.1, .2, .25, 1], [.2, .3, .25, .75], [.3, .4, .25, 1]])
+        self.assertSections(self.render(first), [[.1, .4, .25, 1]])
+        self.assertEqual(original, json.dumps(first))
+
+    def test_wrapping_override_restores_the_previous_side_across_the_circuit_seam(self):
+        self.square()
+        older = self.margin(320, 80, left=.5, right=.75)
+        later = self.margin(360, 40, left=0, right=None, id="later")
+        self.assertSections(self.render(older, later), [[0., .1, 0., .75], [.1, .2, .5, .75],
+                                                        [.8, .9, .5, .75], [.9, 1., 0., .75]])
 
     def test_unresolved_anchor_is_rejected_and_others_apply(self):
         self.write(self.route.path, 5.)
@@ -471,18 +478,18 @@ class SideMarginTest(unittest.TestCase):
     def test_margin_preview_reports_sections_and_rejections(self):
         self.ready(self.metres + 40)
         self.recipe(self.folder, self.margin(10, 20))
-        bad = self.margin(150, 220, id="overlap")
+        later = self.margin(150, 220, right=.25, id="overlap")
         unresolved = self.margin(90, 110, id="off")
         unresolved["start"]["context"] = [[0, 100], [5, 100], [10, 100]]
         both = dict(unresolved, id="both", end=unresolved["start"])
-        code, preview = self.post_lane("margins", {"aiMargins": [self.margin(), bad, unresolved, both]})
+        code, preview = self.post_lane("margins", {"aiMargins": [self.margin(), later, unresolved, both]})
         self.assertEqual(200, code)
         np.testing.assert_allclose(preview["auto"], [[0, .5, .5], [.5, 1, .75]])
-        np.testing.assert_allclose(preview["sections"], [[0,.2,.5,.5], [.2,.5,.5,1.],
-                                                        [.5,160/300,.75,1.], [160/300,1,.75,.75]])
+        np.testing.assert_allclose(preview["sections"], [[0,.2,.5,.5], [.2,110/300,.5,1.], [110/300,.5,.5,.25],
+                                                        [.5,.6,.75,.25], [.6,1,.75,.75]])
         self.assertEqual({"start": .2, "end": 160/300}, preview["margins"]["m1"])
         np.testing.assert_allclose([preview["margins"]["overlap"][k] for k in ("start", "end")], [110/300, .6])
-        self.assertIn("Overlaps", preview["margins"]["overlap"]["error"])
+        self.assertNotIn("error", preview["margins"]["overlap"])
         self.assertAlmostEqual(70/300, preview["margins"]["off"]["end"])
         self.assertNotIn("start", preview["margins"]["off"])
         self.assertEqual({"error"}, preview["margins"]["both"].keys())
@@ -526,7 +533,9 @@ class SideMarginTest(unittest.TestCase):
                 self.assertEqual(200, code)
                 self.assertEqual(state if items else None, preview["unplaced"])
                 self.assertEqual({}, preview["margins"])
-                self.assertTrue(preview["sections"])
+                if items:
+                    self.assertEqual({"start": [100., 0.], "end": [200., 0.]}, preview["guideMarks"]["m1"])
+                np.testing.assert_allclose(preview["sections"], [(a, b, hint, hint) for a, b, hint in preview["auto"]])
 
     def run_generator(self, name, *args):
         """Run the build CLI and its folder/recipe writers with a stand-in tile and KN5 in this test's AC."""

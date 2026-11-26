@@ -75,28 +75,24 @@ def sections(points, detail, circuit):
 
 
 def merge(auto: list[tuple[float, float, float]], spans: list[Span]) -> list[tuple[float, float, float, float]]:
-    """Cut the automatic profile where either manual side starts or ends. Pure."""
-    automatic, left, right = {}, {}, {}
+    """Overlay each explicitly set side in recipe order on the automatic widths. Pure."""
+    cuts = sorted({0., 1., *(a for a, _, _ in auto), *(b for _, b, _ in auto),
+                   *(s.start for s in spans), *(s.end for s in spans)})
+    indices = {cut: i for i, cut in enumerate(cuts)}
+    widths = np.zeros((len(cuts)-1, 2))
     for a, b, hint in auto:
-        automatic[a] = hint
-        automatic.setdefault(b, 0.)
+        widths[indices[a]:indices[b]] = hint
     for span in spans:
         for a, b in aimargins.intervals(span.start, span.end, 1.):
-            if a == b:
-                continue
-            for profile, value in ((left, span.left), (right, span.right)):
-                if value is not None:
-                    profile[a] = value
-                    profile.setdefault(b, None)
+            stretch = widths[indices[a]:indices[b]]
+            if span.left is not None:
+                stretch[:, 0] = span.left
+            if span.right is not None:
+                stretch[:, 1] = span.right
 
-    cuts = sorted({0., 1.} | automatic.keys() | left.keys() | right.keys())
-    default, left_value, right_value = 0., None, None
     result = []
-    for a, b in zip(cuts, cuts[1:]):
-        default = automatic.get(a, default)
-        left_value = left.get(a, left_value)
-        right_value = right.get(a, right_value)
-        pair = (default if left_value is None else left_value, default if right_value is None else right_value)
+    for a, b, values in zip(cuts, cuts[1:], widths):
+        pair = tuple(values)
         if pair == (0., 0.):
             continue
         if result and result[-1][1] == a and result[-1][2:] == pair:

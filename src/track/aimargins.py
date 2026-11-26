@@ -86,18 +86,6 @@ def _extent(start, end, samples, circuit, length):
     return max(start, samples[0]), min(end, samples[-1])
 
 
-def _reserve(occupied, item, parts):
-    """Reserve both overridden sides together after checking each against earlier recipe entries."""
-    sides = [k for k in occupied if item[k] is not None]
-    for side in sides:
-        for a, b in parts:
-            for c, d in occupied[side]:
-                if max(a, c) < min(b, d):
-                    raise ValueError(f"Overlaps side margin at route metre {max(a, c):.1f}")
-    for side in sides:
-        occupied[side].extend(parts)
-
-
 def placements(items, route: aicorrections.Route, metres: np.ndarray, stations: np.ndarray,
                heights: np.ndarray, circuit: bool, level_gap: float):
     """Place the recipe's directed route stretches on the installed lane's 3D stations. Pure."""
@@ -114,7 +102,6 @@ def placements(items, route: aicorrections.Route, metres: np.ndarray, stations: 
             metre = samples[0] + (metre - samples[0]) % route.length
         return float(np.interp(metre, samples, stations) / stations[-1])
 
-    occupied = {"left": [], "right": []}
     spans, rejected, locations = [], {}, {}
     for item in items:
         key = item["id"]
@@ -130,8 +117,7 @@ def placements(items, route: aicorrections.Route, metres: np.ndarray, stations: 
             continue
         try:
             start, end = _extent(marks["start"], marks["end"], samples, circuit, route.length)
-            _reserve(occupied, item, intervals(start, end, route.length))
-            spans.append(Span(key, locations[key]["start"], locations[key]["end"],
+            spans.append(Span(key, fraction(start), fraction(end),
                               _setting(item["left"]), _setting(item["right"])))
         except ValueError as exc:
             rejected[key] = str(exc)

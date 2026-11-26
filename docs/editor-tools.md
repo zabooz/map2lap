@@ -85,23 +85,28 @@ camber, direction, normal_x, normal_y, normal_z, segment_length, forward_x, forw
 
 ### Side margin
 
-On a Route or Circuit, press **M** and click A then B on the installed band in driving order. A Circuit stretch can cross
-start/finish. Both sides start on **Auto**. Enter 0–1 m in steps of 0.05 for either side, then press Enter or leave the
-field. For example, setting Right to 0.75 m keeps the automatic left hint unless another correction sets it. Explicit
-0 m gives up zero width on that side. Returning both sides to Auto removes the correction.
+Press **M** on a Route or Circuit. Click inside a highlighted stretch to select it. Click outside the existing
+stretches to mark A, then click B on the band. B can be inside another stretch. Follow driving order across
+start/finish on a Circuit. Drag either end of the selected stretch along the band. Releasing it records one Undo step.
 
-The band highlights each overridden edge. The bar shows the effective value or range across the selected stretch.
-Hover for the left and right hints at a point. Click a stretch or pick it from the list to edit it. **New stretch**
-lets A and B fall inside an existing margin. Opposite sides may overlap. A later correction overlapping an earlier one
-on the same side is rejected. A rejected stretch or surviving endpoint appears red, with the reason and route metre
-on hover. The list also keeps corrections whose anchors cannot be placed. X or Delete removes the picked correction.
-Ctrl+Z undoes an addition, adjustment or removal.
+Both sides start on **Auto**. Shift + wheel adjusts the left reserve and Ctrl + wheel adjusts the right in 0.05 m
+steps up to 1 m. One step below 0 m returns that side to Auto. You can also type a value and press Enter or leave
+the field. An explicit 0 m releases the entire reserve on that side. Auto lets the previous correction or the
+automatic profile supply its value. Returning both sides to Auto removes the correction.
 
-The recipe stores these corrections in `edits.aiMargins`. Save as and Build as copy carry the anchors with it. The
-preview and INI use the same merge on the installed lane. Each mark takes its route metre from the guide and its
-driving level from the installed lane. A margin-only edit updates the hints and preserves the installed lane bytes.
-For an older calculated lane missing its sample route metres, **Recalculate AI line** records them once to place
-the margins. A hand-replaced lane uses automatic hints and shows its margins as **Not applied**.
+On each overlapping metre, the most recently added stretch with a value for that side wins. The older stretch keeps
+its anchors and values. Removing the newer stretch restores the older values. Alt + wheel selects the next or
+previous stretch in driving order and moves the camera to it. X or Delete removes the selection. Ctrl+Z undoes
+an addition, adjustment or removal.
+
+The band outlines the edited edges. The bar shows the effective value or range for each side, and hovering shows
+both hints at that point. A rejected stretch or surviving endpoint appears red with the reason on hover. On an older
+line without sample route metres, the Editor projects the anchors from the guide onto the installed line and draws
+the stretch in violet as **Not yet applied**. These approximate positions are for display only. **Recalculate AI line**
+records the missing metres once so the margins can take effect. A hand-replaced lane retains its automatic hints.
+
+The recipe stores the corrections in `edits.aiMargins`. Save as and Build as carry its anchors forward. For a placed
+stretch, the preview and INI use the same merge on the installed lane. A margin-only edit preserves the lane bytes.
 While AC is running, Save carries the previous INI. After AC closes, Recalculate or the next Race with opponents
 refreshes stale hints from the saved recipe, including after reopening the Editor.
 

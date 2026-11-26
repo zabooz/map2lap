@@ -14,10 +14,12 @@ export interface MarginPreview {
   margins: Record<string, MarginLocation>;
   unplaced: "manual" | "recalculate" | null;
   metres?: number[] | null;
+  guideMarks?: Record<string, {start?: GuideMark; end?: GuideMark; error?: string}>;
 }
+type GuideMark = [metre: number, level: number];
 export interface MarginMark {anchor: AiAnchor; fraction: number}
 export interface MarginHit {index: number; t: number}
-export interface MarginRange extends MarginLocation {marking?: "start" | "stretch"; id: string; left: number | null; right: number | null}
+export interface MarginRange extends MarginLocation {unapplied?: boolean; marking?: "start" | "stretch"; id: string; left: number | null; right: number | null}
 export const intervals = (a: number, b: number) => a <= b ? [[a,b]] : [[a,1],[0,b]];
 
 /** Normalized cumulative 3D distance on the installed line, including a Circuit's closing chord. Pure. */
@@ -33,6 +35,38 @@ export function laneFractions(at: Place[], closed: boolean) {
 
 const mix = (a: number, b: number, t: number) => a + (b-a)*t;
 const between = (a: Place, b: Place, t: number): Place => [mix(a[0],b[0],t), mix(a[1],b[1],t), mix(a[2],b[2],t)];
+
+/** Display-only projection of a resolved guide mark onto the installed 3D polyline. Pure. */
+export function projectGuideMark([metre, level]: GuideMark, guide: MoveGuide, points: Place[], stations: number[]) {
+  if (!guide.rows.length || points.length < 2) return;
+  const rows = guide.rows;
+  let rowIndex = 0;
+  for (let i=1; i<rows.length; i++) {
+    if (routeDistance(rows[i][3], metre, guide) < routeDistance(rows[rowIndex][3], metre, guide)) rowIndex = i;
+  }
+  const row = rows[rowIndex];
+  const before = rows[rowIndex-1] ?? (guide.closed ? rows.at(-1)! : row);
+  const after = rows[rowIndex+1] ?? (guide.closed ? rows[0] : row);
+  const heading = new THREE.Vector3(after[0]-before[0],after[1]-before[1],after[2]-before[2]).normalize();
+  const target = new THREE.Vector3(row[0], level, row[2]);
+  const segment = new THREE.Line3(), nearest = new THREE.Vector3();
+  let best = Infinity, alignment = -Infinity, fraction = 0;
+  for (let i=0; i+1<stations.length; i++) {
+    segment.start.fromArray(points[i]);
+    segment.end.fromArray(points[(i+1)%points.length]);
+    const t = segment.distanceSq() ? segment.closestPointToPointParameter(target, true) : 0;
+    const gap = segment.at(t, nearest).distanceToSquared(target);
+    // At a shared carriageway the outward and return passes can coincide exactly.
+    if (gap > best) continue;
+    const direction = segment.delta(nearest).normalize().dot(heading);
+    if (gap < best || direction > alignment) {
+      best = gap;
+      alignment = direction;
+      fraction = mix(stations[i], stations[i+1], t);
+    }
+  }
+  return fraction;
+}
 
 /** Snap a band hit to its guide row by route metre, or by 3D position on an older line without correspondence. Pure. */
 export function guideMark(guide: MoveGuide, metres: number[] | null | undefined, index: number, t: number,
@@ -82,6 +116,7 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
   const rows = lane.bandRows, closed = lane.isClosed;
   const marks = new THREE.Group(), stations = laneFractions(rows.map(row => row.at), closed);
   scene.add(marks);
+  let selectedId: string | null = null;
   const edgesAt = (i: number, t: number): [Place, Place] => {
     const from = rows[i].edges, to = rows[(i+1)%rows.length].edges;
     return [between(from[0], to[0], t), between(from[1], to[1], t)];
@@ -102,7 +137,7 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
     return !closed && a>b ? [[b,a]] : intervals(a,b);
   };
   function draw(range: MarginRange, selected: boolean) {
-    const colour = range.error ? "#ff5454" : selected ? "#ffc843" : "#f4e2a6";
+    const colour = range.error ? "#ff5454" : range.unapplied ? (selected ? "#dfa6ff" : "#ac86d8") : selected ? "#ffc843" : "#f4e2a6";
     for (const [a,b] of pieces(range)) {
       const first = crossSection(a), last = crossSection(b);
       const edges = [first.edges, ...rows.slice(first.i+1,last.i+1).map(r => r.edges), last.edges];
@@ -134,25 +169,64 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
     const owner = owners.filter(r => r.error).at(-1) ?? owners.at(-1);
     return {fraction, owner};
   }
+  function redraw(changed?: MarginRange) {
+    clear();
+    for (const range of margins) draw(changed?.id === range.id ? changed : range, range.id === selectedId);
+  }
+  function markAt(hit: MarginHit): MarginMark | undefined {
+    if (!guide?.rows.length) return;
+    const {index,t} = hit;
+    const point = between(rows[index].at, rows[(index+1)%rows.length].at, t);
+    return {anchor:guideMark(guide, preview.metres, index, t, [point[0],point[2]], lane.sampleHeights),
+      fraction:mix(stations[index],stations[index+1],t)};
+  }
   return {
-    setSelected(id: string | null) {
-      clear();
-      for (const range of margins) draw(range, range.id === id);
+    setSelected(id: string | null) { selectedId = id; redraw(); },
+    handle(mouse: THREE.Vector2) {
+      const range = margins.find(r => r.id === selectedId);
+      if (!range || range.marking === "start" || !guide) return;
+      // Pick the crossbar in screen space so perspective does not shrink the far handle.
+      const scale = new THREE.Vector3(camera.aspect*el.clientHeight/2, el.clientHeight/2, 0);
+      const cursor = new THREE.Vector3(mouse.x, mouse.y, 0).multiply(scale);
+      let best: "start" | "end" | undefined, closest = 8;
+      for (const key of ["start","end"] as const) {
+        const value = range[key];
+        if (value == null) continue;
+        const [a,b] = crossSection(value).edges.map(p => new THREE.Vector3(...p).project(camera).multiply(scale));
+        const line = new THREE.Line3(a,b);
+        const gap = (line.distanceSq() ? line.closestPointToPoint(cursor,true,new THREE.Vector3()) : a).distanceTo(cursor);
+        if (gap <= closest) { best = key; closest = gap; }
+      }
+      if (best && lane.locate(mouse, camera, pick(mouse))) return {id:range.id, key:best};
+    },
+    drag(mouse: THREE.Vector2, handle: {id:string; key:"start"|"end"}) {
+      const range = margins.find(r => r.id === handle.id);
+      const hit = lane.locate(mouse,camera,pick(mouse));
+      const mark = hit && markAt(hit);
+      if (range && mark) { redraw({...range, [handle.key]:mark.fraction}); return mark; }
+    },
+    focusPoint(id: string) {
+      const range = margins.find(r => r.id === id);
+      if (!range) return;
+      const a = range.start ?? range.end, b = range.end ?? range.start;
+      if (a == null || b == null) return;
+      let middle = (a+b)/2;
+      if (closed && b<a) middle = (middle+.5)%1;
+      const {i,edges} = crossSection(middle);
+      return {at: between(edges[0],edges[1],.5), from:rows[i].at, to:rows[(i+1)%rows.length].at};
     },
     hover(hit: MarginHit | null) {
       const place = hit && locate(hit);
-      el.title = place?.owner?.error ?? "";
+      el.title = place?.owner?.error ?? (place?.owner?.unapplied ? "Not yet applied" : "");
       return place;
     },
-    click(mouse: THREE.Vector2 | null, markNew = false) {
+    click(mouse: THREE.Vector2 | null) {
       const hit = mouse && lane.locate(mouse, camera, pick(mouse));
       if (!hit) return;
-      const {fraction, owner} = locate(hit);
-      if (!markNew && owner && !owner.marking && !margins.some(m => m.marking === "start")) return select(owner.id);
-      if (!guide?.rows.length) return;
-      const {index,t} = hit;
-      const point = between(rows[index].at, rows[(index+1)%rows.length].at, t);
-      add({anchor:guideMark(guide, preview.metres, index, t, [point[0],point[2]], lane.sampleHeights), fraction});
+      const {owner} = locate(hit);
+      if (owner && !owner.marking && !margins.some(m => m.marking === "start")) return select(owner.id);
+      const mark = markAt(hit);
+      if (mark) add(mark);
     },
     dispose() { clear(); marks.removeFromParent(); el.removeAttribute("title"); },
   };

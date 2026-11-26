@@ -1148,16 +1148,64 @@ export class TrackView {
   /** Side margins share the installed band's display edges and ray hits with the AI line inspector. */
   editAiMargins(guide: MoveGuide | undefined, preview: MarginPreview, margins: MarginRange[],
                 add: (mark: MarginMark) => void, select: (id: string) => void,
-                hover: (value: ReturnType<ReturnType<typeof editMargins>["hover"]>) => void) {
+                hover: (value: ReturnType<ReturnType<typeof editMargins>["hover"]>) => void,
+                resize: (id: string, key: "start" | "end", mark: MarginMark) => void) {
     if (!this.aiLine || !this.aiLineDraw.bandRows.length) return null;
     const session = editMargins(this.renderer.domElement, this.scene, this.camera, guide, this.aiLineDraw, preview, margins,
       mouse => (this.pointing.hit(mouse)?.distance ?? Infinity) + .5, add, select);
     this.onMarginHover = hit => hover(session.hover(hit));
     this.hoverDue = true;
+    const el = this.renderer.domElement, events = new AbortController();
+    const options = {signal:events.signal, capture:true};
+    let drag: {id:string; key:"start"|"end"; pointer:number; x:number; y:number; moved:boolean; mark?:MarginMark} | undefined;
+    const release = () => {
+      const previous = drag;
+      drag = undefined;
+      if (previous && el.hasPointerCapture(previous.pointer)) el.releasePointerCapture(previous.pointer);
+      this.setToolCursor("");
+    };
+    el.addEventListener("pointerdown", e => {
+      if (e.button !== LEFT_BUTTON || drag) return;
+      const handle = session.handle(screenPoint(e,el));
+      if (!handle) return;
+      drag = {...handle, pointer:e.pointerId, x:e.clientX, y:e.clientY, moved:false};
+      el.setPointerCapture(e.pointerId);
+    }, options);
+    el.addEventListener("pointermove", e => {
+      if (!drag || e.pointerId !== drag.pointer) {
+        if (!drag) this.setToolCursor(session.handle(screenPoint(e,el)) ? "grab" : "");
+        return;
+      }
+      if (!drag.moved && Math.hypot(e.clientX-drag.x, e.clientY-drag.y) < CLICK_PX) return;
+      drag.moved = true;
+      this.setToolCursor("grabbing");
+      const mark = session.drag(screenPoint(e,el), drag);
+      if (mark) drag.mark = mark;
+      this.dirty = true;
+    }, options);
+    el.addEventListener("pointerup", e => {
+      if (!drag || e.pointerId !== drag.pointer) return;
+      const completed = drag;
+      if (completed.moved) {
+        e.stopImmediatePropagation();
+        this.held = e.buttons;
+        const mark = session.drag(screenPoint(e,el), completed) ?? completed.mark;
+        if (mark) resize(completed.id, completed.key, mark);
+      }
+      release();
+    }, options);
+    const cancel = () => { if (drag) { session.setSelected(drag.id); this.dirty = true; release(); } };
+    el.addEventListener("pointercancel", cancel, options);
+    el.addEventListener("lostpointercapture", cancel, options);
     return {
       setSelected: (id: string | null) => { session.setSelected(id); this.dirty = true; },
-      click: (markNew: boolean) => session.click(this.mouse, markNew),
-      dispose: () => { this.onMarginHover = null; session.dispose(); this.dirty = true; },
+      click: () => session.click(this.mouse),
+      focus: (id: string) => {
+        const target = session.focusPoint(id);
+        if (target) this.navigation.showStretch(new THREE.Vector3(...target.at),
+          new THREE.Vector3(...target.to).sub(new THREE.Vector3(...target.from)));
+      },
+      dispose: () => { events.abort(); release(); this.onMarginHover = null; session.dispose(); this.dirty = true; },
     };
   }
 

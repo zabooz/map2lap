@@ -652,13 +652,20 @@ async function marginMarks(page: Page) {
   camera.position.set(128, 22, 5);
   camera.lookAt(128, 0, -40);
   camera.updateMatrixWorld();
-  const clickRow = async (metre: number) => {
+  const screenRow = (metre: number) => {
     const row = guide.rows.find((r: number[]) => r[3] >= metre);
     const p = new three.Vector3(row[0], row[1] + .34, row[2]).project(camera);
-    await page.mouse.click(bounds.x + (p.x + 1) * bounds.width / 2, bounds.y + (1 - p.y) * bounds.height / 2);
-    return row[3] as number;
+    const x = bounds.x + (p.x + 1) * bounds.width / 2, y = bounds.y + (1 - p.y) * bounds.height / 2;
+    return {x, y, snapped:row[3] as number};
+  };
+  const onRow = async (metre: number, click = true) => {
+    const {x,y,snapped} = screenRow(metre);
+    if (click) await page.mouse.click(x, y); else await page.mouse.move(x, y, {steps: 5});
+    return snapped;
   };
   await expect(bar).not.toContainText("Preparing the AI line for editing …");
+  const clickRow = (metre: number) => onRow(metre);
+  const moveRow = (metre: number) => onRow(metre, false);
   const start = await clickRow(105);
   const end = await clickRow(185);
   const right = bar.getByRole("spinbutton", {name: "Right", exact: true});
@@ -666,7 +673,7 @@ async function marginMarks(page: Page) {
   await right.fill("0.75");
   await right.press("Tab");
   await keysOnView(page);
-  return {bar, start, end, clickRow, rows: guide.rows.length};
+  return {bar, start, end, clickRow, moveRow, screenRow, rows: guide.rows.length};
 }
 
 type Danger = {START: number; END: number; LEFT: number; RIGHT: number};
@@ -749,24 +756,90 @@ test.describe("Side margin", () => {
     expect(await (await page.request.get(url)).json()).toMatchObject({validity: "ready", hints: {state: "current"}});
   });
 
-  test("a left margin fits entirely inside an existing right margin", async ({page, backend}) => {
+  test("an unapplied stretch is visible and pickable on a legacy line", async ({page, backend}) => {
+    await marginTrack(page, backend);
+    await backend.post("/__test/ai-line-legacy", {name:"alpha"});
+    const automatic = await passingHints(page);
+    const {bar, clickRow, moveRow, screenRow} = await marginMarks(page);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("m");
+    await moveRow(145);
+    await expect(scene(page)).toHaveAttribute("title", /not yet applied/i);
+    await clickRow(145);
+    await expect(bar.getByRole("spinbutton", {name:"Right"})).toHaveValue("0.75");
+    await expect(bar).toContainText(/not yet applied/i);
+    expect(await passingHints(page)).toEqual(automatic);
+    await page.mouse.move(AWAY.x, AWAY.y);
+    const {x,y} = screenRow(145);
+    const sample = () => page.screenshot({clip:{x:Math.floor(x)-2,y:Math.floor(y)-2,width:5,height:5}});
+    const highlighted = await sample();
+    await page.keyboard.press("x");
+    await expect.poll(async () => (await sample()).equals(highlighted)).toBe(false);
+    await page.keyboard.press("Control+z");
+    await expect.poll(async () => (await sample()).equals(highlighted)).toBe(true);
+
+    // Even a freshly marked pair, before the first manual value, is display-only here.
+    await clickRow(65);
+    await clickRow(95);
+    await moveRow(80);
+    await expect(scene(page)).toHaveAttribute("title", /not yet applied/i);
+  });
+
+  test("dragging either margin endpoint makes one undo step on release", async ({page, backend}) => {
+    await marginTrack(page, backend);
+    const {bar, start, end, moveRow} = await marginMarks(page);
+    const margins = async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiMargins;
+    for (const [key, from, to] of [["start", start, 80], ["end", end, 215]] as const) {
+      await moveRow(from);
+      await page.mouse.down();
+      const snapped = await moveRow(to);
+      expect((await margins())[0][key].metre).toBeCloseTo(from, 2);
+      await page.mouse.up();
+      await expect.poll(async () => (await margins())[0]?.[key].metre).toBeCloseTo(snapped, 2);
+      await page.keyboard.press("Control+z");
+      await expect.poll(async () => (await margins())[0]?.[key].metre).toBeCloseTo(from, 2);
+    }
+    await expect(bar.getByRole("spinbutton", {name:"Right"})).toHaveValue("0.75");
+  });
+
+  test("wheel edits and cycles overlapping stretches and saves the winning sides to the INI", async ({page, backend}) => {
     await marginTrack(page, backend);
     const {bar, clickRow} = await marginMarks(page);
-    await expect(bar).toContainText("0.25–0.50 m · Auto");
-    await bar.getByRole("button", {name: "New stretch", exact: true}).click();
-    await clickRow(120);
-    await clickRow(165);
-    const left = bar.getByRole("spinbutton", {name: "Left", exact: true});
-    await left.fill("0");
-    await left.press("Tab");
-    await expect(bar).toContainText("0.00 m · set");
-    await expect(bar).toContainText("0.75 m · Auto");
+    const left = bar.getByRole("spinbutton", {name:"Left", exact:true});
+    const right = bar.getByRole("spinbutton", {name:"Right", exact:true});
+    await expect(bar.getByRole("button", {name:"New stretch"})).toHaveCount(0);
+    await expect(bar.getByRole("combobox")).toHaveCount(0);
+    await clickRow(80);
     await clickRow(145);
-    await expect(bar).toContainText("Left 0.00 m · Right 0.75 m");
-    await clickRow(110);
-    await expect(bar.getByRole("spinbutton", {name: "Right", exact: true})).toHaveValue("0.75");
-    await expect.poll(async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiMargins)
-      .toMatchObject([{left: null, right: .75}, {left: 0, right: null}]);
+    await wheelWith(page, ["Shift"], -100);
+    await expect(left).toHaveValue("0");
+    await wheelWith(page, ["Shift"], -100);
+    await expect(left).toHaveValue("0.05");
+    await right.fill("0.95"); await right.press("Tab");
+    await keysOnView(page);
+    await wheelWith(page, ["Control"], -100);
+    await wheelWith(page, ["Control"], -100);
+    await expect(right).toHaveValue("1");
+    await wheelWith(page, ["Shift"], 100);
+    await wheelWith(page, ["Shift"], 100);
+    await expect(left).toHaveValue("");
+    await clickRow(175);
+    await expect(right).toHaveValue("0.75");
+    await clickRow(115);
+    await expect(right).toHaveValue("1");
+    await wheelWith(page, ["Alt"], -100);
+    await expect(right).toHaveValue("0.75");
+    // The selected stretch is now under the camera's central ray.
+    const middle = await centre(scene(page));
+    await page.mouse.move(middle.x, middle.y);
+    await expect(bar).toContainText("Left 0.50 m · Right 1.00 m");
+    await wheelWith(page, ["Alt"], 100);
+    await expect(right).toHaveValue("1");
+    await page.getByRole("button", {name:"Recalculate AI line"}).click();
+    await page.locator("#save-dialog").getByRole("button", {name:"Overwrite"}).click();
+    const expected = [[.25,.25],[.25,1],[.50,1],[.50,.75],[.50,.50]];
+    await expect.poll(async () => (await passingHints(page)).map(s => [s.LEFT,s.RIGHT])).toEqual(expected);
+    await test.info().attach("overlap-ai_hints.ini", {body: await (await page.request.get("/__test/ai-hints?name=alpha")).body(), contentType:"text/plain"});
   });
 
   test("reopening a track saved while AC was open enables a hint-only Recalculate", async ({page, backend}) => {

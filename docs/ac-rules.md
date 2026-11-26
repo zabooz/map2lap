@@ -222,6 +222,7 @@ between bodies and 0.2 m spare), rounded to 0.25 m and capped at 1 m. Rounding c
 hint across about 50 m.
 
 A Side margin overrides `LEFT`, `RIGHT` or both between two route anchors, in 0.05 m steps from 0 to 1 m.
+For each side, the last explicit setting in recipe order applies wherever stretches overlap. Auto preserves the underlying hint.
 `data/map2lap_ai.json` binds one route metre per final lane sample to the checksum of `fast_lane.ai`, including
 samples inserted by Redraw. The exporter maps the anchors to fractions of the installed lane’s 3D length,
 including a Circuit’s closing chord. It cuts sections wherever either side changes and splits at start/finish.
