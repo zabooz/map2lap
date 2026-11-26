@@ -747,7 +747,7 @@ async function marginMarks(page: Page) {
     if (click) await page.mouse.click(x, y); else await page.mouse.move(x, y, {steps: 5});
     return snapped;
   };
-  await expect(bar).not.toContainText("Preparing the AI line for editing …");
+  await expect(bar).toContainText("Click A on the AI line");
   const clickRow = (metre: number) => onRow(metre);
   const moveRow = (metre: number) => onRow(metre, false);
   const start = await clickRow(105);
@@ -1035,7 +1035,7 @@ test.describe("Side margin", () => {
     await expect(bar).toContainText("Not applied: the AI line was replaced by hand");
   });
 
-  test("shows a guide preparation error in the active AI tool", async ({page, backend}) => {
+  test("reports a guide preparation error once as a tool toast", async ({page, backend}) => {
     await marginTrack(page, backend);
     const message = "No supported driving surface at route metre 70";
     await page.route("**/ai-line/move-preview", route =>
@@ -1044,7 +1044,9 @@ test.describe("Side margin", () => {
     await keysOnView(page);
     for (const [key, id] of [["l", "line"], ["p", "line"], ["m", "margin"]]) {
       await page.keyboard.press(key);
-      await expect(page.locator(`#edit-ai-${id}-set`)).toContainText(message);
+      await expect(page.locator(`#edit-ai-${id}-set`)).not.toContainText(message);
+      await expect(page.locator("#edit-tool-toasts").getByText(message,{exact:true})).toHaveCount(1);
+      await expect(page.locator("#edit-ai-guide")).toHaveCount(0);
     }
   });
 
@@ -1059,15 +1061,32 @@ test.describe("Side margin", () => {
     await openEditor(page);
     await expect.poll(() => requests.length).toBe(1);
     await keysOnView(page);
+    const preparing = "Preparing the AI line for editing …", ready = "AI line ready for editing";
+    const notes = page.locator("#edit-tool-toasts");
+    let activations = 0;
     for (const [key, id] of [["l", "line"], ["p", "line"], ["m", "margin"]]) {
       await page.keyboard.press(key);
-      await expect(page.locator(`#edit-ai-${id}-set`)).toContainText("Preparing the AI line for editing …");
+      const bar = page.locator(`#edit-ai-${id}-set`);
+      await expect(bar).toBeVisible();
+      await expect(bar).not.toContainText(preparing);
+      await expect(notes.getByText(preparing,{exact:true})).toHaveCount(++activations);
     }
     await backend.post("/__test/hold-guide", {hold: false});
     expect((await (await response).json()).rows.length).toBeGreaterThan(0);
     await expect(page.locator("#edit-ai-margin-set")).not.toContainText("Preparing the AI line for editing …");
     await page.keyboard.press("l");
     await expect(page.locator("#edit-ai-move")).toHaveAttribute("aria-pressed", "true");
+    await expect(notes.getByText(ready,{exact:true})).toHaveCount(1);
     expect(requests).toHaveLength(1);
+  });
+
+  test("a guide that finishes in the background stays quiet when the pen is picked up later", async ({page,backend}) => {
+    await marginTrack(page,backend);
+    const response = guideResponse(page);
+    await openEditor(page);
+    expect((await (await response).json()).rows.length).toBeGreaterThan(0);
+    await keysOnView(page); await page.keyboard.press("p");
+    await expect(page.locator("#edit-ai-line-set")).toContainText("Side limits");
+    await expect(page.locator("#edit-tool-toasts").getByText("AI line ready for editing",{exact:true})).toHaveCount(0);
   });
 });

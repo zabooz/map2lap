@@ -112,7 +112,7 @@ export function EditTools({name, title, routeTrack, loaded, timedMode, visible, 
   const setPlacingWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { placingWheel.current = wheel; }, []);
   const [aiLineWrites, setAiLineWrites] = useState(0);
   const aiLine = useAiLine({name, view, routeTrack, loaded, mode: tool === "ai-move" ? "move" : tool === "ai-redraw" ? "redraw" : tool === "ai-margin" ? "margin" : null, writes: aiLineWrites,
-    unsaved: unsavedAiDraft, edits, moves: state.aiCorrections, editable});
+    unsaved: unsavedAiDraft, edits, moves: state.aiCorrections, editable, onNote: show});
   const margin = useAiMargins(name, view, edits, state.aiMargins, working("ai-margin"), aiLine, setNote);
   const saving = useSave({lanePending: aiLine.pending && !aiLine.working, name, timedMode, edits, state, view, onSaved: savedName => {
     if (savedName === name) setAiLineWrites(writes => writes + 1);

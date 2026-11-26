@@ -43,8 +43,8 @@ hook handles its own view marks but does not register another global click, pick
 Move line (L), Redraw line (P) and Side margin (M) show the installed `ai/fast_lane.ai` as a translucent speed band
 with side limits. Move line also shows the route metre and point data on hover. When an editable Route or Circuit
 finishes loading, the Editor prepares the guide in the background. All three tools share the same request and result
-when switching or returning to them. An active tool shows **Preparing the AI line for editing …** while it waits, or
-the error if preparation fails. Yellow is the lowest modelled speed and blue the highest. The legend spans the whole circuit
+when switching or returning to them. Opening an AI tool during preparation shows a tool toast. When preparation finishes with an AI tool active,
+a second toast reports that the line is ready. Preparation errors also appear as a tool toast. Yellow is the lowest modelled speed and blue the highest. The legend spans the whole circuit
 or the stage from start gate to finish gate. Grid and runout colours clamp to this range. If an installed spline misses
 a timing gate, the legend spans the available samples. Save and Save as update the line in the background when its
 fingerprint changes. Until the replacement is ready, the old band stays visible, dimmed and labelled **Outdated**.

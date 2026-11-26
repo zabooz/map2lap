@@ -51,8 +51,8 @@ const AI_TOOLS: Tool[] = ["ai-move", "ai-redraw", "ai-margin"];
 /** Move, Redraw and Side margin share a guide prepared after the editable track finishes loading. Checks the
     installed revision when one of them is taken up from another tool (not between the two), after recalculation and after Save.
     Visibility does not affect a transfer. */
-export function useAiLine({name, view, mode, writes, unsaved, edits, moves, editable, routeTrack, loaded}: {
-  name: string; view: TrackView; mode: AiLineMode | null; writes: number; unsaved: boolean; edits: TrackEdits; moves: AiCorrection[]; editable: boolean; routeTrack: boolean; loaded: boolean;
+export function useAiLine({name, view, mode, writes, unsaved, edits, moves, editable, routeTrack, loaded, onNote}: {
+  name: string; view: TrackView; mode: AiLineMode | null; writes: number; unsaved: boolean; edits: TrackEdits; moves: AiCorrection[]; editable: boolean; routeTrack: boolean; loaded: boolean; onNote: (text: string) => void;
 }) {
   const enabled = mode !== null, pen = mode === "redraw";
   const [free, setFree] = useState(true);
@@ -137,7 +137,7 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
     return () => { current = false; };
   }, [canPrepare, url, revision]);
   const guide = prepared?.revision === revision ? prepared.guide : undefined;
-  const preparing = routeTrack && editable && status.canCalculate !== false && prepared?.revision !== revision;
+  const preparing = canPrepare && prepared?.revision !== revision;
   const guideError = prepared?.revision === revision ? prepared.error : undefined;
   const canEdit = enabled && editable && !!status.canCalculate;
   const editMoves = canEdit && mode !== "margin";
@@ -150,13 +150,25 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
   }, [editMoves, guide, url, moves, lane, edits, view]);
   useEffect(() => { editing.current?.setMode(pen, free); }, [pen, free, editMoves, guide, url, moves, lane, edits, view]);
 
-  const [dismissedGuide, setDismissedGuide] = useState<string>();
-  useToasts(enabled && guideError && dismissedGuide !== revision ? [{id:"edit-ai-guide", tone:"error", title:"AI line preview", duration:BRIEF_TOAST_MS,
-    message:guideError, onDismiss:() => setDismissedGuide(revision)}] : []);
+  const lastStatus = useRef<{revision:string; mode:AiLineMode|null; preparing:boolean}>(null);
+  const reportedError = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = lastStatus.current;
+    lastStatus.current = {revision, mode, preparing};
+    if (!mode) return;
+    if (guideError && reportedError.current !== revision) {
+      reportedError.current = revision;
+      onNote(guideError);
+    } else if (preparing && (!previous?.preparing || previous.mode !== mode || previous.revision !== revision)) {
+      onNote("Preparing the AI line for editing …");
+    } else if (guide && previous?.preparing && previous.revision === revision) {
+      onNote("AI line ready for editing");
+    }
+  }, [mode, preparing, guide, guideError, revision, onNote]);
   const controller: ToolController = {
     toggleMode: () => { if (canEdit) setFree(value => !value); },
     // (between Move line and Redraw line the line shown stays: the session's mode switches, an unfinished stroke is discarded)
-    activate: ({tool}) => { setError(""); setDismissedGuide(undefined); if (!AI_TOOLS.includes(tool)) setAttempt(value => value + 1); },
+    activate: ({tool}) => { setError(""); if (!AI_TOOLS.includes(tool)) setAttempt(value => value + 1); },
     clear: () => setHovered(null),
     options: <>
       <ToolOptions id="edit-ai-line-set" title={pen ? "Redraw line" : "Move line"} note={unsaved ? "Line from the last build or save" : undefined}
@@ -167,8 +179,6 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
           </span>,
         } : undefined}
         actions={<>
-          {guideError && <span role="status">{guideError}</span>}
-          {preparing && <span role="status">Preparing the AI line for editing …</span>}
           {answer && "validity" in answer && answer.validity === "manual" && <span>Manually replaced</span>}
           {(lane?.validity === "pending" || lane?.validity === "failed") && <span>Outdated</span>}
           {lane ? <Legend {...lane.speeds} />
@@ -179,5 +189,5 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
   const panel = (recalculate: () => void, saving: boolean) => (answer && "canCalculate" in answer ? answer.canCalculate : routeTrack) &&
     <button type="button" disabled={job.working || saving || (!unsaved && (!validity || validity === "ready") && hints?.state !== "stale" && hints?.unplaced !== "recalculate")}
       onClick={thenView(view, recalculate)}>Recalculate AI line</button>;
-  return {controller, panel, lane, guide, preparing, guideError, lineMessage: !lane && answer?.message, reloadInstalled, refresh: `${localRevision}:${externalChange}`, pending: validity === "pending", working: job.working};
+  return {controller, panel, lane, guide, lineMessage: !lane && answer?.message, reloadInstalled, refresh: `${localRevision}:${externalChange}`, pending: validity === "pending", working: job.working};
 }

@@ -170,8 +170,7 @@ export function useAiMargins(name: string, view: TrackView, edits: TrackEdits, m
   const shownHover = enabled && current?.data ? hover : null;
   const section = shownHover && values.find(([a,b]) => a <= shownHover.fraction &&
     (shownHover.fraction < b || (b === 1 && shownHover.fraction === 1)));
-  const message = ai.guideError || current?.error || ai.lineMessage ||
-    (ai.preparing || !preview ? "Preparing the AI line for editing …" : undefined);
+  const message = current?.error || ai.lineMessage || (!lane && "Loading the installed AI line …");
   const note = preview?.unplaced === "manual" ? "Not applied: the AI line was replaced by hand"
     : preview?.unplaced === "recalculate" || (marked && preview?.metres === null) ? "Not yet applied · Recalculate the AI line to place side margins" : undefined;
   return {
@@ -202,7 +201,7 @@ export function useAiMargins(name: string, view: TrackView, edits: TrackEdits, m
     },
     clear: () => { choose(null); setHover(null); ai.controller.clear?.(); },
     options: <ToolOptions id="edit-ai-margin-set" title="Side margin" note={location?.error || note} actions={<>
-      {message ? <span role="status">{message}</span> : !target && <span>{marked ? "Click B on the AI line" : "Click A on the AI line"}</span>}
+      {message ? <span role="status">{message}</span> : !target && guide && preview && <span>{marked ? "Click B on the AI line" : "Click A on the AI line"}</span>}
       {target && <span>{Math.round(target.start.metre)}–{Math.round(target.end.metre)} m</span>}
       {(["left","right"] as const).map(side => <SideField key={side} side={side} value={target?.[side] ?? null} enabled={!!target}
         effective={effective(side)} applied={!location?.error && !preview?.unplaced} view={view} change={value => change(side, value)} />)}
