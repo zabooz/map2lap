@@ -188,7 +188,7 @@ class StartPositionsTest(unittest.TestCase):
             hits = obj_to_kn5._path_crossings(vertices, a, b, closed=False)
             self.assertEqual(sum(map(len, hits)), 1, metre)
 
-    def test_grid_pits_and_hotlap_are_just_before_native_start(self):
+    def test_grid_pits_and_hotlap_before_native_start(self):
         anchor = {"route": [[0, 0], [400, 0]], "timing": {"start_m": 100, "finish_m": 350}}
         nodes, base = obj_to_kn5.start_empties(road(), anchor)
         p = positions(nodes)
@@ -196,7 +196,7 @@ class StartPositionsTest(unittest.TestCase):
             expected = [96 - 8 * (k // 2) - 2 * (k % 2), 10 + .05 * (96 - 8 * (k // 2) - 2 * (k % 2)) + obj_to_kn5.START_LIFT, 1.5 if k % 2 else -1.5]
             np.testing.assert_allclose(p[f"AC_START_{k}"], expected)
             np.testing.assert_allclose(p[f"AC_PIT_{k}"], expected)
-        np.testing.assert_allclose(p["AC_HOTLAP_START_0"], p["AC_START_0"])
+        np.testing.assert_allclose(p["AC_HOTLAP_START_0"], [0, 10 + obj_to_kn5.START_LIFT, 0])
         np.testing.assert_allclose(base, p["AC_START_0"])
         self.assertAlmostEqual((p["AC_AB_START_L"][0] + p["AC_AB_START_R"][0]) / 2, 100)
         self.assertAlmostEqual((p["AC_AB_FINISH_L"][0] + p["AC_AB_FINISH_R"][0]) / 2, 350)
@@ -239,13 +239,32 @@ class StartPositionsTest(unittest.TestCase):
         for k in range(6):
             self.assertAlmostEqual(p[f"AC_START_{k}"][0], 46 - 8 * (k // 2) - 2 * (k % 2))
 
+    def test_hotlap_uses_long_bent_approach_behind_pin_one(self):
+        anchor = {"route": [[150, 90], [150, 390]],
+                  "timing": {"start_m": 0, "finish_m": 260, "approach": [[0, 30], [150, 30]]}}
+        nodes, _ = obj_to_kn5.start_empties(road(), anchor)
+        hotlap = next(n for n in nodes if n.name == "AC_HOTLAP_START_0")
+        # 120 m back around the bend: 60 m south, then 60 m west.
+        np.testing.assert_allclose(hotlap.matrix[12:15], [90, 14.5 + obj_to_kn5.START_LIFT, -30])
+        np.testing.assert_allclose(hotlap.matrix[8:11], [1, 0, 0])
+
+    def test_hotlap_stops_before_a_junction_behind_the_last_row(self):
+        anchor = {"route": [[200, 0], [400, 0]],
+                  "timing": {"start_m": 0, "finish_m": 150, "approach": [[0, 0]]}}
+        junctions = np.array([[100., 0., 4.**2]]), np.empty((0, 6))
+        nodes, _ = obj_to_kn5.start_empties(road(), anchor, junctions=junctions)
+        x, y, z = positions(nodes)["AC_HOTLAP_START_0"]
+        self.assertTrue(106.5 <= x <= 109, x)
+        self.assertAlmostEqual(y, 10 + .05 * x + obj_to_kn5.START_LIFT)
+        self.assertEqual(z, 0)
+
     def test_route_start_moves_only_enough_to_fit_its_grid(self):
         route = [[10, 0], [400, 0]]
         timing = {"start_m": 0, "finish_m": 150, "approach": [[0, 0]]}
         nodes, _ = obj_to_kn5.start_empties(road(), {"route": route, "timing": timing})
         p = positions(nodes)
         self.assertAlmostEqual(p["AC_AB_START_L"][0], 44)
-        self.assertAlmostEqual(p["AC_HOTLAP_START_0"][0], 40)
+        np.testing.assert_allclose(p["AC_HOTLAP_START_0"], [0, 10 + obj_to_kn5.START_LIFT, 0])
         self.assertAlmostEqual(p["AC_START_10"][0], 0)
 
 
@@ -308,7 +327,7 @@ class CircuitStartTest(unittest.TestCase):
             expected = [x, 10 + 0.05 * x + obj_to_kn5.START_LIFT, -50 + (1.5 if k % 2 else -1.5)]
             np.testing.assert_allclose(p[f"AC_START_{k}"], expected)
             np.testing.assert_allclose(p[f"AC_PIT_{k}"], expected)
-        np.testing.assert_allclose(p["AC_HOTLAP_START_0"], p["AC_START_0"])
+        np.testing.assert_allclose(p["AC_HOTLAP_START_0"], [30, 11.5 + obj_to_kn5.START_LIFT, -50])
         np.testing.assert_allclose(base, p["AC_START_0"])
         self.assertFalse(any(name.startswith("AC_AB_") for name in p))
 

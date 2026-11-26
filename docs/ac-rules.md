@@ -257,6 +257,11 @@ the log gives the reason and, for a surface failure, the route metre. Play keeps
   for a longer group farther back. The log records capacity, paired rows and the first limiting location.
   Areas use a nearby mapped road when available. The AI and Editor use the KN5 centre guides through the
   grid and its bends. Earlier single-file tracks use their existing start nodes.
+- Hotlap uses `SPAWN_SET=HOTLAP_START`. The car starts without race lights and takes a flying start across
+  `AC_AB_START` on a Route or `AC_TIME_0` on a Circuit. The builder targets 120 m of run-up along the road
+  centre, following the incoming road or wrapping around the Circuit. From the last grid slot it extends the
+  run-up only while the same car footprint fits. If the centre there is obstructed, it uses the checked rear slot.
+  Rebuilding the KN5 updates the Hotlap point on an existing track.
 - Play offers Practice, Hotlap and Race for timed Routes and Circuits. A–B sessions use the default layout and
   measure from the start gate to the finish gate. Race has start lights and one run on a Route, or a lap count on
   a Circuit. A Race can use the installed AI line with up to one fewer opponent than the track has pitboxes.

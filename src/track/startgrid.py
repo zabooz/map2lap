@@ -15,6 +15,9 @@ HALF_WIDTH = 1.2
 # at least 6 m longitudinal separation on straight road.
 COLUMN = 1.5
 STAGGER = 2.0
+# At 3 m/s² a road car reaches about 95 km/h in 120 m. Short approaches and
+# tight bends can offer less run-up or a lower entry speed.
+HOTLAP_RUN_UP_M = 120.0
 
 
 def _overlap(p, fwd, other, direction):
@@ -27,6 +30,41 @@ def _overlap(p, fwd, other, direction):
         if abs(delta @ axis) >= reach:
             return False
     return True
+
+
+def _spawn_site(road, xy, distances, metre, offset, areas):
+    """Check a car footprint on the mapped approach and return its position, heading and road centre. Pure."""
+    x, y, fwd = kn._along(xy, distances, metre)
+    side = np.cross([0., 1., 0.], fwd)
+    centre = np.array([x, 0., -y])
+    p = centre + offset * side
+    patch = road(p[0], p[2], math.ceil(HALF_LENGTH + HALF_WIDTH))
+    if len(areas):
+        # Distance from each mapped junction centre to the car rectangle.
+        delta = areas[:, :2] - p[[0, 2]]
+        along = np.maximum(abs(delta @ fwd[[0, 2]]) - HALF_LENGTH, 0.)
+        across = np.maximum(abs(delta @ side[[0, 2]]) - HALF_WIDTH, 0.)
+        if np.any(along**2 + across**2 < areas[:, 2]):
+            return None, "mapped junction"
+    for at in (centre, p):
+        levels = kn.road_levels(patch, at[0], at[2])
+        if len(levels) != 1:
+            return None, "second road level" if levels else "end of drivable road"
+        at[1] = levels[0]
+    ends = []
+    for sign in (-1, 1):
+        end = p + sign * HALF_LENGTH * fwd
+        for shift in (0, -HALF_WIDTH, HALF_WIDTH):
+            q = end + shift * side
+            levels = kn.road_levels(patch, q[0], q[2])
+            if len(levels) != 1:
+                return None, "second road level" if levels else "road edge"
+            if shift == 0:
+                end[1] = levels[0]
+        ends.append(end)
+    if not fastlane._fits_chord(road, *ends, HALF_WIDTH):
+        return None, "road edge or collision obstacle"
+    return (p, fwd, centre), ""
 
 
 def layout(road, xy, distances, gate, lower, *, end_reason="end of approach", junctions=None, twice=(), lap=0,
@@ -42,39 +80,13 @@ def layout(road, xy, distances, gate, lower, *, end_reason="end of approach", ju
             return None, end_reason
         if twice and kn._overlaps_twice(twice, metre - HALF_LENGTH, gate - metre + HALF_LENGTH, lap):
             return None, "twice-driven junction"
-        x, y, fwd = kn._along(xy, distances, metre)
-        side = np.cross([0., 1., 0.], fwd)
-        centre = np.array([x, 0., -y])
-        p = centre + offset * side
-        patch = road(p[0], p[2], math.ceil(HALF_LENGTH + HALF_WIDTH))
-        if len(areas):
-            # Distance from each mapped junction centre to the car rectangle.
-            delta = areas[:, :2] - p[[0, 2]]
-            along = np.maximum(abs(delta @ fwd[[0, 2]]) - HALF_LENGTH, 0.)
-            across = np.maximum(abs(delta @ side[[0, 2]]) - HALF_WIDTH, 0.)
-            if np.any(along**2 + across**2 < areas[:, 2]):
-                return None, "mapped junction"
-        for at in (centre, p):
-            levels = kn.road_levels(patch, at[0], at[2])
-            if len(levels) != 1:
-                return None, "second road level" if levels else "end of drivable road"
-            at[1] = levels[0]
-        ends = []
-        for sign in (-1, 1):
-            end = p + sign * HALF_LENGTH * fwd
-            for shift in (0, -HALF_WIDTH, HALF_WIDTH):
-                q = end + shift * side
-                levels = kn.road_levels(patch, q[0], q[2])
-                if len(levels) != 1:
-                    return None, "second road level" if levels else "road edge"
-                if shift == 0:
-                    end[1] = levels[0]
-            ends.append(end)
-        if not fastlane._fits_chord(road, *ends, HALF_WIDTH):
-            return None, "road edge or collision obstacle"
+        placed, reason = _spawn_site(road, xy, distances, metre, offset, areas)
+        if placed is None:
+            return None, reason
+        p, fwd, _ = placed
         if any(_overlap(p, fwd, pos, direction) for pos, direction in neighbours):
             return None, "overlapping car footprints on bend"
-        return (p, fwd, centre), ""
+        return placed, ""
 
     row = front
     reason = end_reason
@@ -113,8 +125,25 @@ def layout(road, xy, distances, gate, lower, *, end_reason="end of approach", ju
                 if height is not None:
                     stations.append((m, np.array([x, height, -y]), direction))
                     path_stations.add(round(m, 6))
-    guides = [(c, direction) for _, c, direction in sorted(stations, key=lambda item: -item[0])]
-    return slots, guides, limit, doubles
+    return slots, sorted(stations, key=lambda item: -item[0]), limit, doubles
+
+
+def hotlap_node(grid, road, xy, distances, gate, lower, junctions=None, *, twice=(), lap=0):
+    """Place the solo start along the checked approach behind the rear grid station. Pure."""
+    rear = grid[1][-1][0]
+    target = min(rear, max(lower, gate - HOTLAP_RUN_UP_M))
+    areas = junctions[0] if junctions is not None else ()
+    # The rear slot itself fits even if an obstacle occupies the middle of a paired row.
+    pos, fwd = grid[0][-1]
+    # Overlap successive 5 m footprints while following the road around bends.
+    for metre in np.r_[np.arange(rear, target, -HALF_LENGTH), target]:
+        if twice and kn._overlaps_twice(twice, metre - HALF_LENGTH, gate - metre + HALF_LENGTH, lap):
+            break
+        site, _ = _spawn_site(road, xy, distances, metre, 0., areas)
+        if site is None:
+            break
+        pos, fwd, _ = site
+    return kn.empty("AC_HOTLAP_START_0", pos + [0., kn.START_LIFT, 0.], fwd)
 
 
 def area_grid(road, lines, target, junctions):
@@ -150,6 +179,6 @@ def nodes(grid, log):
     for i, (p, fwd) in enumerate(slots):
         pos = p + [0, kn.START_LIFT, 0]
         result.extend((kn.empty(f"AC_START_{i}", pos, fwd), kn.empty(f"AC_PIT_{i}", pos, fwd)))
-    for i, (centre, fwd) in enumerate(centres):
+    for i, (_, centre, fwd) in enumerate(centres):
         result.append(kn.empty(f"M2_GRID_{i}", centre + [0, kn.START_LIFT, 0], fwd))
     return result

@@ -505,7 +505,8 @@ def circuit_empties(objs, anchor, log=print, junctions=None, barriers=None):
         if line is None:
             continue
         gate = length + metre
-        grid = startgrid.layout(grid_road, loop_xy, loop_s, gate, gate-length+CIRCUIT_MARGIN_M,
+        lower = gate - length + CIRCUIT_MARGIN_M
+        grid = startgrid.layout(grid_road, loop_xy, loop_s, gate, lower,
                                 end_reason="lap length", junctions=junctions, twice=timing["twice"], lap=length)
         slots = grid[0]
         if len(slots) < GATE_SLOTS:
@@ -515,7 +516,9 @@ def circuit_empties(objs, anchor, log=print, junctions=None, barriers=None):
         nodes = startgrid.nodes(grid, log)
         base = slots[0][0] + [0.0, START_LIFT, 0.0]
         left, right = line
-        nodes.extend((empty("AC_HOTLAP_START_0", base, slots[0][1]), empty("AC_TIME_0_L", left, fwd),
+        hotlap = startgrid.hotlap_node(grid, grid_road, loop_xy, loop_s, gate, lower, junctions,
+                                      twice=timing["twice"], lap=length)
+        nodes.extend((hotlap, empty("AC_TIME_0_L", left, fwd),
                       empty("AC_TIME_0_R", right, fwd)))
         return nodes, base, float(metre if given is None else given)
     raise RuntimeError(error)
@@ -944,8 +947,8 @@ def start_empties(objs, anchor, log=print, junctions=None, barriers=None, mapped
             nodes = startgrid.nodes(grid, log)
             base, fwd = slots[0][0] + np.array([0.0, START_LIFT, 0.0]), slots[0][1]
             side = np.cross([0.0, 1.0, 0.0], fwd)
-            nodes.append(empty("AC_HOTLAP_START_0", base, fwd))
             if gates:
+                nodes.append(startgrid.hotlap_node(grid, grid_road, xy, s, gate, 0., junctions))
                 nodes += gates
                 splits = route_splits(objs, anchor, gates, junctions)
                 if splits is None:
@@ -953,6 +956,7 @@ def start_empties(objs, anchor, log=print, junctions=None, barriers=None, mapped
                 else:
                     nodes += splits[0]
             else:
+                nodes.append(empty("AC_HOTLAP_START_0", base, fwd))
                 nodes.append(empty("AC_TIME_0_L", base + fwd * 20 + side * 6, fwd))
                 nodes.append(empty("AC_TIME_0_R", base + fwd * 20 - side * 6, fwd))
             return nodes, base

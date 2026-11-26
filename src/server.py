@@ -657,7 +657,7 @@ def play(name, clock=None, weather_options=None, car=None, *, session=None, laps
             ini.remove_option("SESSION_0", option)
         ini.remove_option("RACE", "RACE_LAPS")
     elif session == "hotlap":
-        ini["SESSION_0"] = {**start, "NAME": "Hotlap", "TYPE": "4"}
+        ini["SESSION_0"] = {**start, "NAME": "Hotlap", "TYPE": "4", "SPAWN_SET": "HOTLAP_START"}
         ini.remove_option("RACE", "RACE_LAPS")
     else:
         ini["SESSION_0"] = {**start, "NAME": "Race", "TYPE": "3", "LAPS": str(laps), "WAIT_TIME": "0"}
