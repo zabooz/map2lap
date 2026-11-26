@@ -192,7 +192,12 @@ up to 1 m of that reserve may cross a single inward raster tooth if full-width g
 within one cell diagonal along the line. The car retains at least 1.5 m of physical floor on the affected side.
 The proposal and final sweep apply the same rule. Decks, raised walks and walls keep their full clearance.
 For passing, SideLeft and SideRight stop at the visible mapped edge (half the road width plus 0.2 m)
-or at an earlier physical limit. The 1 m physics-grid allowance belongs to line fitting. Where only
+or at an earlier physical limit. At free correction samples the paint comes from the carriageway
+containing the car. Where roads overlap, the stroke heading distinguishes a through road from a side
+street. Across unmapped ground the collision width on each side is capped by interpolating between
+the ends of the stroke. A free runout with only one mapped approach uses that approach at both ends.
+Where neither end has map coverage, the measured collision widths at the marks supply the cap.
+The 1 m physics-grid allowance belongs to line fitting. Where only
 a built deck or stitch supplies a width, its measured edge bounds both. At an abutment, a slab under
 the traversed deck can project onto lower ground ahead. A failed car-width sweep excludes only slab
 faces whose entire swept footprint lies below the supporting deck. The reference line’s

@@ -871,15 +871,12 @@ def _speed(curvature, ds, circuit):
     return np.sqrt(limits), np.clip(accel / gas, 0, 1), np.clip(-accel / brake, 0, 1)
 
 
-def _mapped_legs(xz, forward, roads):
-    """Centre shifts and nominal half-widths of map segments aligned with the original route legs. Pure."""
-    widths = np.full(len(xz), np.inf)
-    centre_shift = np.zeros_like(xz)
-    nearest = np.full(len(xz), np.inf)
+def _map_candidates(xz, roads, edge):
+    """Yield nearby sample/segment pairs and offsets from their finite axes. Pure."""
     orders = [np.argsort(col) for col in xz.T]
     coords = [xz[order, dim] for dim, order in enumerate(orders)]
     for line, width in roads:
-        half = width / 2
+        half = width / 2 + edge
         # Enumerate just the points in each segment's bounding strip. A single mountain
         # road feature can cover thousands of samples, most nowhere near a given segment.
         dim = np.ptp(line, axis=0).argmax()
@@ -896,6 +893,16 @@ def _mapped_legs(xz, forward, roads):
         axis = delta / np.where(length > 0, length, 1)[:, None]
         along = np.clip(((xz[idx]-line[seg])*axis).sum(axis=1), 0, length)
         miss = xz[idx] - (line[seg] + along[:, None]*axis)
+        if len(idx):
+            yield line, half, idx, seg, axis, miss
+
+
+def _mapped_legs(xz, forward, roads):
+    """Centre shifts and nominal half-widths of map segments aligned with the original route legs. Pure."""
+    widths = np.full(len(xz), np.inf)
+    centre_shift = np.zeros_like(xz)
+    nearest = np.full(len(xz), np.inf)
+    for _, half, idx, _, axis, miss in _map_candidates(xz, roads, 0.):
         distance = np.linalg.norm(miss, axis=1)
         aligned = (forward[idx]*axis).sum(axis=1)
         # A route-ownership match must be within a car half-width of the saved centre.
@@ -957,6 +964,79 @@ def _painted_widths(xz, side, painted):
     known = np.isfinite(half)
     lo, hi = airacing.route_bounds(xz, side, start, end, np.where(known, half, 0.), 0.)
     return np.where(known[:, None], np.maximum(0., np.column_stack((hi, -lo))), np.inf)
+
+
+def _containing_paint(xz, side, mapped):
+    """Measure the containing carriageway along the normal of each free sample. Pure."""
+    nearest = np.full(len(xz), np.inf)
+    crossing = np.ones(len(xz), dtype=bool)
+    forward = side[:, ::-1] * [1, -1]
+    half_width = np.zeros(len(xz))
+    start, end = np.empty_like(xz), np.empty_like(xz)
+    for line, half, idx, seg, axis, miss in _map_candidates(xz, mapped, surface.PHOTO_ROAD_EDGE_M):
+        distance = np.linalg.norm(miss, axis=1)
+        # A remote strip can intersect the normal on just one side of the car. Only a
+        # capsule containing the centre can own the sample. Ignore coincident map nodes.
+        candidates = np.flatnonzero((distance <= half) & axis.any(axis=1))
+        if not len(candidates):
+            continue
+        # Where paint overlaps, a road running more across than along the stroke is
+        # a side street. Heading cannot distinguish two parallel decks in plan view.
+        across = abs((side[idx] * axis).sum(axis=1)) > abs((forward[idx] * axis).sum(axis=1))
+        order = candidates[np.lexsort((distance[candidates], across[candidates], idx[candidates]))]
+        best = order[np.r_[True, np.diff(idx[order]) != 0]]
+        better = ((across[best] < crossing[idx[best]]) |
+                  ((across[best] == crossing[idx[best]]) & (distance[best] < nearest[idx[best]])))
+        best = best[better]
+        sites, legs = idx[best], seg[best]
+        crossing[sites] = across[best]
+        nearest[sites], half_width[sites] = distance[best], half
+        start[sites], end[sites] = line[legs], line[legs+1]
+    found = np.isfinite(nearest)
+    widths = np.full((len(xz), 2), np.nan)
+    widths[found] = _painted_widths(xz[found], side[found], (start[found], end[found], half_width[found]))
+    return widths
+
+
+def _free_paint(xyz, side, free, mapped, painted, physical, circuit):
+    """Measure authored samples on their own map roads and bound unmapped runs by their joined ends. Pure."""
+    if free is None or not free.any():
+        return painted
+    cap = np.full_like(physical, np.inf) if painted is None else painted.copy()
+    cap[free] = _containing_paint(xyz[free][:, XZ], side[free], mapped)
+    indices = np.flatnonzero(free)
+    runs = np.split(indices, np.flatnonzero(np.diff(indices) > 1) + 1)
+    if circuit and len(runs) > 1 and free[0] and free[-1]:
+        runs = [np.r_[runs[-1], runs[0]], *runs[1:-1]]
+    for run in runs:
+        missing = np.isnan(cap[run, 0])
+        if not missing.any():
+            continue
+        ends = []
+        for i, adjacent in ((run[0], run[0]-1), (run[-1], run[-1]+1)):
+            if np.isnan(cap[i, 0]):
+                if circuit:
+                    adjacent %= len(xyz)
+                if (not (0 <= adjacent < len(xyz)) or free[adjacent]
+                        or not np.isfinite(cap[adjacent]).all()):
+                    ends.append(None)
+                    continue
+                i = adjacent
+            ends.append(np.minimum(physical[i], cap[i]))
+        # A runout has only its entry to bound passing room. With no adjoining
+        # map at either end, use collision measured at the marks. Outside the
+        # stroke an unmapped route's search can stop at just the car footprint.
+        entry, exit_width = ends
+        if entry is None and exit_width is None:
+            entry, exit_width = physical[run[0]], physical[run[-1]]
+        elif entry is None:
+            entry = exit_width
+        elif exit_width is None:
+            exit_width = entry
+        distance = _distances(xyz[run])
+        fraction = distance[missing, None] / distance[-1] if distance[-1] else 0.
+        cap[run[missing]] = entry + fraction * (exit_width - entry)
+    return cap
 
 
 def _export_widths(physical, limits, painted, junctions, circuit):
@@ -1316,6 +1396,7 @@ def _racing_records(base, stations, road, circuit, mapped, route, report_returns
                 if not rejected.any():
                     sides = _frame(xyz, circuit)[3][:, XZ]
                     painted = _painted_widths(xyz[:, XZ], sides, route.painted) if route.painted is not None else None
+                    painted = _free_paint(xyz, sides, free, mapped, painted, sections[:, :2], circuit)
                     widths = _export_widths(sections[:, :2], limits, painted, junction, circuit)
                     points, detail = _records(xyz, stations, road, circuit, checked_sections=sections, widths=widths)
                     if preview_sections is not None:

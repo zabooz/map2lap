@@ -1013,5 +1013,50 @@
    "bridge_triangles": 3468,
    "building_triangles": 95666
   }
+ },
+ "heiligenblut_kreisverkehr_test": {
+  "title": "Heiligenblut Kreisverkehr Test",
+  "about": "Grossglockner road: a circulating carriageway beside the routed approach, with a broad paved junction for free AI redraws",
+  "points": [
+   [
+    47.0634805,
+    12.819563
+   ],
+   [
+    47.0633263,
+    12.818544
+   ],
+   [
+    47.06193099,
+    12.81705359
+   ],
+   [
+    47.06154535,
+    12.81652585
+   ]
+  ],
+  "width": 120.0,
+  "spots": [
+   [
+    "151-255",
+    "free redraw around the mapped circulating carriageway"
+   ]
+  ],
+  "reference": {
+   "off_road_m": 0,
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
+   "length_m": 541,
+   "over_05g_m": 16,
+   "lanes_over_05g_m": 41,
+   "max_g": 5.37,
+   "max_g_at_m": 164.0,
+   "edges_m": 0,
+   "transitions": 2,
+   "max_g_transition": 0.15,
+   "warp_m": 0,
+   "max_warp": 0.0,
+   "max_warp_at_m": 39.0
+  }
  }
 }

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -105,6 +106,34 @@ class RedrawTest(unittest.TestCase):
                 self.assertAlmostEqual(detail["left"][i], np.hypot(lx-x,lz-z),delta=.01)
                 self.assertAlmostEqual(detail["right"][i], np.hypot(rx-x,rz-z),delta=.01)
 
+    def test_free_redraw_measures_the_road_under_the_stroke_or_its_approaches(self):
+        from server_editor import _move_preview, _move_reference
+        route = [(20, 10), (80, 10)]
+        self.write_track(route, mapped_width=6)
+        edit = self.redraw(8, 50, [[42, 9, 20], [46, 9, 20], [54, 9, 20], [58, 9, 20]])
+        self.save(edit)
+        original = (np.asarray(route, dtype=float), 6.)
+        parallel = (np.array([[36., 20.], [64., 20.]]), 9.)
+        # On the parallel road its 9 m carriageway owns the band. On bare parking
+        # asphalt the two 6 m approaches bound it. Both have the normal painted edge.
+        for roads, half in (([original, parallel], 4.5), ([original], 3.)):
+            with self.subTest(half=half), patch.object(fastlane.aibends, "lane_roads", return_value=(roads, [])):
+                _move_reference.cache_clear()
+                preview = _move_preview(self.model, {"aiCorrections": [edit]})
+                self.assertFalse(preview["skipped"], preview["skipped"])
+                log = self.generate()
+                self.assertFalse(any("correction skipped" in line for line in log), log)
+                pts, detail, _ = fastlane.read_lane(self.lane)
+                rows = np.asarray(preview["ink"]["ink"])
+                middle = rows[(rows[:, 0] >= 47) & (rows[:, 0] <= 53)]
+                self.assertGreater(len(middle), 2)
+                for row in middle:
+                    i = np.linalg.norm(pts["pos"] - row[:3], axis=1).argmin()
+                    expected = half + fastlane.surface.PHOTO_ROAD_EDGE_M
+                    np.testing.assert_allclose([detail["left"][i], detail["right"][i]], expected, atol=.02)
+                    for x, z in ((row[4], row[6]), (row[7], row[9])):
+                        self.assertAlmostEqual(np.hypot(x-row[0], z-row[2]), expected, delta=.02)
+
     def test_free_redraw_replaces_a_hole_before_the_first_surface_check(self):
         grass = ("1GRASS_ground", [(43, 9, 0), (58, 9, 0), (58, 9, 25), (43, 9, 25)])
         self.write_track([(20, 10), (80, 10)], strips=[(-10, 44, 0, 25), (57, 120, 0, 25)],
@@ -120,6 +149,18 @@ class RedrawTest(unittest.TestCase):
         self.save(dict(edit, free=False))
         self.assertIn("route metre", self.generate()[-1])
         self.assertFalse(self.lane.exists())
+
+    def test_free_stroke_keeps_its_carriageway_at_a_crossing(self):
+        # A parallel road centred one metre to the side, and a long transverse
+        # street centred on one sample. Following the latter would open a side spur.
+        xz = np.column_stack((np.arange(-5., 6.), np.ones(11)))
+        sides = np.tile([0., -1.], (len(xz), 1))
+        through = (np.array([[-20., 0.], [20., 0.]]), 6.)
+        transverse = (np.array([[0., -50.], [0., 50.]]), 4.)
+        for roads in ([through, transverse], [transverse, through]):
+            widths = fastlane._containing_paint(xz, sides, roads)
+            edge = fastlane.surface.PHOTO_ROAD_EDGE_M
+            np.testing.assert_allclose(widths, np.tile([4 + edge, 2 + edge], (len(xz), 1)))
 
     def test_free_move_can_go_onto_grass_but_never_through_a_wall(self):
         grass = ("1GRASS_ground", [(-10,9,10.5),(120,9,10.5),(120,9,40),(-10,9,40)])
