@@ -251,7 +251,8 @@ def grid_marks(roads, nodes, material):
     from track import kn5
 
     # A 2.6 m wide box with a 10 cm stroke leaves mirrors clear and a crossbar beyond a 2.5 m nose.
-    boxes = [(-1.3, 2.65, 1.3, 2.75), (-1.3, 1.95, -1.2, 2.65), (1.2, 1.95, 1.3, 2.65)]
+    half = obj_to_kn5.GRID_BOX_M / 2
+    boxes = [(-half, 2.65, half, 2.75), (-half, 1.95, -half + .1, 2.65), (half - .1, 1.95, half, 2.65)]
     nearby = obj_to_kn5._road_near(roads)
     marks = []
     for node in nodes:
@@ -264,7 +265,7 @@ def grid_marks(roads, nodes, material):
         for _, positions, _, faces in nearby(centre[0], centre[2], 4.).values():
             local = (positions - centre) @ np.array([side, forward]).T
             triangles = local[faces]
-            hit = ((triangles.max(axis=1) >= [-1.3, 1.95]) & (triangles.min(axis=1) <= [1.3, 2.75])).all(axis=1)
+            hit = ((triangles.max(axis=1) >= [-half, 1.95]) & (triangles.min(axis=1) <= [half, 2.75])).all(axis=1)
             ids, compact = np.unique(faces[hit], return_inverse=True)
             if not len(ids):
                 continue

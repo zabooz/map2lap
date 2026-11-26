@@ -544,7 +544,7 @@ def _sample(path, points, circuit, road, mapped=(), rings=(), *, ownership=False
         track_m = np.r_[metres[:-1] - metres[-1], metres]
         rear = last
         if len(grid):
-            # Centre guides include bends and staggered columns, so node count no longer measures grid length.
+            # Centre guides include route vertices between slots, so use their actual distance.
             distance = metres[-1] if "M2_GRID_0" in points else (
                 obj_to_kn5.STAGE_START_GAP_M + (len(grid) - 1) * obj_to_kn5.SLOT_GAP)
             approach = max(track_m[0], first - distance - GRID_XZ_TOL)

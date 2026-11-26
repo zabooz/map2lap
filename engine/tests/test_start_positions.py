@@ -88,7 +88,7 @@ class StartPositionsTest(unittest.TestCase):
         obj_to_kn5.convert(str(folder / "track.obj"), str(model), str(folder / "anchor.json"), log=lambda _: None)
         scan = kn5.scan(model)
         marks = [m for m in scan["meshes"] if m["name"].startswith("nocol_grid_")]
-        self.assertEqual(len(marks), 12)
+        self.assertEqual(len(marks), 6)
         paint = next(i for i, m in enumerate(scan["materials"]) if m.name == "paint")
         self.assertEqual({m["material"] for m in marks}, {paint})
         texture = scan["materials"][paint].maps[0][2]
@@ -133,7 +133,7 @@ class StartPositionsTest(unittest.TestCase):
         prepare = mock.Mock(return_value=str(target))
         obj_to_kn5.convert(str(folder / "track.obj"), None, str(folder / "anchor.json"), log=lambda _: None,
                           prepare_output=prepare)
-        prepare.assert_called_once_with(True, 12)
+        prepare.assert_called_once_with(True, 6)
         self.assertTrue(route_race.has_gates(kn5.scan(target)["points"]))
 
     def test_missing_texture_cleans_up_the_mesh_chunks(self):
@@ -193,7 +193,8 @@ class StartPositionsTest(unittest.TestCase):
         nodes, base = obj_to_kn5.start_empties(road(), anchor)
         p = positions(nodes)
         for k in range(6):
-            expected = [96 - 8 * (k // 2) - 2 * (k % 2), 10 + .05 * (96 - 8 * (k // 2) - 2 * (k % 2)) + obj_to_kn5.START_LIFT, 1.5 if k % 2 else -1.5]
+            x = 96 - 8 * k
+            expected = [x, 10 + .05 * x + obj_to_kn5.START_LIFT, -197.5 - (-1)**k * 407.6 / 6]
             np.testing.assert_allclose(p[f"AC_START_{k}"], expected)
             np.testing.assert_allclose(p[f"AC_PIT_{k}"], expected)
         np.testing.assert_allclose(p["AC_HOTLAP_START_0"], [0, 10 + obj_to_kn5.START_LIFT, 0])
@@ -237,25 +238,25 @@ class StartPositionsTest(unittest.TestCase):
         p = positions(nodes)
         self.assertAlmostEqual(p["AC_AB_START_L"][0], 50)
         for k in range(6):
-            self.assertAlmostEqual(p[f"AC_START_{k}"][0], 46 - 8 * (k // 2) - 2 * (k % 2))
+            self.assertAlmostEqual(p[f"AC_START_{k}"][0], 46 - 8 * k)
 
     def test_hotlap_uses_long_bent_approach_behind_pin_one(self):
         anchor = {"route": [[150, 90], [150, 390]],
                   "timing": {"start_m": 0, "finish_m": 260, "approach": [[0, 30], [150, 30]]}}
         nodes, _ = obj_to_kn5.start_empties(road(), anchor)
         hotlap = next(n for n in nodes if n.name == "AC_HOTLAP_START_0")
-        # 120 m back around the bend: 60 m south, then 60 m west.
-        np.testing.assert_allclose(hotlap.matrix[12:15], [90, 14.5 + obj_to_kn5.START_LIFT, -30])
+        # The last car is 156 m back around the bend: 60 m south, then 96 m west.
+        np.testing.assert_allclose(hotlap.matrix[12:15], [54, 12.7 + obj_to_kn5.START_LIFT, -30])
         np.testing.assert_allclose(hotlap.matrix[8:11], [1, 0, 0])
 
     def test_hotlap_stops_before_a_junction_behind_the_last_row(self):
         anchor = {"route": [[200, 0], [400, 0]],
                   "timing": {"start_m": 0, "finish_m": 150, "approach": [[0, 0]]}}
         junctions = np.array([[100., 0., 4.**2]]), np.empty((0, 6))
-        nodes, _ = obj_to_kn5.start_empties(road(), anchor, junctions=junctions)
+        nodes, _ = obj_to_kn5.start_empties({"1ROAD_test": strip(-4, 4)}, anchor, junctions=junctions)
         x, y, z = positions(nodes)["AC_HOTLAP_START_0"]
         self.assertTrue(106.5 <= x <= 109, x)
-        self.assertAlmostEqual(y, 10 + .05 * x + obj_to_kn5.START_LIFT)
+        self.assertAlmostEqual(y, 4 + obj_to_kn5.START_LIFT)
         self.assertEqual(z, 0)
 
     def test_route_start_moves_only_enough_to_fit_its_grid(self):
@@ -263,9 +264,11 @@ class StartPositionsTest(unittest.TestCase):
         timing = {"start_m": 0, "finish_m": 150, "approach": [[0, 0]]}
         nodes, _ = obj_to_kn5.start_empties(road(), {"route": route, "timing": timing})
         p = positions(nodes)
+        self.assertEqual(obj_to_kn5.STAGE_GRID_M, 44)
+        self.assertEqual(obj_to_kn5.MAX_GRID_M, 156)
         self.assertAlmostEqual(p["AC_AB_START_L"][0], 44)
         np.testing.assert_allclose(p["AC_HOTLAP_START_0"], [0, 10 + obj_to_kn5.START_LIFT, 0])
-        self.assertAlmostEqual(p["AC_START_10"][0], 0)
+        self.assertAlmostEqual(p["AC_START_5"][0], 0)
 
 
 def circuit(**timing):
@@ -323,11 +326,11 @@ class CircuitStartTest(unittest.TestCase):
         nodes, base = self.circuit_part(circuit())
         p = positions(nodes)
         for k in range(6):
-            x = 150 - 4 - 8 * (k // 2) - 2 * (k % 2)
-            expected = [x, 10 + 0.05 * x + obj_to_kn5.START_LIFT, -50 + (1.5 if k % 2 else -1.5)]
+            x = 150 - 4 - 8 * k
+            expected = [x, 10 + 0.05 * x + obj_to_kn5.START_LIFT, -50 - (-1)**k * 26.6 / 6]
             np.testing.assert_allclose(p[f"AC_START_{k}"], expected)
             np.testing.assert_allclose(p[f"AC_PIT_{k}"], expected)
-        np.testing.assert_allclose(p["AC_HOTLAP_START_0"], [30, 11.5 + obj_to_kn5.START_LIFT, -50])
+        np.testing.assert_allclose(p["AC_HOTLAP_START_0"], [18, 10.9 + obj_to_kn5.START_LIFT, -50])
         np.testing.assert_allclose(base, p["AC_START_0"])
         self.assertFalse(any(name.startswith("AC_AB_") for name in p))
 

@@ -246,15 +246,22 @@ the log gives the reason and, for a surface failure, the route metre. Play keeps
 - Point-to-point routes get `AC_AB_START_L/R` and `AC_AB_FINISH_L/R` (acs.exe knows them; CSP's rally mode reads them) and
   `"run": "point-to-point"` in `ui_track.json`; circuits and areas keep the lap line `AC_TIME_0_L/R`.
 - A point-to-point gate keeps its six-car placement reference. The builder follows the real incoming
-  road farther behind pin 1 for extra cars. The nominal pole is 4 m behind the gate. Cars in a double row
-  sit 1.5 m either side of the route centre, with the second car staggered 2 m back for visibility. Rows
-  start 8 m apart. Two 2 m wide cars have 1 m between them, and a 5 m car has at least 1 m longitudinal
-  clearance where a double row changes to single file on straight road.
+  road farther behind pin 1 for extra cars. The nominal pole is 4 m behind the gate. Each
+  subsequent car starts another 8 m back along the route and alternates sides.
+- At each station, the builder measures the connected collision road across the driving direction.
+  Decks and stitches supply their own edges. On terrain, retained carriageway paint bounds the collision
+  floor where it continues under pavements or adjoining paved areas. A slice continuing down a second
+  mapped junction arm cannot identify the road width. The two columns leave three equal gaps around the 2.6 m painted boxes: on a road of width W,
+  each centre sits (W + 2.6) / 6 metres from the measured road midpoint, limited by the outer edge
+  of the box. On roads 2.6 m wide or narrower both columns use the midpoint. An unmeasurable
+  width uses the route line. The first car takes the positive side (up crossed with forward).
 - Each spawn must fit a 5 m by 2.4 m footprint on one drivable level, clear of walls, raised sidewalks
-  and neighbouring cars. Curved, steep or narrow roads can alternate paired and centred single slots.
-  The grid stops at 20 cars or the usable approach limit. Mapped junctions, stacked road levels,
-  road ends and twice-driven Circuit sections limit capacity. A junction near pole can leave room
-  for a longer group farther back. The log records capacity, paired rows and the first limiting location.
+  and neighbouring cars. If a side is blocked, the builder tries the road midpoint at the same station.
+  Overlapping footprints on bends can leave an empty station. The grid stops at 20 cars or the usable
+  approach limit. Mapped junctions, stacked road levels, road ends and twice-driven Circuit sections
+  limit capacity. A junction near pole can leave room for a longer group farther back. A saved
+  Circuit timing line keeps its position when fewer than six safe slots fit. The log records capacity
+  and the first limiting location.
   Areas use a nearby mapped road when available. The AI and Editor use the KN5 centre guides through the
   grid and its bends. Earlier single-file tracks use their existing start nodes.
 - Hotlap uses `SPAWN_SET=HOTLAP_START`. The car starts without race lights and takes a flying start across

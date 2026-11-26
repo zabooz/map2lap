@@ -56,7 +56,9 @@ FACADE_LEVELS = (0.82, 1.0, 1.15)       # brightness levels of the facades (make
 # by eye on a town and a country test track; the sum stays about the same, so their brightness does)
 BUILDING_AMBIENT, BUILDING_DIFFUSE = 0.75, 1.3
 MAX_VERTS = 65535
-SLOTS, SLOT_GAP, START_LIFT = 20, 8.0, 0.15
+SLOTS, START_LIFT = 20, 0.15
+SLOT_GAP = 8.0  # Metres along the route per car, leaving 3 m between 5 m cars on a straight.
+GRID_BOX_M = 2.6  # Painted bracket width, including clearance for mirrors.
 # Preserve the six-slot reference used to choose the timing gate, independently of race capacity.
 GATE_SLOTS = 6
 # The band reaches 0.6 m toward the grid. A 2.5 m nose then clears the paint by 0.9 m,
@@ -457,14 +459,14 @@ def _overlaps_twice(twice, first, span, length):
     return any(max(lo, a + shift) < min(hi, b + shift) for a, b in twice for shift in (0, length))
 
 
-def circuit_empties(objs, anchor, log=print, junctions=None, barriers=None):
+def circuit_empties(objs, anchor, log=print, junctions=None, barriers=None, parts=()):
     """Start/finish, grid and hotlap from road objects and the closed ENU lap in the Circuit anchor."""
     xy, s = _closed_lap(anchor["route"])
     timing = anchor["timing"]
     length = s[-1]
-    from track import fastlane, startgrid
+    from track import startgrid
 
-    grid_road = fastlane._local_roads({**objs, **(barriers or {})})
+    grid_road = startgrid.grid_road(objs, barriers, parts, log)
     behind = GATE_SLOTS * SLOT_GAP + STAGE_START_GAP_M + CIRCUIT_MARGIN_M
     span = behind + CIRCUIT_MARGIN_M
     error = (f"No place for start/finish within {CIRCUIT_SEARCH_M:g} m after pin 1: "
@@ -509,7 +511,8 @@ def circuit_empties(objs, anchor, log=print, junctions=None, barriers=None):
         grid = startgrid.layout(grid_road, loop_xy, loop_s, gate, lower,
                                 end_reason="lap length", junctions=junctions, twice=timing["twice"], lap=length)
         slots = grid[0]
-        if len(slots) < GATE_SLOTS:
+        # Search new lines for six cars. A saved timing line keeps its position and its safe capacity.
+        if not slots or (given is None and len(slots) < GATE_SLOTS):
             continue
         if given is None and d > start_m:
             log(f"Start/finish moved {d - start_m:g} m forward from pin 1")
@@ -911,13 +914,13 @@ def route_splits(objs, anchor, gates, junctions=None):
     return nodes, [metre - origin for metre in metres]
 
 
-def start_empties(objs, anchor, log=print, junctions=None, barriers=None, mapped=()):
+def start_empties(objs, anchor, log=print, junctions=None, barriers=None, mapped=(), parts=()):
     """Grid, pits and hotlap just before a route's native timing start, else at its first road. Without a route,
     use the asphalt nearest the anchor. Point-to-point routes keep AC_AB_START/FINISH, others AC_TIME_0."""
     from track import fastlane, startgrid
 
     route = (anchor or {}).get("route")
-    grid_road = fastlane._local_roads({**objs, **(barriers or {})})
+    grid_road = startgrid.grid_road(objs, barriers, parts, log)
     if route and len(route) > 1:
         timing = anchor.get("timing")
         gates = ab_gates(objs, route, timing, log) if timing else []
@@ -1062,7 +1065,7 @@ def _circuit_part(objs, anchor, parts, obj_dir, gate_path, log, barriers=None):
             x, y, _ = _along(xy, s, anchor["timing"]["line_m"] % s[-1])
             start_roads.update(nearby_roads(x, -y, START_NEAR_M))
     junctions = _mapped_junctions(parts, log)
-    nodes, base, line_m = circuit_empties(start_roads, anchor, log, junctions, barriers)
+    nodes, base, line_m = circuit_empties(start_roads, anchor, log, junctions, barriers, parts)
     splits, sector_m = circuit_splits(objs, anchor, line_m, junctions)
     start = nodes[-2:]
     left, right = np.asarray([node.matrix[12:15] for node in start])
@@ -1175,7 +1178,7 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
         if not circuit:
             mapped = list(mapped_road_lines(map(editorinfo.side_file, parts), log))
             junctions = _junction_geometry(mapped)
-            empties, base = start_empties(objs, anchor, log, junctions, barriers, mapped)
+            empties, base = start_empties(objs, anchor, log, junctions, barriers, mapped, parts)
         if prepare_output is not None:
             kn5_path = prepare_output(route_race.has_gates({node.name for node in empties}),
                                       sum(node.name.startswith("AC_START_") for node in empties))

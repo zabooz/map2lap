@@ -319,7 +319,11 @@ def _image(z, name, size):
 
 
 def _read(folder, key):
-    z = zipfile.ZipFile(os.path.join(folder, key + ".zip"))
+    return _read_archive(os.path.join(folder, key + ".zip"))
+
+
+def _read_archive(path):
+    z = zipfile.ZipFile(path)
     try:
         if len(z.infolist()) > 128 or sum(i.file_size for i in z.infolist()) > 128 * 1024 ** 2:
             raise ValueError("Ground metadata is too large")
@@ -331,6 +335,49 @@ def _read(folder, key):
     except BaseException:
         z.close()
         raise
+
+
+def road_paint(parts, log):
+    """Return a sampler for the built carriageway paint beside the supplied terrain OBJ parts."""
+    files = {os.path.basename(p)[2:-4]: side_file(p) for p in parts
+             if re.fullmatch(r"t_-?\d+_-?\d+\.obj", os.path.basename(p))}
+
+    @functools.lru_cache(maxsize=4)
+    def mask(tx, ty):
+        path = files.get(f"{tx}_{ty}")
+        if path:
+            try:
+                archive, info = _read_archive(path)
+                with archive:
+                    size = info["size"]
+                    result = np.zeros((size, size), bool)
+                    for layer in info["layers"]:
+                        if "road_class" in layer:
+                            # The painted edge is at half coverage of the antialiased boundary pixel.
+                            result |= _image(archive, layer["mask"], size) >= 128
+                    return result
+            except FileNotFoundError:
+                pass
+            except (zipfile.BadZipFile, OSError, KeyError, TypeError, ValueError) as error:
+                log(f"Skipping road paint in {os.path.basename(path)}: {error}")
+        return None
+
+    def sample(xz):
+        """Road paint at AC x/z points: 1 painted, 0 outside, -1 missing tile facts."""
+        enu = xz * [1, -1] / TILE_M
+        tiles = np.floor(enu).astype(int)
+        values = np.full(len(xz), -1, np.int8)
+        for tile in np.unique(tiles, axis=0):
+            raster = mask(*tile)
+            if raster is not None:
+                use = (tiles == tile).all(axis=1)
+                # A point just inside a negative tile can round to 1.0 in tile-local coordinates.
+                pixels = ((enu[use] - tile) * len(raster)).astype(int)
+                col, row = np.minimum(pixels, len(raster) - 1).T
+                values[use] = raster[-1 - row, col]
+        return values
+
+    return sample if files else None
 
 
 def _pixel(u, v, size):
