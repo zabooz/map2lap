@@ -182,18 +182,3 @@ test("the time of day darkens the view, is only a preview and comes back by its 
   await expect.poll(async () => Math.abs((await skyColour(page))[0] - SKY[0])).toBeLessThanOrEqual(SKY_TOLERANCE);
 });
 
-test("the 3D canvas stays painted when properties resize, hide and reopen", async ({page}) => {
-  await openEditor(page);
-  const painted = async () => {
-    const sky = await skyColour(page);
-    sky.forEach((c, k) => expect(Math.abs(c - SKY[k]), `sky after resizing ${sky}`).toBeLessThanOrEqual(SKY_TOLERANCE));
-  };
-  const divider = page.getByRole("separator", {name: "Inspector width"});
-  await divider.focus();
-  await divider.press("ArrowLeft");
-  await painted();
-  await page.getByRole("button", {name: "Hide inspector"}).click();
-  await painted();
-  await page.getByRole("button", {name: "Show inspector"}).click();
-  await painted();
-});

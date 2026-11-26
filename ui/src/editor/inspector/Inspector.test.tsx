@@ -58,7 +58,7 @@ test("all Inspector selections put appearance before options and keep pointer de
   for (const kind of ["Building", "Tree", "Retaining wall", "Meadow"]) {
     const p = {id: "tile#0", kind, sort: kind, all: [], inspection: {listed: false, revision: "r", texture: 0, hovered}} as unknown as Picked;
     const html = renderToStaticMarkup(<Inspector name="test" picked={p} surfaces={[]} marked={[]}
-      view={view} state={state} collapsed={false} onCollapsed={() => {}} width={320} onWidth={() => {}}
+      view={view} state={state}
       onSurface={() => {}} onMaterialOpen={() => {}} textureRevision={0} transform={<p>Object controls</p>} />);
     expect(html.indexOf('id="inspect-selection"')).toBeLessThan(html.indexOf('id="inspect-appearance"'));
     expect(html.indexOf('id="inspect-appearance"')).toBeLessThan(html.indexOf('id="inspect-options"'));
@@ -85,7 +85,7 @@ test("a picked kerb shows its editable fields in Selection options, even if its 
   const picked = {id: null, kerbId: "race", kind: "Kerb", all: [], surface: {mesh: 7, u: 0.2, v: 0.5, face: 3, revision: "r"},
     inspection: {listed: false, revision: "r", texture: 0, hovered: {...hovered, object: "1KERB_racing_7"}}} as unknown as Picked;
   const html = renderToStaticMarkup(<Inspector name="test" picked={picked} surfaces={[]} marked={[]}
-    view={view} state={state} collapsed={false} onCollapsed={() => {}} width={320} onWidth={() => {}}
+    view={view} state={state}
     onSurface={() => {}} onMaterialOpen={() => {}} textureRevision={0} kerbControls={<p>Kerb settings</p>} />);
   expect(html).toContain('id="inspect-options"');
   expect(html).toContain("Kerb settings");
@@ -95,7 +95,7 @@ test("a kerb chosen in its tool keeps Appearance above the shared Options sectio
   const view = {textures: {version: () => ""}, dimensionsOf: () => null} as unknown as TrackView;
   const state = new TrackEdits("test").state();
   const html = renderToStaticMarkup(<Inspector name="test" picked={null} surfaces={[]} marked={[]}
-    view={view} state={state} collapsed={false} onCollapsed={() => {}} width={320} onWidth={() => {}}
+    view={view} state={state}
     onSurface={() => {}} onMaterialOpen={() => {}} textureRevision={0} kerbControls={<p>Kerb settings</p>}
     standaloneAppearance={{name: "Racing kerb texture", preview: "/kerb-thumbnail"}} />);
   expect(html.indexOf('id="inspect-appearance"')).toBeLessThan(html.indexOf('id="inspect-options"'));

@@ -2,51 +2,51 @@ import {card, clickMap, expect, openEditor, openSettings, scene, stillView, test
 
 const themeKey = "map2lap.theme";
 const root = (page: import("@playwright/test").Page) => page.locator("html");
-const chooser = (page: import("@playwright/test").Page) => page.getByRole("group", {name: "Appearance", exact: true});
+/** The one appearance button in the workspace rail: pressed in dark mode, a click switches to the other mode. */
+const toggle = (page: import("@playwright/test").Page) => page.getByTestId("nav-theme");
 
 for (const scheme of ["light", "dark"] as const) {
-  test(`first visit uses the ${scheme} system appearance without storing a manual choice`, async ({page}) => {
+  test(`first visit is dark under a ${scheme} system appearance without storing a choice`, async ({page}) => {
     await page.emulateMedia({colorScheme: scheme});
     await page.goto("/");
-    const choices = chooser(page);
-    await expect(choices.getByRole("button")).toHaveText(["Light", "Dark"]);
-    await expect(choices.getByRole("button", {name: scheme === "light" ? "Light" : "Dark", exact: true})).toHaveAttribute("aria-pressed", "true");
-    await expect(root(page)).toHaveAttribute("data-theme", scheme);
+    await expect(toggle(page)).toHaveAccessibleName("Dark mode");
+    await expect(toggle(page)).toHaveAttribute("aria-pressed", "true");
+    await expect(root(page)).toHaveAttribute("data-theme", "dark");
     expect(await page.evaluate(key => localStorage.getItem(key), themeKey)).toBeNull();
-    expect(await root(page).evaluate(el => getComputedStyle(el).colorScheme)).toBe(scheme);
-  });
-
-  test(`manual ${scheme} appearance survives reload and the opposite system setting`, async ({page}) => {
-    const opposite = scheme === "light" ? "dark" : "light";
-    await page.emulateMedia({colorScheme: opposite});
-    await page.goto("/");
-    await chooser(page).getByRole("button", {name: scheme === "light" ? "Light" : "Dark", exact: true}).click();
-    await expect(root(page)).toHaveAttribute("data-theme", scheme);
-    expect(await page.evaluate(key => localStorage.getItem(key), themeKey)).toBe(scheme);
-    await page.reload();
-    await expect(root(page)).toHaveAttribute("data-theme", scheme);
-    await page.emulateMedia({colorScheme: scheme});
-    await page.emulateMedia({colorScheme: opposite});
-    await expect(root(page)).toHaveAttribute("data-theme", scheme);
+    expect(await root(page).evaluate(el => getComputedStyle(el).colorScheme)).toBe("dark");
   });
 }
 
-test("system changes apply until a user explicitly chooses even the already active appearance", async ({page}) => {
+test("light chosen by the button survives reload and system changes, and dark can be chosen back", async ({page}) => {
+  await page.emulateMedia({colorScheme: "dark"});
+  await page.goto("/");
+  await toggle(page).click();
+  await expect(root(page)).toHaveAttribute("data-theme", "light");
+  expect(await page.evaluate(key => localStorage.getItem(key), themeKey)).toBe("light");
+  await page.reload();
+  await expect(root(page)).toHaveAttribute("data-theme", "light");
+  await page.emulateMedia({colorScheme: "light"});
+  await page.emulateMedia({colorScheme: "dark"});
+  await expect(root(page)).toHaveAttribute("data-theme", "light");
+  await toggle(page).click();
+  await expect(root(page)).toHaveAttribute("data-theme", "dark");
+  expect(await page.evaluate(key => localStorage.getItem(key), themeKey)).toBe("dark");
+});
+
+test("the system appearance never changes the page", async ({page}) => {
   await page.emulateMedia({colorScheme: "light"});
   await page.goto("/");
   await page.emulateMedia({colorScheme: "dark"});
-  await expect(root(page)).toHaveAttribute("data-theme", "dark");
-  await chooser(page).getByRole("button", {name: "Dark", exact: true}).click();
   await page.emulateMedia({colorScheme: "light"});
   await expect(root(page)).toHaveAttribute("data-theme", "dark");
 });
 
-test("invalid stored appearance falls back to the system", async ({page}) => {
+test("invalid stored appearance falls back to dark", async ({page}) => {
   await page.addInitScript(key => localStorage.setItem(key, "broken"), themeKey);
-  await page.emulateMedia({colorScheme: "dark"});
+  await page.emulateMedia({colorScheme: "light"});
   await page.goto("/");
   await expect(root(page)).toHaveAttribute("data-theme", "dark");
-  await expect(chooser(page).getByRole("button", {name: "Dark", exact: true})).toHaveAttribute("aria-pressed", "true");
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "true");
 });
 
 test("blocked appearance storage still allows switching for the current visit", async ({page}) => {
@@ -61,58 +61,60 @@ test("blocked appearance storage still allows switching for the current visit", 
       set.call(this, name, value);
     };
   }, themeKey);
-  await page.emulateMedia({colorScheme: "light"});
-  await page.goto("/");
-  await chooser(page).getByRole("button", {name: "Dark", exact: true}).click();
-  await expect(root(page)).toHaveAttribute("data-theme", "dark");
-  await page.emulateMedia({colorScheme: "dark"});
-  await page.emulateMedia({colorScheme: "light"});
-  await expect(root(page)).toHaveAttribute("data-theme", "dark");
-});
-
-test("saved appearance is applied before the app's JavaScript loads", async ({page}) => {
-  await page.addInitScript(key => localStorage.setItem(key, "dark"), themeKey);
-  await page.emulateMedia({colorScheme: "light"});
-  await page.route(/\.js(?:\?|$)/, route => route.abort());
   await page.goto("/");
   await expect(root(page)).toHaveAttribute("data-theme", "dark");
+  await toggle(page).click();
+  await expect(root(page)).toHaveAttribute("data-theme", "light");
 });
 
-test("appearance stays reachable in a short window and the Editor and reaches Settings", async ({page}) => {
+for (const [saved, expected] of [["light", "light"], [null, "dark"]] as const) {
+  test(`${saved ?? "no"} saved appearance gives ${expected} before the app's JavaScript loads`, async ({page}) => {
+    if (saved) await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [themeKey, saved]);
+    await page.emulateMedia({colorScheme: expected === "dark" ? "light" : "dark"});
+    await page.route(/\.js(?:\?|$)/, route => route.abort());
+    await page.goto("/");
+    await expect(root(page)).toHaveAttribute("data-theme", expected);
+  });
+}
+
+test("appearance sits in the rail between bug report and Settings, also in a short window and the Editor", async ({page}) => {
   await page.setViewportSize({width: 1280, height: 640});
   await page.goto("/");
-  const dark = chooser(page).getByRole("button", {name: "Dark", exact: true});
+  const dark = toggle(page);
+  expect(await page.getByTestId("workspace-nav").locator(":scope > button").evaluateAll(buttons => buttons.map(b => b.dataset.testid)))
+    .toEqual(["report-bug", "nav-theme", "nav-settings"]);
+  await expect(page.getByRole("group", {name: "Appearance", exact: true})).toHaveCount(0);
   await expect(dark).toBeInViewport();
-  await dark.focus();
-  await page.keyboard.press("Enter");
-  await expect(root(page)).toHaveAttribute("data-theme", "dark");
   await openSettings(page);
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   expect(await dialog.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgb(26, 33, 35)");
   await page.getByRole("button", {name: "Close settings"}).click();
+  await dark.focus();
+  await page.keyboard.press("Enter");
+  await expect(root(page)).toHaveAttribute("data-theme", "light");
   await openEditor(page);
   await expect(dark).toBeInViewport();
-  await chooser(page).getByRole("button", {name: "Light", exact: true}).click();
-  await expect(root(page)).toHaveAttribute("data-theme", "light");
+  await expect(page.getByRole("group", {name: "Appearance", exact: true})).toHaveCount(0);
+  await dark.click();
+  await expect(root(page)).toHaveAttribute("data-theme", "dark");
 });
 
 test("the appearance choice is shared between open tabs", async ({page, context}) => {
-  await page.emulateMedia({colorScheme: "light"});
   await page.goto("/");
   const other = await context.newPage();
   await other.route(/tile\.openstreetmap\.org/, route => route.fulfill({status: 204}));
   await other.goto("/");
-  await chooser(page).getByRole("button", {name: "Dark", exact: true}).click();
-  await expect(root(other)).toHaveAttribute("data-theme", "dark");
-  await chooser(other).getByRole("button", {name: "Light", exact: true}).click();
-  await expect(root(page)).toHaveAttribute("data-theme", "light");
+  await toggle(page).click();
+  await expect(root(other)).toHaveAttribute("data-theme", "light");
+  await toggle(other).click();
+  await expect(root(page)).toHaveAttribute("data-theme", "dark");
   await other.close();
 });
 
 for (const scheme of ["light", "dark"] as const) {
   test(`${scheme} actions stay readable and build errors keep their red meaning`, async ({page}) => {
-    await page.emulateMedia({colorScheme: scheme});
+    await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [themeKey, scheme]);
     await page.goto("/");
     await clickMap(page, .3, .3);
     await clickMap(page, .6, .6);
@@ -143,25 +145,24 @@ for (const scheme of ["light", "dark"] as const) {
 }
 
 test("changing appearance leaves the rendered track unchanged", async ({page}) => {
-  await page.emulateMedia({colorScheme: "light"});
   await openEditor(page);
   await page.mouse.move(10, 10);
-  await page.screenshot({path: test.info().outputPath("light-editor.png")});
+  await page.screenshot({path: test.info().outputPath("dark-editor.png")});
   // A canvas screenshot includes HTML over the track. Only the 3D rendering should be theme-independent.
   const hiddenControls = await page.addStyleTag({content: '[data-tool-options], #sun-clock { visibility: hidden; }'});
   const before = await stillView(page);
-  await chooser(page).getByRole("button", {name: "Dark", exact: true}).click();
+  await toggle(page).click();
   await page.mouse.move(10, 10);
   await expect.poll(async () => (await scene(page).screenshot()).equals(before)).toBe(true);
   await hiddenControls.evaluate(el => el.parentNode?.removeChild(el));
-  await page.screenshot({path: test.info().outputPath("dark-editor.png")});
+  await page.screenshot({path: test.info().outputPath("light-editor.png")});
   await openSettings(page);
-  await page.getByRole("dialog").screenshot({path: test.info().outputPath("dark-settings.png")});
+  await page.getByRole("dialog").screenshot({path: test.info().outputPath("light-settings.png")});
 });
 
 for (const scheme of ["light", "dark"] as const) {
   test(`${scheme} secondary text remains readable on the page's surfaces`, async ({page}) => {
-    await page.emulateMedia({colorScheme: scheme});
+    await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [themeKey, scheme]);
     await page.goto("/");
     const contrasts = await root(page).evaluate(el => {
       const css = getComputedStyle(el);

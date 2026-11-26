@@ -1,7 +1,7 @@
 // The page's frame: tabs, the settings popup, what stays over a reload, low windows.
 import {card, centre, expect, test} from "./fixtures";
 
-test("the left navigation stacks three named icons and marks the current workspace", async ({page}) => {
+test("the left navigation stacks three named workspaces, then bug report, appearance and Settings", async ({page}) => {
   await page.emulateMedia({reducedMotion: "no-preference"});
   await page.goto("/");
   const nav = page.getByTestId("workspace-nav");
@@ -35,8 +35,15 @@ test("the left navigation stacks three named icons and marks the current workspa
   const report = nav.getByRole("button", {name: "Report a bug"});
   await expect(report).toBeInViewport({ratio: 1});
   const reportBox = (await report.boundingBox())!;
+  const theme = nav.getByTestId("nav-theme");
+  await expect(theme).toBeInViewport({ratio: 1});
+  const themeBox = (await theme.boundingBox())!;
+  // Bug report, appearance and Settings stand at the foot of the rail with the workspaces' spacing.
+  const gap = boxes[1].y - boxes[0].y - boxes[0].height;
   expect(reportBox.x).toBe(gearBox.x);
-  expect(gearBox.y - reportBox.y - reportBox.height).toBe(boxes[1].y - boxes[0].y - boxes[0].height);
+  expect(themeBox.x).toBe(gearBox.x);
+  expect(themeBox.y - reportBox.y - reportBox.height).toBe(gap);
+  expect(gearBox.y - themeBox.y - themeBox.height).toBe(gap);
   const rail = (await nav.boundingBox())!;
   expect(rail.y + rail.height - gearBox.y - gearBox.height).toBeLessThan(gearBox.height);
   await nav.getByTestId("nav-my-tracks").press("Enter");

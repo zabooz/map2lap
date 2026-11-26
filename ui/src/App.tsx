@@ -228,6 +228,7 @@ export function App() {
           <BugIcon />
           {unread && <span aria-hidden="true" className={styles.attention}>!</span>}
         </button>
+        <ThemeSwitch className={styles.destination} />
         <button type="button" data-testid="nav-settings" className={`${styles.destination} ${styles.gear}`}
                 aria-label="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}
                 title={attention ?? "Settings"} onClick={() => setSettingsOpen(true)}>
@@ -284,7 +285,6 @@ export function App() {
             </div>
 
           </div>
-          {tab === "edit" && <ThemeSwitch />}
         </div>
       </aside>
 
@@ -294,7 +294,6 @@ export function App() {
           {hint && <div data-testid="map-hint" className={styles.hint}>{hint}</div>}
         </div>
         {tab !== "edit" && <aside data-testid="track-details" className={styles.details} aria-label="Track details">
-          <ThemeSwitch top />
           <StatusCard status={status} showResult={showResult} tab={tab} mode={track.mode} group={group} picked={picked}
                       installed={installed} title={track.title.trim()} selection={track.selection} width={track.width}
                       options={options} hasTracks={groupTracks.length > 0} version={version}

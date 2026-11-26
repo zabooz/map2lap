@@ -1,13 +1,8 @@
-.panel { flex: 1; min-width: 0; height: 100%; overflow: auto;
+.panel { flex: 1; min-width: 0; height: 100%; overflow: auto; border-left: 1px solid var(--line);
          padding: 0 14px 16px; background: var(--panel); font-size: 12px; }
 .head { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center;
         background: var(--panel); padding: 12px 0; border-bottom: 1px solid var(--line); }
 .head h2 { margin: 0; font-size: 15px; }
-.head button, .show { border: 1px solid var(--line); border-radius: 6px; background: var(--raised); cursor: pointer; padding: 3px 10px; }
-.head button:hover, .show:hover { color: var(--accent); border-color: var(--accent); }
-.show { position: absolute; top: 12px; right: 12px; z-index: 2; }
-.divider { flex: 0 0 5px; cursor: col-resize; background: var(--line); touch-action: none; }
-.divider:hover, .divider:focus-visible { background: var(--accent); outline: none; }
 .section { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .section h3 { margin: 0 0 8px; font-size: 13px; }
 .section strong { display: block; margin-bottom: 6px; }

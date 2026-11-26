@@ -114,7 +114,8 @@ refreshes stale hints from the saved recipe, including after reopening the Edito
 
 ## Selection and Inspector
 
-The Inspector has Selection, Properties and Details tabs. Selection stays pinned while Under pointer follows the mouse.
+The Inspector has a fixed width and Selection, Properties and Details tabs. Selection stays pinned while Under pointer
+follows the mouse. Under pointer starts collapsed to the position; opening it is remembered in this browser.
 Selection shows Appearance then Options; Properties contains time/date, conditions and vegetation; Details holds geometry,
 track statistics and edit notes. Errors outside dialogs use the page's toast stack (`editorToasts.ts`); dialogs own their errors.
 The panel can be resized or hidden without covering the remaining 3D viewport.

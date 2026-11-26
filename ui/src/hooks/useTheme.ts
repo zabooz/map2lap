@@ -1,10 +1,9 @@
-import {useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore} from "react";
+import {useCallback, useEffect, useLayoutEffect, useState} from "react";
 
 type Theme = "light" | "dark";
 const KEY = "map2lap.theme";
-const QUERY = "(prefers-color-scheme: dark)";
 
-/** This browser's explicit appearance choice; unavailable or invalid storage leaves it automatic. */
+/** This browser's explicit appearance choice; unavailable or invalid storage leaves it at the dark default. */
 function storedTheme(): Theme | null {
   try {
     const value = localStorage.getItem(KEY);
@@ -12,21 +11,10 @@ function storedTheme(): Theme | null {
   } catch { return null; }
 }
 
-function systemTheme(): Theme {
-  return matchMedia(QUERY).matches ? "dark" : "light";
-}
-
-function subscribeSystem(changed: () => void) {
-  const media = matchMedia(QUERY);
-  media.addEventListener("change", changed);
-  return () => media.removeEventListener("change", changed);
-}
-
-/** Follow the system until Light or Dark is chosen; keep that choice in this browser. */
+/** Dark until Light is chosen; keep the choice in this browser and share it with its other tabs. */
 export function useTheme() {
   const [choice, setChoice] = useState(storedTheme);
-  const system = useSyncExternalStore(subscribeSystem, systemTheme);
-  const theme = choice ?? system;
+  const theme = choice ?? "dark";
 
   useLayoutEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
 

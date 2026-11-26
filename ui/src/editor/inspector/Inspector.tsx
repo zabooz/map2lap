@@ -204,10 +204,9 @@ function Appearance({name, picked, version, onEdit, restyling, options}: {name: 
 /** The selection stays pinned while pointer details change. Width belongs to this panel, not to the camera. */
 const INSPECTOR_TABS = ["selection", "properties", "details"] as const;
 
-export function Inspector({name, picked, surfaces, marked, view, state, collapsed, onCollapsed, width, onWidth, onSurface,
+export function Inspector({name, picked, surfaces, marked, view, state, onSurface,
   onMaterialOpen, restyling = null, notes, transform, kerbControls, standaloneAppearance, activeTool, scenery}: {
   name: string; picked: Picked | null; surfaces: SurfacePoint[]; marked: Marked[]; view: TrackView; state: EditState;
-  collapsed: boolean; onCollapsed: (collapsed: boolean) => void; width: number; onWidth: (width: number) => void;
   onSurface: (selection: SurfaceSelection | null) => void; onMaterialOpen: () => void; textureRevision: number;
   restyling?: Restyling | null;      // (null: the track can't be edited now)
   notes?: ReactNode;
@@ -225,16 +224,9 @@ export function Inspector({name, picked, surfaces, marked, view, state, collapse
   }
   const chosen = picked?.kind && (picked.kerbId || !picked.surface || surfaces.length) ? picked : null;
   const textureVersion = chosen?.inspection?.texture != null ? view.textures.version(chosen.inspection.texture) : "";
-  const updateWidth = (value: number) => onWidth(Math.max(260, Math.min(520, value)));
   return <>
-    {collapsed && <button className={styles.show} onClick={() => onCollapsed(false)} aria-label="Show inspector">Inspector ‹</button>}
-    {!collapsed && <div className={styles.divider} role="separator" tabIndex={0} aria-label="Inspector width" aria-orientation="vertical"
-      aria-valuenow={width} aria-valuemin={260} aria-valuemax={520}
-      onKeyDown={e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); updateWidth(width + (e.key === "ArrowLeft" ? 20 : -20)); } }}
-      onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); e.preventDefault(); }}
-      onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) updateWidth(e.currentTarget.getBoundingClientRect().right + width - e.clientX); }} />}
-    <aside className={styles.panel} aria-label="Inspector" hidden={collapsed}>
-      <div className={styles.head}><h2>Inspector</h2><button type="button" onClick={() => onCollapsed(true)} aria-label="Hide inspector">›</button></div>
+    <aside className={styles.panel} aria-label="Inspector">
+      <div className={styles.head}><h2>Inspector</h2></div>
       <div className={styles.tabs} role="tablist" aria-label="Inspector">
         {INSPECTOR_TABS.map((id, i) => <button type="button" role="tab" id={`inspector-tab-${id}`} key={id}
           aria-selected={tab === id} aria-controls={`inspector-${id}`} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)}

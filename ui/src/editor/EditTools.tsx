@@ -53,7 +53,7 @@ import {editorToasts} from "./editorToasts";
     Each tool hook hands its controller to useToolHost, which routes the view's input and the keys (toolDefs.globalKey; they count on the active Editor page outside fields and dialogs). A new tool: its definition (toolDefs), its hook called here and its controller in `controllers`. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
     tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). onDelete: Delete was pressed. */
 export function EditTools({name, title, routeTrack, loaded, timedMode, visible, taken, view, fileHost, savedHost, toolsHost, inspectorHost,
-  inspectorWidth, onInspectorWidth, inspectorCollapsed, onInspectorCollapsed, elevationSpeed, reopen, onSaved, onDelete}: {
+  elevationSpeed, reopen, onSaved, onDelete}: {
   name: string;
   title: string;
   routeTrack: boolean;
@@ -66,10 +66,6 @@ export function EditTools({name, title, routeTrack, loaded, timedMode, visible, 
   savedHost: HTMLElement | null;
   toolsHost: HTMLElement | null;
   inspectorHost: HTMLElement | null;
-  inspectorWidth: number;
-  onInspectorWidth: (width: number) => void;
-  inspectorCollapsed: boolean;
-  onInspectorCollapsed: (collapsed: boolean) => void;
   elevationSpeed: number;
   reopen: () => void;
   onSaved: (name: string) => void;
@@ -223,26 +219,25 @@ export function EditTools({name, title, routeTrack, loaded, timedMode, visible, 
   const takeUp = (t: Tool) => {
     if (t === "ai-margin" && (!routeTrack || !editable)) return;
     const next = tool === t ? "select" : t;
-    if (next === "move" && wallIds.length) onInspectorCollapsed(false);
     setMenu(null); selection.release();
     switchTo(next);
   };
   const closeMenu = useCallback(() => setMenu(null), []);
   const startSmooth = (road: [number, number]) => { setMenu(null); switchTo("smooth"); band.start(road[0], road[1], picked?.position[1]); setNote(null); view.focus(); };
-  /** Edit… of the menu: Select on, the picked ground selected, its textures open, the inspector shown. */
+  /** Edit… of the menu: Select on, the picked ground selected, its textures open. */
   const editPicked = () => {
     if (tool !== "select") switchTo("select");
     if (picked?.surface) {
       selection.setSurfacePicks(previous => pickedSurfaces(tool === "select" ? previous : [], {surface: picked.surface, left: false}));
       if (picked.surface.face === undefined) setMaterialOpen(true);
     }
-    onInspectorCollapsed(false); view.focus();
+    view.focus();
   };
   const movable = editable && !!picked?.id && view.mover.canMove(picked.id);
   /** What can be done with what is picked, for the right-click menu and the Select bar: null where it can't now. */
   const run: Record<SelectAction, (() => void) | null> = {
     texture: picked?.surface ? editPicked : null,
-    move: movable || wallIds.length ? () => { switchTo("move"); setNote(null); onInspectorCollapsed(false); view.focus(); } : null,
+    move: movable || wallIds.length ? () => { switchTo("move"); setNote(null); view.focus(); } : null,
     copy: movable ? () => { setCopyTake(n => n + 1); switchTo("copy"); setNote(null); view.focus(); } : null,
     replace: editable && replaceable?.length ? openModels : null,
     delete: editable && (removable.length > 0 || !!selection.vergeCuts || !!selection.section || (tool === "select" && !!inspectorKerb)) ? () => { remove(); view.focus(); } : null,
@@ -318,8 +313,7 @@ export function EditTools({name, title, routeTrack, loaded, timedMode, visible, 
           picked={(working("smooth") && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
           markedName={marked.length ? marked.map(g => sortName(g.sort)).join(", ") : null}
         />}
-        marked={marked} view={view} state={state} width={inspectorWidth} onWidth={onInspectorWidth}
-        collapsed={inspectorCollapsed} onCollapsed={onInspectorCollapsed} onSurface={selection.onSurface}
+        marked={marked} view={view} state={state} onSurface={selection.onSurface}
         onMaterialOpen={() => setMaterialOpen(true)} restyling={editable ? painting : null} textureRevision={textureRevision}
         transform={editable && (wallIds.length ? <WallFields rise={wallSettings?.rise ?? 0} textured={!!wallSettings?.material} busy={walls.busy} error={walls.error}
           onHeight={rise => walls.change(wallIds, {rise})} onTexture={() => { setMenu(null); setLibraryTab("textures"); }}

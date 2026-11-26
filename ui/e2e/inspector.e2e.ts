@@ -41,22 +41,16 @@ test("surface selection appears in the inspector and cannot turn into an object 
   await expect(panel).toContainText("Nothing selected");
 });
 
-test("the inspector can collapse, reopen and resize without losing the selection", async ({page}) => {
+test("the inspector has a fixed width, without a divider or a hide button, and keeps the selection", async ({page}) => {
   await openEditor(page);
   const tree = await findTree(page);
   await page.mouse.click(tree.x, tree.y);
   const panel = page.getByRole("complementary", {name: "Inspector"});
   await expect(panel.locator("#inspect-selection")).toContainText("Tree");
-  const before = (await scene(page).boundingBox())!.width;
-  const divider = page.getByRole("separator", {name: "Inspector width"});
-  await divider.focus();
-  await divider.press("ArrowLeft");
-  await expect.poll(async () => (await scene(page).boundingBox())!.width).toBeLessThan(before);
-  await panel.getByRole("button", {name: "Hide inspector"}).click();
-  await expect(panel).toBeHidden();
-  await expect.poll(async () => (await scene(page).boundingBox())!.width).toBeGreaterThan(before);
-  await page.getByRole("button", {name: "Show inspector"}).click();
-  await expect(panel.locator("#inspect-selection")).toContainText("Tree");
+  await expect(page.getByRole("separator", {name: "Inspector width"})).toHaveCount(0);
+  await expect(page.getByRole("button", {name: "Hide inspector"})).toHaveCount(0);
+  await expect(page.getByRole("button", {name: "Show inspector"})).toHaveCount(0);
+  expect(Math.round((await panel.boundingBox())!.width)).toBe(325);
   await page.locator("#edit-track").selectOption("beta");
   await expect(panel).toContainText("Nothing selected");
 });
@@ -81,20 +75,27 @@ test("trees have a loaded appearance preview and object options follow it in Sel
   await expect(panel.locator("#inspect-selection")).toContainText("Tree");
 });
 
-test("pointer information floats left of the Inspector and collapses to coordinates", async ({page}) => {
-  await openEditor(page);
-  const at = await centre(scene(page));
-  await page.mouse.move(at.x, at.y);
-  const overlay = page.getByRole("complementary", {name: "Under pointer"});
-  await expect(overlay).toBeVisible();
-  const bounds = (await overlay.boundingBox())!;
-  const panel = (await page.getByRole("complementary", {name: "Inspector"}).boundingBox())!;
-  expect(bounds.x + bounds.width).toBeLessThan(panel.x);
-  await overlay.getByLabel("Collapse pointer details").click();
-  await expect(overlay.locator("dt")).toHaveText(["AC x, y, z", "Lat, lon"]);
-  await expect(overlay).not.toContainText("Shader");
-  await overlay.getByLabel("Expand pointer details").click();
-  await expect(overlay).toContainText("Shader");
+test.describe("for a first visit", () => {
+  test.use({pointerDetails: false});
+  test("pointer information floats left of the Inspector, starts collapsed to coordinates and remembers when opened", async ({page}) => {
+    await openEditor(page);
+    const at = await centre(scene(page));
+    await page.mouse.move(at.x, at.y);
+    const overlay = page.getByRole("complementary", {name: "Under pointer"});
+    await expect(overlay).toBeVisible();
+    const bounds = (await overlay.boundingBox())!;
+    const panel = (await page.getByRole("complementary", {name: "Inspector"}).boundingBox())!;
+    expect(bounds.x + bounds.width).toBeLessThan(panel.x);
+    await expect(overlay.locator("dt")).toHaveText(["AC x, y, z", "Lat, lon"]);
+    await expect(overlay).not.toContainText("Shader");
+    await overlay.getByLabel("Expand pointer details").click();
+    await expect(overlay).toContainText("Shader");
+    await openEditor(page);
+    await page.mouse.move(at.x, at.y);
+    await expect(overlay).toContainText("Shader");
+    await overlay.getByLabel("Collapse pointer details").click();
+    await expect(overlay).not.toContainText("Shader");
+  });
 });
 
 test("clicking a selection opens Selection from Properties or Details; hovering keeps the tab", async ({page}) => {

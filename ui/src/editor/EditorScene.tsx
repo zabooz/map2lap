@@ -9,6 +9,8 @@ import {TrackView, type Say} from "./scene/view";
 import {PointerInfo} from "./inspector/PointerInfo";
 import type {SelectionRectangle} from "./scene/marquee";
 
+const INSPECTOR_WIDTH = 325;   // fixed: room for its tables and texture previews; render.e2e.ts takes its reference views beside it
+
 /** The track name in 3D; built: when it was built, built again it loads again (a Save leaves it: the view shows the track's
     source). title: its title, taken: the other tracks'. visible: its tab is open. controls: how it moves. fileHost, toolsHost: where in the sidebar its buttons are drawn.
     onStatus gets what is loading; onSaved the track saved, by its name (a copy: another one); onDelete: its Delete was pressed. */
@@ -33,8 +35,6 @@ export default function EditorScene({name, title, routeTrack, timedMode, taken, 
   const [hovered, setHovered] = useState<Hovered | null>(null);
   const [rectangle, setRectangle] = useState<SelectionRectangle | null>(null);
   const [inspectorHost, setInspectorHost] = useState<HTMLDivElement | null>(null);
-  const [inspectorWidth, setInspectorWidth] = useState(320);
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
 
   useEffect(() => {
     const v = new TrackView(host.current!);
@@ -58,16 +58,14 @@ export default function EditorScene({name, title, routeTrack, timedMode, taken, 
 
   return (
     <div className={styles.layout} hidden={!visible}
-      style={{"--inspector-space": name && !inspectorCollapsed ? `min(${inspectorWidth + 5}px, 48%)` : "0px"} as CSSProperties}>
+      style={{"--inspector-space": name ? `min(${INSPECTOR_WIDTH}px, 48%)` : "0px"} as CSSProperties}>
       <div id="scene" className={styles.scene}>
         <div className={styles.view} ref={host} />
         {rectangle && <div className={styles.rectangle} aria-label="Selection rectangle"
           style={{left: rectangle.x, top: rectangle.y, width: rectangle.width, height: rectangle.height}} />}
-        {view && name && <PointerInfo hovered={hovered} inspectorCollapsed={inspectorCollapsed} />}
+        {view && name && <PointerInfo hovered={hovered} />}
       {view && name && <EditTools loaded={loaded === trackKey} routeTrack={routeTrack} key={`${name} ${built}`} name={name} title={title} timedMode={timedMode} visible={visible} taken={taken} view={view} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} elevationSpeed={controls.elevationSpeed}
                                   inspectorHost={inspectorHost}
-                                  inspectorWidth={inspectorWidth} onInspectorWidth={setInspectorWidth}
-                                  inspectorCollapsed={inspectorCollapsed} onInspectorCollapsed={setInspectorCollapsed}
                                   reopen={() => void view.open(name, report)} onSaved={onSaved} onDelete={onDelete} />}
       </div>
       <div className={styles.inspectorHost} ref={setInspectorHost} />

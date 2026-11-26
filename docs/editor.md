@@ -87,4 +87,4 @@ are cleaned only for their own available AC folder. Delete track asks confirmati
 
 Current tools use installed tracks and retained editing data, not kept generator output. Build files (including logs) are
 kept by default and managed in Settings > Editor > Build files. Old tracks lacking selection/object metadata need one
-rebuild to gain it. UI appearance follows system light/dark until manually chosen; it does not change 3D lighting.
+rebuild to gain it. UI appearance is dark until Light is chosen with the rail button; it does not change 3D lighting.

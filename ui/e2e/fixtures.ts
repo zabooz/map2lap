@@ -13,7 +13,9 @@ export interface Backend {
   calls: () => Promise<unknown[][]>;
 }
 
-export const test = base.extend<{reset: void; faultsAllowed: {on: boolean}}, {backend: Backend}>({
+export const test = base.extend<{reset: void; faultsAllowed: {on: boolean}; pointerDetails: boolean}, {backend: Backend}>({
+  // "Under pointer" starts collapsed for a user; most tests read its full table, so they open it unless a test sets false.
+  pointerDetails: [true, {option: true}],
   backend: [async ({}, use) => {
     const server = spawn(PYTHON, [join(REPO, "ui", "e2e", "server.py")], {stdio: ["pipe", "pipe", "inherit"]});
     const port = await new Promise<string>((ok, fail) => {
@@ -42,7 +44,8 @@ export const test = base.extend<{reset: void; faultsAllowed: {on: boolean}}, {ba
     await use();
   }, {auto: true}],
 
-  page: async ({page, faultsAllowed}, use) => {
+  page: async ({page, faultsAllowed, pointerDetails}, use) => {
+    if (pointerDetails) await page.addInitScript(() => { try { localStorage.setItem("map2lap.pointerDetails", "open"); } catch { /* blocked */ } });
     const faults: string[] = [];
     page.on("pageerror", e => faults.push(`page: ${e.message}`));
     page.on("console", m => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) faults.push(m.text()); });

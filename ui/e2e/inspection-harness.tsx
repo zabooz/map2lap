@@ -25,7 +25,7 @@ function Harness() {
   const [revision, update] = useState(0);
   return <><button id="progress" onClick={() => update(v => v + 1)}>Progress {revision}</button>
     <Inspector name="alpha" picked={picked} surfaces={surfaces} marked={[]} view={view} state={state}
-      collapsed={false} onCollapsed={ignore} width={320} onWidth={ignore} onSurface={ignore}
+      onSurface={ignore}
       onMaterialOpen={ignore} textureRevision={revision} /></>;
 }
 

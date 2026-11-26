@@ -3,7 +3,6 @@ import {picture, saved} from "./edit-helpers";
 
 test("a road offers Edit and opens its material picker without object replacement actions", async ({page}) => {
   await openEditor(page);
-  await page.getByRole("button", {name: "Hide inspector"}).click();
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y, {button: "right"});
   const menu = page.getByRole("menu");

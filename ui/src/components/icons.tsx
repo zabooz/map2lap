@@ -37,7 +37,7 @@ export const GearIcon = () => (
   </Icon>
 );
 
-export const SunIcon = () => (
-  <Icon size={15}><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5" /></Icon>
+export const SunIcon = ({size = 15}: {size?: number}) => (
+  <Icon size={size}><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5" /></Icon>
 );
-export const MoonIcon = () => <Icon size={15}><path d="M20.5 13A9 9 0 0 1 11 3.5 9 9 0 1 0 20.5 13Z" /></Icon>;
+export const MoonIcon = ({size = 15}: {size?: number}) => <Icon size={size}><path d="M20.5 13A9 9 0 0 1 11 3.5 9 9 0 1 0 20.5 13Z" /></Icon>;
