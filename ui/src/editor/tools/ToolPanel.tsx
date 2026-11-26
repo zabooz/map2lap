@@ -40,13 +40,13 @@ export function FileButtons({edits, view, saving, onLibrary}: {edits: TrackEdits
 
 /** The Editor's tools, by groups: undo and redo with the tools that change nothing, those of the ground and the road, those of objects, the help of the one on; one tool at a time as in an
     image editor. tool: the one on. onTool: one was pressed. */
-export function ToolPanel({aiPanel, state, edits, view, tool, onTool, onModels}: {aiPanel: ReactNode; state: EditState; edits: TrackEdits; view: TrackView; tool: Tool; onTool: (tool: Tool) => void; onModels?: () => void}) {
+export function ToolPanel({routeTrack, aiPanel, state, edits, view, tool, onTool, onModels}: {routeTrack: boolean; aiPanel: ReactNode; state: EditState; edits: TrackEdits; view: TrackView; tool: Tool; onTool: (tool: Tool) => void; onModels?: () => void}) {
   const editable = edits.canEdit();
   const then = (action: () => void) => thenView(view, action);
   const shownTool = editable || TOOLS.some(t => t.tool === tool && t.free) ? tool : "select";
   const buttons = (group: ToolGroup) => (
     <div className={styles.picker}>
-      {TOOLS.filter(t => t.group === group).map(t => (
+      {TOOLS.filter(t => t.group === group && (t.tool !== "ai-margin" || routeTrack)).map(t => (
         <button type="button" key={t.tool} id={t.id ?? undefined} className={shownTool === t.tool ? styles.on : ""} aria-pressed={shownTool === t.tool}
                 disabled={!editable && !t.free} title={t.hint} onClick={then(() => t.library ? onModels?.() : onTool(t.tool))}>
           {t.label}<span className={styles.key} aria-hidden="true">{t.key}</span>

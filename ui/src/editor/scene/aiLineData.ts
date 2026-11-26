@@ -22,8 +22,9 @@ export interface AiLinePoint {
   grade: number;
 }
 
-export interface AiLineReady {speedRange?: [number, number] | null; status: "ready"; canCalculate?: boolean; validity?: string; message: string | null; closed: boolean; revision: string; count: number}
-interface AiLineUnavailable {status: "missing" | "invalid"; canCalculate?: boolean; validity?: string; message: string; closed: null; revision: null; count: 0}
+export interface AiHintsState {state: "current" | "stale"; unplaced: string | null; rejected?: Record<string, string>}
+export interface AiLineReady {hints?: AiHintsState; speedRange?: [number, number] | null; status: "ready"; canCalculate?: boolean; validity?: string; message: string | null; closed: boolean; revision: string; count: number}
+interface AiLineUnavailable {hints?: AiHintsState; status: "missing" | "invalid"; canCalculate?: boolean; validity?: string; message: string; closed: null; revision: null; count: 0}
 export interface AiLineHover {point: AiLinePoint; metre: number | null}
 export type InstalledAiLine = ReturnType<typeof decodeAiLine>;
 
@@ -59,7 +60,7 @@ export async function fetchAiLine(name: string, known: InstalledAiLine | null, s
   if (status.status !== "ready") return status;
   if (known?.revision === status.revision && known.closed === status.closed
     && known.speedRange?.[0] === status.speedRange?.[0] && known.speedRange?.[1] === status.speedRange?.[1])
-    return known.validity === status.validity && known.canCalculate === status.canCalculate && known.message === status.message
+    return JSON.stringify(known.hints) === JSON.stringify(status.hints) && known.validity === status.validity && known.canCalculate === status.canCalculate && known.message === status.message
       ? known : {...known, ...status};
   const buffer = await fetchBytes(`${url}?r=${encodeURIComponent(status.revision)}`, signal);
   return decodeAiLine(status, buffer);

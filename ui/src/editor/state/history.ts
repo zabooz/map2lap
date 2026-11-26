@@ -2,7 +2,7 @@
 // key, so a save sends only what the server does not hold yet. A reload or a server restart then still has them.
 
 /** The parts of a step that are lists of objects, sent by item key (trackhistory.KEYED); the others go as they are. */
-const KEYED = ["removed", "heights", "placed", "copies", "models", "surfaces", "trees", "walls", "kerbs", "stitches", "aiCorrections"] as const;
+const KEYED = ["removed", "heights", "placed", "copies", "models", "surfaces", "trees", "walls", "kerbs", "stitches", "aiCorrections", "aiMargins"] as const;
 const PLAIN = ["objectSorts", "paints", "treeSpacing", "carDensity"] as const;
 export const HISTORY_BYTES = 10 * 1024 * 1024;   // (trackhistory.MAX_BYTES)
 

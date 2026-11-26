@@ -1063,6 +1063,8 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                     model = Path(trackview.kn5_path(settings.ac_path(), preview[1]))
                     result = _move_preview(model, body)
                 return self._send(200, result)
+            except trackview.Unreadable as e:
+                return self._send(409, {"changed": True, "error": str(e)})
             except (trackview.NotOurs, *ailinestate.ERRORS) as e:
                 return self._send(400, {"error": ailinestate.reason(e)})
         lane = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/recalculate", self.path)

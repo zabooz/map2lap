@@ -5,13 +5,7 @@ import {disposeStroke, previewBand, PreviewQueue} from "./aiPreviewBand";
 import {Pencil} from "./aiPencil";
 import {screenPoint} from "./pointer";
 
-import {at, type Checked, type MoveGuide} from "./aiGuide";
-
-function apart(s: number, m: number, guide: MoveGuide) {
-  if (!guide.closed) return Math.abs(s-m);
-  const d = Math.abs(s-m) % guide.length;
-  return Math.min(d, guide.length-d);
-}
+import {routeDistance, routeAnchor, type Checked, type MoveGuide} from "./aiGuide";
 
 // One metre sideways per four metres forward limits the added heading on a straight
 // to 14 degrees. The 15 m minimum spans about three car lengths on either side.
@@ -92,7 +86,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
   };
   let keptBand: Checked["samples"] = [];
   let checkedPositions = new Map<number, number[]>();
-  const owner = (m: number) => saved.find(item => apart(m, distances.get(item.id)!, guide) < item.range);
+  const owner = (m: number) => saved.find(item => routeDistance(m, distances.get(item.id)!, guide) < item.range);
   const yellow = new Set<number>();
   const green = new THREE.Color(0x51de94), red = new THREE.Color(0xff3939);
   const deltas = new Map<string, [number, number]>();
@@ -101,7 +95,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     const [before, centre, after] = move.anchor.context;
     const dx = after[0]-before[0], dz = after[1]-before[1], length = Math.hypot(dx,dz);
     if (!length) continue;
-    const row = guide.rows.reduce((a,b) => apart(a[3],move.anchor.metre,guide) < apart(b[3],move.anchor.metre,guide) ? a : b);
+    const row = guide.rows.reduce((a,b) => routeDistance(a[3],move.anchor.metre,guide) < routeDistance(b[3],move.anchor.metre,guide) ? a : b);
     const along = move.routeAlong ?? 0;
     deltas.set(move.id, [centre[0]+(dx*along+dz*move.routeOffset)/length-row[0],
                          centre[1]+(dz*along-dx*move.routeOffset)/length-row[2]]);
@@ -114,16 +108,16 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
       const existing = owner(m);
       const delta = existing && deltas.get(existing.id);
       if (!baked && existing && delta) {
-        const w = (1+Math.cos(Math.PI*apart(m,distances.get(existing.id)!,guide)/existing.range))/2;
+        const w = (1+Math.cos(Math.PI*routeDistance(m,distances.get(existing.id)!,guide)/existing.range))/2;
         x += w*delta[0]; z += w*delta[1];
       }
       let colour = guide.errors?.[i] || existing && invalid.has(existing.id) ? red : yellow.has(i) ? amber : green;
       const preview = showGuide || baked || existing || guide.errors?.[i]
-        || (drag && apart(m, drag.move.anchor.metre, guide) < drag.move.range);
+        || (drag && routeDistance(m, drag.move.anchor.metre, guide) < drag.move.range);
       if (preview && (i > 0 || guide.closed) && !pencil.covers(m))
         edges.push((i+guide.rows.length-1)%guide.rows.length, i);
       if (drag) {
-        const d = apart(m, drag.move.anchor.metre, guide);
+        const d = routeDistance(m, drag.move.anchor.metre, guide);
         if (existing?.id === drag.move.id || d < drag.move.range) {
           const weight = taper(d, drag.move.range);
           x = guide.rows[i][0] + drag.delta[0]*weight;
@@ -209,11 +203,10 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     if (!start) return;
     const centre = existing ? distances.get(existing.id)! : m;
     const peak = existing ? guide.rows.reduce((best, r, j) =>
-      apart(r[3],centre,guide) < apart(guide.rows[best][3],centre,guide) ? j : best, i) : i;
+      routeDistance(r[3],centre,guide) < routeDistance(guide.rows[best][3],centre,guide) ? j : best, i) : i;
     const peakRow = guide.rows[peak];
     const move: AiMove = {id:existing?.id ?? crypto.randomUUID(), kind:"move", range:existing?.range ?? MIN_RANGE,
-      free:existing?.free ?? free, anchor:{metre:centre, level:peakRow[1], route:guide.key, origin:guide.origin,
-        context:[-5,0,5].map(d => at(guide,centre+d))}};
+      free:existing?.free ?? free, anchor:routeAnchor(guide, centre, peakRow[1])};
     const initial = new THREE.Vector3().fromArray(positions, i*3);
     drag = {i, start, initial, peak, delta:existing && deltas.get(existing.id) || [0,0], move, shift:0, error:""};
     cursor("grabbing");
@@ -245,7 +238,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     const r = guide.rows[drag.i], move = drag.move;
     drag.shift = (p.x-drag.start.x)*r[4] + (p.z-drag.start.z)*r[5];
     const dx = drag.initial.x-r[0]+r[4]*drag.shift, dz = drag.initial.z-r[2]+r[5]*drag.shift;
-    const local = Math.hypot(dx,dz), peak = peakOffset(local, apart(r[3],move.anchor.metre,guide));
+    const local = Math.hypot(dx,dz), peak = peakOffset(local, routeDistance(r[3],move.anchor.metre,guide));
     const scale = local ? peak/local : 0, base = guide.rows[drag.peak];
     drag.delta = [dx*scale,dz*scale];
     move.range = moveRange(peak);
@@ -253,7 +246,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     drag.error = "";
     liveYellow.clear();
     for (const item of saved) {
-      if (item.id !== move.id && apart(move.anchor.metre, distances.get(item.id)!, guide) < move.range + item.range) {
+      if (item.id !== move.id && routeDistance(move.anchor.metre, distances.get(item.id)!, guide) < move.range + item.range) {
         drag.error = `Overlapping correction at route metre ${move.anchor.metre.toFixed(1)}`; break;
       }
     }

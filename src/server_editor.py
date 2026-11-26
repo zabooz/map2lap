@@ -264,12 +264,32 @@ def _ink_preview(ref, wider, item, section, band):
     return rows[np.searchsorted(measured, indices)].tolist()
 
 
+def _check_margin_revision(lane, revision):
+    """Refuse fractions for a different spline than the one shown in the requesting editor."""
+    if revision is None:
+        return
+    try:
+        current = _lane_revision(lane.stat())
+    except FileNotFoundError:
+        current = None
+    if revision != current:
+        raise trackview.Unreadable(LANE_CHANGED)
+
+
 def _margin_preview(model, body):
     """Return the draft's side margins as fractions of the installed AI line."""
     margins = body.get("aiMargins") if isinstance(body, dict) else None
     if error := aimargins.problem(margins):
         raise ValueError(error)
-    return ailinestate.margin_preview(model.parent, mytracks.is_circuit(model.parent), margins)
+    lane, revision = model.parent / fastlane.FILE, body.get("revision")
+    _check_margin_revision(lane, revision)
+    preview = ailinestate.margin_preview(model.parent, mytracks.is_circuit(model.parent), margins)
+    if body.get("withMetres") is True:
+        # Redraw can resample the installed spline independently of the automatic editing guide.
+        metres = ailinestate.lane_metres(model.parent, lane)
+        preview["metres"] = None if metres is None else metres.tolist()
+    _check_margin_revision(lane, revision)  # A hand replacement can happen outside the Save/worker lock.
+    return preview
 
 
 def _move_preview(model, body):

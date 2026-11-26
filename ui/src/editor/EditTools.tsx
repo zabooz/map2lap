@@ -26,6 +26,7 @@ import {useToolHost, type ToolControllers} from "./tools/toolHost";
 import {useBand} from "./tools/useBand";
 import {useSeparation} from "./tools/useSeparation";
 import {useBank} from "./tools/useBank";
+import {useAiMargins} from "./tools/useAiMargins";
 import {useAiLine} from "./tools/useAiLine";
 import {useSave} from "./state/useSave";
 import type {MenuAt, WheelKeys} from "./types";
@@ -51,11 +52,12 @@ import {editorToasts} from "./editorToasts";
     to be said below them (EditNotes in the tools panel), while the state stays here by the view; over the view the bar of the tool on (its controller's options) and the right-click menu.
     Each tool hook hands its controller to useToolHost, which routes the view's input and the keys (toolDefs.globalKey; they count on the active Editor page outside fields and dialogs). A new tool: its definition (toolDefs), its hook called here and its controller in `controllers`. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
     tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). onDelete: Delete was pressed. */
-export function EditTools({name, title, routeTrack, timedMode, visible, taken, view, fileHost, savedHost, toolsHost, inspectorHost,
+export function EditTools({name, title, routeTrack, loaded, timedMode, visible, taken, view, fileHost, savedHost, toolsHost, inspectorHost,
   inspectorWidth, onInspectorWidth, inspectorCollapsed, onInspectorCollapsed, elevationSpeed, reopen, onSaved, onDelete}: {
   name: string;
   title: string;
   routeTrack: boolean;
+  loaded: boolean;
   timedMode?: TimedMode;
   visible: boolean;
   taken: string[];
@@ -113,8 +115,9 @@ export function EditTools({name, title, routeTrack, timedMode, visible, taken, v
   const placingWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
   const setPlacingWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { placingWheel.current = wheel; }, []);
   const [aiLineWrites, setAiLineWrites] = useState(0);
-  const aiLine = useAiLine({name, view, routeTrack, mode: tool === "ai-move" ? "move" : tool === "ai-redraw" ? "redraw" : null, writes: aiLineWrites,
+  const aiLine = useAiLine({name, view, routeTrack, loaded, mode: tool === "ai-move" ? "move" : tool === "ai-redraw" ? "redraw" : tool === "ai-margin" ? "margin" : null, writes: aiLineWrites,
     unsaved: unsavedAiDraft, edits, moves: state.aiCorrections, editable});
+  const margin = useAiMargins(name, view, edits, state.aiMargins, working("ai-margin"), aiLine);
   const saving = useSave({lanePending: aiLine.pending && !aiLine.working, name, timedMode, edits, state, view, onSaved: savedName => {
     if (savedName === name) setAiLineWrites(writes => writes + 1);
     onSaved(savedName);
@@ -218,6 +221,7 @@ export function EditTools({name, title, routeTrack, timedMode, visible, taken, v
   const switchTo = (next: Tool) => { selection.dropRequests(); switchTool(next); };
   /** A tool's button or key: taken up, or laid down for Select when it is on. A picked kerb or road becomes its selected range or start. */
   const takeUp = (t: Tool) => {
+    if (t === "ai-margin" && (!routeTrack || !editable)) return;
     const next = tool === t ? "select" : t;
     if (next === "move" && wallIds.length) onInspectorCollapsed(false);
     setMenu(null); selection.release();
@@ -250,7 +254,7 @@ export function EditTools({name, title, routeTrack, timedMode, visible, taken, v
   const placing = {wheel: (keys: WheelKeys, by: number) => placingWheel.current(keys, by), takesWheel: true};
   const controllers: ToolControllers = {
     select: select.controller, camera: camera.controller, smooth: band.controller, separate: separation.controller, bank: banking.controller, kerb: kerbs.controller,
-    stitch: stitch.controller, "ai-move": aiLine.controller, "ai-redraw": aiLine.controller, elevation: elevation.controller, move: move.controller, delete: remover.controller,
+    stitch: stitch.controller, "ai-move": aiLine.controller, "ai-redraw": aiLine.controller, "ai-margin": margin, elevation: elevation.controller, move: move.controller, delete: remover.controller,
     copy: {...placing, options: <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setPlacingWheel} onFailed={setCopyFailed} />},
     // (Insert and Groups draw their bars themselves: they stay mounted with the Library)
     model: placing, group: placing,
@@ -289,7 +293,7 @@ export function EditTools({name, title, routeTrack, timedMode, visible, taken, v
     <>
       {fileHost && createPortal(<FileButtons edits={edits} view={view} saving={saving} onLibrary={openLibrary} />, fileHost)}
       {savedHost && createPortal(saving.savedText, savedHost)}
-      {toolsHost && createPortal(<ToolPanel aiPanel={aiLine.panel(() => void saving.save(true), saving.busy)} state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={openModels} />, toolsHost)}
+      {toolsHost && createPortal(<ToolPanel routeTrack={routeTrack} aiPanel={aiLine.panel(() => void saving.save(true), saving.busy)} state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={openModels} />, toolsHost)}
       <Models name={name} view={view} edits={edits} replace={replaceTargets} enabled={working("model")}
         onWheel={setPlacingWheel}
         choosing={libraryTab === "objects"} onClose={closeMaterial} onPlace={() => switchTo("model")}

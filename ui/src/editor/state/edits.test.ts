@@ -575,3 +575,26 @@ test("one AI line drag is a single undoable recipe edit", async () => {
   expect(edits.state().aiCorrections).toEqual([]);
   edits.stop();
 });
+
+test("Side margin add, update and remove each take one Undo step; Auto on both sides removes it", async () => {
+  const {edits, s} = await started();
+  const start = {metre: 20, level: 1, origin: [0, 0], context: [[15, 0], [20, 0], [25, 0]]};
+  const margin = {id: "a", start, end: {...start, metre: 40}, left: null, right: .75};
+  edits.addAiMargin(margin);
+  expect(isChanged(edits.state())).toBe(true);
+  edits.updateAiMargin("a", {right: 0});
+  const zero = {...margin, right: 0};
+  expect(edits.state().aiMargins).toEqual([zero]);
+  edits.removeAiMargin("a");
+  expect(edits.state().aiMargins).toEqual([]);
+  edits.undo(); expect(edits.state().aiMargins).toEqual([zero]);
+  edits.undo(); expect(edits.state().aiMargins).toEqual([margin]);
+  edits.undo(); expect(edits.state().aiMargins).toEqual([]);
+  edits.redo(); expect(edits.state().aiMargins).toEqual([margin]);
+  edits.saveNow(); await settle();
+  expect(s.asked[0].body).toHaveProperty("aiMargins", [margin]);
+  edits.updateAiMargin("a", {right: null});
+  expect(edits.state().aiMargins).toEqual([]);
+  edits.undo(); expect(edits.state().aiMargins).toEqual([margin]);
+  edits.stop();
+});

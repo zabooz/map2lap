@@ -28,6 +28,7 @@ import generator  # noqa: E402
 import furniture  # noqa: E402
 import roadmesh  # noqa: E402
 import server  # noqa: E402
+import server_editor  # noqa: E402
 from app import circuitlap, mapcache, materiallibrary, objectlibrary, mytracks, settings, system, trackcode, updater, version  # noqa: E402
 from scenery import cars, treefx  # noqa: E402
 from track import buildscenery, editorinfo, fastlane, kn5, make_track_folder, objectlist, obj_to_kn5, surfaceindex  # noqa: E402
@@ -51,6 +52,7 @@ release = {}                # the newest release version.latest answers
 stopped = threading.Event()
 ac_open = threading.Event()
 lane_publish = threading.Event()
+guide_reply = threading.Event()
 TRACK_LOCK = threading.RLock()
 
 
@@ -177,7 +179,7 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None, roof_material=None, ground_quality="sd", circuit=None, ai_moves=False):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None, roof_material=None, ground_quality="sd", circuit=None, ai_moves=False, margin_profile=False, margin_redraw=False):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     ground_specular: (ksSpecular, ksSpecularEXP) of its ground tiles, which then shine (else they have none).
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
@@ -333,19 +335,31 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
             features = [{"id": "fixture-road", "layer": "roads", "tags": {"highway": "residential"},
                          "spec": {"width": 16, "kind": "paved"},
                          "geometry": [[[128, -256], [128, -80], [128, 0], [128, 256]]]}] if hill else []
+            if margin_profile and ty == -1:
+                # Two mapped street widths produce 0.25 and 0.50 m automatic reserves.
+                features = [dict(id=str(z), layer="roads", tags={"highway": "residential"},
+                                 spec={"kind": "paved", "width": width}, geometry=[[[128, z], [128, end]]])
+                            for z, end, width in ((0, -140, 5.7), (-140, -256, 6.2))]
             if structure and features:
                 features[0]['level_ranges'] = [[156 / 512, 196 / 512, structure]]
             paint.finish(features=features)
             parts.append(part)
         editorinfo.install(os.path.join(root, name + ".kn5"), parts)
     with open(os.path.join(root, "data", "map2lap_route.txt"), "w", encoding="utf-8") as f:
-        f.write(f"anchor {ANCHOR[0]} {ANCHOR[1]}\n128 0\n128 -250\n")
+        stations = [0, 100, 140, 180, 250] if margin_profile else [0, 250]
+        f.write(f"anchor {ANCHOR[0]} {ANCHOR[1]}\n" + "".join(f"128 {-m}\n" for m in stations))
     current = track_version or version.TRACK_VERSION
     mytracks.save(root, {"version": current, "track_version": current, "title": title, "points": [[42.9, 9.36], [north, 9.36]],
                          "width": corridor_width, "area": None, "length_m": 250.0, "area_m": None, "tiles": 2,
                          "built": built or time.time(), "line": [[42.9, 9.36], [north, 9.36]], "terrain_cell_m": terrain_cell_m,
                          "parked_cars": parked_cars, "tree_spacing_m": tree_spacing_m, "ground_quality": ground_quality,
                          **(circuit or {})})
+    if margin_redraw:
+        def anchor(m):
+            return dict(metre=m, level=0, origin=list(ANCHOR), context=[[128, -m-d] for d in (-5, 0, 5)])
+        # This short redraw before the selected stretch adds 23 samples to the installed spline.
+        redraw = dict(id="ink", kind="redraw", free=True, anchor=anchor(64), end=anchor(94), points=[[129, 0, -79]])
+        mytracks.save(root, {**mytracks.load(root), "edits": {"aiCorrections": [redraw]}})
     if files:
         os.makedirs(os.path.join(TMP, "out", "tracks", name, "tiles"), exist_ok=True)
         with open(os.path.join(TMP, "out", "tracks", name, "tiles", "x.bin"), "wb") as f:
@@ -371,6 +385,7 @@ def fill():
     stopped.clear()
     ac_open.clear()
     lane_publish.set()
+    guide_reply.set()
     server.job.update(state="idle", log=[], result=None, error=None, progress=None, started=None, ended=None)
     server.running.update(proc=None, clearing=False)
     for d in (AC, os.path.join(TMP, "out"), os.path.join(TMP, "library"), os.path.join(TMP, "cache"), os.path.join(TMP, "assets")):
@@ -454,6 +469,14 @@ def stand_ins():
             raise ValueError("Test did not release the calculated AI line")
         return result
     server.ailanejobs.compute = lane_worker
+
+    move_preview = server_editor._move_preview
+    def held_guide(model, body):
+        result = move_preview(model, body)
+        if body.get("guide") and not guide_reply.wait(45):
+            raise ValueError("Test did not release the editing guide")
+        return result
+    server_editor._move_preview = held_guide
     system.running = lambda exe: exe == "acs.exe" and ac_open.is_set()
     server.browse_folder = record("browse")
     server.start_build = start_build
@@ -524,6 +547,10 @@ class Handler(server.Handler):
             return self._send(200, {"dimensions": [width, height], "weights": [float(v[height // 2, width // 2]) for v in weights.values()]})
         if self.path == "/__test/calls":
             return self._send(200, calls)
+        if self.path.startswith("/__test/ai-hints?name="):
+            name = generator.slug(self.path.split("=", 1)[1])
+            path = Path(AC, "content/tracks", name, "data/ai_hints.ini")
+            return self._send(200, path.read_bytes() if path.is_file() else b"", "text/plain; charset=ascii")
         if self.path.startswith("/__test/trees?name="):     # (the TreeFX trees AC gets: the track's trees.txt, each line read)
             name = generator.slug(self.path.split("=", 1)[1])
             path = os.path.join(AC, "content", "tracks", name, "extension", "trees", "trees.txt")
@@ -550,6 +577,13 @@ class Handler(server.Handler):
                 feedback_entry(ticket, type="message", author="admin", text=body["text"], images=0)
         elif self.path == "/__test/hold-lane":
             (lane_publish.clear if body["hold"] else lane_publish.set)()
+        elif self.path == "/__test/hold-guide":
+            (guide_reply.clear if body["hold"] else guide_reply.set)()
+        elif self.path == "/__test/ai-line-legacy":
+            path = Path(AC, "content/tracks", generator.slug(body["name"]), "data/map2lap_ai.json")
+            record = json.loads(path.read_bytes())
+            record.pop("metres", None)
+            path.write_text(json.dumps(record), encoding="utf-8")
         elif self.path == "/__test/ac-running":
             (ac_open.set if body["running"] else ac_open.clear)()
         elif self.path == "/__test/builtin-models":
@@ -567,7 +601,8 @@ class Handler(server.Handler):
                        ground_materials=body.get("ground_materials", 0), ground_brightness=body.get("ground_brightness"),
                        tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"), walls=body.get("walls", False),
                        tree_model=body.get('tree_model', 'spruce'), terrain_cell_m=body.get('terrain_cell_m', 2),
-                       parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'), structure=body.get('structure'), roof_material=body.get('roof_material'), ground_quality=body.get('ground_quality', 'sd'), ai_moves=body.get('ai_moves', False))
+                       parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'), structure=body.get('structure'), roof_material=body.get('roof_material'), ground_quality=body.get('ground_quality', 'sd'), ai_moves=body.get('ai_moves', False),
+                       margin_profile=body.get('margin_profile', False), margin_redraw=body.get('margin_redraw', False))
         elif self.path == "/__test/ai-line":
             lane = Path(AC, "content", "tracks", body["name"], fastlane.FILE)
             points = np.zeros(3, dtype=fastlane.POINT)

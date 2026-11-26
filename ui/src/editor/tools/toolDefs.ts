@@ -1,7 +1,7 @@
 // The Editor's tools defined once: id, name, sidebar group, key, tooltip, help, and how each takes a left pick. ToolPanel, Help, the
 // keyboard and the tool host (useToolHost) read only this. What a tool does stays in its own hook. Pure.
 
-export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "separate" | "bank" | "kerb" | "stitch" | "ai-move" | "ai-redraw" | "model" | "group";
+export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "separate" | "bank" | "kerb" | "stitch" | "ai-move" | "ai-redraw" | "ai-margin" | "model" | "group";
 export type ToolGroup = "general" | "road" | "ai" | "terrain" | "objects";
 
 /** What a click's pick means while the tool is on (useSelection). select: the pinned selection of objects, ground surfaces and
@@ -79,6 +79,11 @@ export const TOOL_DEFS: ToolDef[] = [
       ["Shift", "switch between Free (default) and Road"], ["Esc", "discard the current stroke; without one, end the tool"],
       ["Right-click", "remove a correction"],
       ["Save", "update an outdated line in the background"], ["Recalculate AI line", "save edits and update the line if needed"]]},
+  {tool: "ai-margin", group: "ai", id: "edit-ai-margin", label: "Side margin", key: "M", selection: "none",
+    hint: "Mark a stretch of the AI line and adjust its left or right passing margin (M)",
+    help: [["M", "turn Side margin on or off"], ["Click twice", "mark A then B on the line in driving order"],
+      ["Click a stretch", "pick it to edit"], ["New stretch", "mark A and B inside another margin"], ["Left / Right", "keep Auto or set a margin in metres"],
+      ["X or Delete", "remove the picked margin"], ["Ctrl+Z", "undo a side margin change"]]},
   {tool: "elevation", group: "terrain", id: "edit-elevation", label: "Elevation", key: "H", selection: "single",
     hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)",
     help: [["Click", "raise by its height; hold and move for more"], ["Shift", "lower instead"], ["Ctrl + wheel", "radius"], ["Alt + wheel", "height of a click"],

@@ -145,6 +145,12 @@ class SideMarginSaveTest(Base):
         self.assertEqual([self.margin], copy["saved"]["aiMargins"])
         self.assertEqual([], aimargins.recipe(Path(self.root)))
 
+    def test_editor_can_load_meshes_from_a_rebuilt_copy_with_only_side_margins(self):
+        mytracks.save(self.root, {**mytracks.load(self.root), "edits": {"aiMargins": [self.margin]}})
+        revision = trackview.index(self.ac, "t")["revision"]
+        moved = trackedits.moved_now(self.ac, "t", revision)
+        self.assertTrue(trackview.mesh_bytes(self.ac, "t", 0, revision, moved))
+
     def test_cold_margin_recipe_can_remove_its_last_margin(self):
         mytracks.save(self.root, {**mytracks.load(self.root), "edits": {"aiMargins": [self.margin]}})
         self.assertEqual([self.margin], trackedits.load(self.ac, "t")["aiMargins"])

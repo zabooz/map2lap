@@ -1,0 +1,4 @@
+.side { display: inline-flex; align-items: center; gap: 5px; margin: 0; padding: 0; border: 0; }
+.side input { width: 64px; height: 28px; padding: 0 4px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); color: var(--text); }
+.value, .hover { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hover { color: var(--muted); }

@@ -140,7 +140,7 @@ export function laneBand(edges: [Place, Place][], colours: number[][], closed: b
     .setAttribute("color", new THREE.Float32BufferAttribute(gradient, 3));
 }
 
-function lines(positions: number[], colour: string, width: number, renderOrder: number, colours?: number[]) {
+export function bandLines(positions: number[], colour: string, width: number, renderOrder: number, colours?: number[]) {
   const geometry = new LineSegmentsGeometry().setPositions(positions);
   if (colours) geometry.setColors(colours);
   const draw = new LineSegments2(geometry, new LineMaterial({color: colour, linewidth: width, vertexColors: !!colours,
@@ -149,7 +149,7 @@ function lines(positions: number[], colour: string, width: number, renderOrder: 
   return draw;
 }
 
-interface BandRow {at: Place; edges: [Place,Place]; colour: number[]}
+export interface BandRow {at: Place; edges: [Place,Place]; colour: number[]}
 type Ends = [BandRow, BandRow];
 
 /** Complement of measured preview spans, stitched to the very same cross sections. Pure. */
@@ -200,7 +200,7 @@ function bandMarks(rows: BandRow[], closed: boolean, faded: boolean) {
   const fill = new THREE.Mesh(laneBand(edges, colours, closed), new THREE.MeshBasicMaterial({vertexColors:true,
     transparent:true, opacity:faded ? .2 : .5, depthWrite:false, side:THREE.DoubleSide, forceSinglePass:true, toneMapped:false}));
   fill.renderOrder=7;
-  const path=lines(centre,"#ffffff",LINE_PX,8,gradient), limits=lines(sides,EDGE_COLOUR,1,10);
+  const path=bandLines(centre,"#ffffff",LINE_PX,8,gradient), limits=bandLines(sides,EDGE_COLOUR,1,10);
   if (faded) path.material.opacity = limits.material.opacity = .45;
   return [fill, limits, path] as const;
 }
@@ -211,6 +211,7 @@ export class AiLineDraw {
   private pieces: ReturnType<typeof bandMarks>[] = [];
   private rows: BandRow[] = [];
   private locations: Place[] = [];
+  private heights = new Float32Array(0);
   private closed = false;
   private faded = false;
   private mask = "";
@@ -237,6 +238,7 @@ export class AiLineDraw {
   set(lane: InstalledAiLine | null) {
     this.clear(this.marks); this.clear(this.pieces);
     this.mask=""; this.locations=[]; this.rows=[];
+    this.heights = lane?.y ?? new Float32Array(0);
     if (!lane) return;
     this.closed=lane.closed;
     this.faded=lane.validity === "pending" || lane.validity === "failed";
@@ -266,6 +268,32 @@ export class AiLineDraw {
       }
     }
     this.show(this.shown);
+  }
+
+  get sampleHeights() { return this.heights; }
+  get isClosed() { return this.closed; }
+  get bandRows(): readonly BandRow[] { return this.rows; }
+
+  /** Fraction along the hit segment of the visible band, including the last segment of a circuit. */
+  locate(mouse: THREE.Vector2, camera: THREE.PerspectiveCamera, maxDistance = Infinity) {
+    if (!this.shown || !this.marks.length) return null;
+    const [band,,centre] = this.marks[0];
+    this.ray.setFromCamera(mouse, camera);
+    const [hit] = this.ray.intersectObject(band, false);
+    if (hit?.faceIndex != null && hit.barycoord && hit.distance <= maxDistance) {
+      const b = hit.barycoord;
+      return {index: Math.floor(hit.faceIndex / 2), t: hit.faceIndex % 2 ? b.y + b.z : b.z};
+    }
+    let closest: {index: number; t: number} | null = null, least = Infinity, depth = Infinity;
+    for (const {faceIndex: i, pointOnLine, point, distance} of this.ray.intersectObject(centre, false)) {
+      if (i == null || !pointOnLine || distance > maxDistance) continue;
+      const offset = pointOnLine.distanceToSquared(point);
+      if (offset > least || (offset === least && distance >= depth)) continue;
+      const start = new THREE.Vector3(...this.locations[i]), end = new THREE.Vector3(...this.locations[(i+1)%this.locations.length]);
+      const t = new THREE.Line3(start,end).closestPointToPointParameter(pointOnLine, true);
+      least = offset; depth = distance; closest = {index: i, t};
+    }
+    return closest;
   }
 
   pick(mouse: THREE.Vector2, camera: THREE.PerspectiveCamera, maxDistance = Infinity) {

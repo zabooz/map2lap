@@ -1,5 +1,5 @@
 // The 3D view over the map. Loaded on the Editor tab's first visit (with three.js: most of the page's bytes).
-import {useEffect, useRef, useState, type CSSProperties} from "react";
+import {useCallback, useEffect, useRef, useState, type CSSProperties} from "react";
 import type {TimedMode} from "../types";
 import type {Controls} from "./scene/controls";
 import styles from "./EditorScene.module.css";
@@ -48,7 +48,13 @@ export default function EditorScene({name, title, routeTrack, timedMode, taken, 
 
   useEffect(() => { view?.setControls(controls); }, [view, controls]);
 
-  useEffect(() => { void view?.open(name, onStatus); }, [view, name, built, onStatus]);
+  const trackKey = JSON.stringify([name, built]);
+  const [loaded, setLoaded] = useState<string | null>(null);
+  const report = useCallback<Say>((text, progress, about) => {
+    setLoaded(progress === undefined && !about?.failed && name ? trackKey : null);
+    onStatus(text, progress, about);
+  }, [trackKey, name, onStatus]);
+  useEffect(() => { void view?.open(name, report); }, [view, name, report]);
 
   return (
     <div className={styles.layout} hidden={!visible}
@@ -58,11 +64,11 @@ export default function EditorScene({name, title, routeTrack, timedMode, taken, 
         {rectangle && <div className={styles.rectangle} aria-label="Selection rectangle"
           style={{left: rectangle.x, top: rectangle.y, width: rectangle.width, height: rectangle.height}} />}
         {view && name && <PointerInfo hovered={hovered} inspectorCollapsed={inspectorCollapsed} />}
-      {view && name && <EditTools routeTrack={routeTrack} key={`${name} ${built}`} name={name} title={title} timedMode={timedMode} visible={visible} taken={taken} view={view} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} elevationSpeed={controls.elevationSpeed}
+      {view && name && <EditTools loaded={loaded === trackKey} routeTrack={routeTrack} key={`${name} ${built}`} name={name} title={title} timedMode={timedMode} visible={visible} taken={taken} view={view} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} elevationSpeed={controls.elevationSpeed}
                                   inspectorHost={inspectorHost}
                                   inspectorWidth={inspectorWidth} onInspectorWidth={setInspectorWidth}
                                   inspectorCollapsed={inspectorCollapsed} onInspectorCollapsed={setInspectorCollapsed}
-                                  reopen={() => void view.open(name, onStatus)} onSaved={onSaved} onDelete={onDelete} />}
+                                  reopen={() => void view.open(name, report)} onSaved={onSaved} onDelete={onDelete} />}
       </div>
       <div className={styles.inspectorHost} ref={setInspectorHost} />
     </div>

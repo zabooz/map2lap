@@ -493,6 +493,29 @@ class SideMarginTest(unittest.TestCase):
             self.assertEqual(400, code)
             self.assertIn("Invalid side margin", error["error"])
 
+    def test_margin_preview_refuses_a_lane_other_than_the_displayed_revision(self):
+        from server_editor import _lane_revision
+        self.ready(self.metres)
+        current = _lane_revision(self.lane.stat())
+        body = {"aiMargins": [self.margin()], "revision": current}
+        self.assertEqual(200, self.post_lane("margins", body)[0])
+        self.write(self.route.path, 8.)
+        for remove in (False, True):
+            if remove:
+                self.lane.unlink()
+            code, answer = self.post_lane("margins", body)
+            self.assertEqual(409, code)
+            self.assertTrue(answer["changed"])
+            self.assertNotIn("sections", answer)
+
+    def test_editor_can_request_installed_sample_metres_before_making_the_first_margin(self):
+        self.ready(self.metres + 40)
+        for expected in ((self.metres + 40).tolist(), None):
+            code, preview = self.post_lane("margins", {"aiMargins": [], "withMetres": True})
+            self.assertEqual(code, 200)
+            self.assertEqual(preview["metres"], expected)
+            self.write(self.route.path, 8.)  # Hand replacement breaks the link to the recorded samples.
+
     def test_preview_uses_draft_margins_for_legacy_and_manual_lines(self):
         self.ready(None)
         for state in ("recalculate", "manual"):

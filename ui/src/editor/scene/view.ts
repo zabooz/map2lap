@@ -16,6 +16,7 @@ import {PREVIEW_LIFT} from "./aiPreviewBand";
 import {editMoves} from "./aiMoves";
 import type {MoveGuide} from "./aiGuide";
 import type {AiCorrection} from "../state/edits";
+import {editMargins, type MarginHit, type MarginMark, type MarginPreview, type MarginRange} from "./aiMargins";
 import {AiLineDraw} from "./aiLine";
 import {aiLinePoint, type AiLineHover, type InstalledAiLine} from "./aiLineData";
 import {KerbHighlight} from "./kerbHighlight";
@@ -123,6 +124,7 @@ export class TrackView {
   private roadMarkers = new RoadMarkers(this.scene, this.camera, (x, z) => this.groundAt(x, z), () => { this.dirty = true; });
   private aiLineDraw = new AiLineDraw(this.scene);
   private aiLine: InstalledAiLine | null = null;
+  private onMarginHover: ((hit: MarginHit | null) => void) | null = null;
   private aiLineSample: number | null = null;
   private onAiLinePoint: ((hover: AiLineHover | null) => void) | null = null;
   private kerbHighlight = new KerbHighlight(this.scene, () => { this.dirty = true; });
@@ -616,6 +618,7 @@ export class TrackView {
       this.hoverDue = false;
       this.onHover(null);
       this.showAiLinePoint(null);
+      this.onMarginHover?.(null);
     });
   }
 
@@ -1095,6 +1098,7 @@ export class TrackView {
       // The pointer may sit a few pixels beside the lifted line, especially at a shallow view angle.
       this.showAiLinePoint(this.aiLineDraw.pick(mouse, this.camera, hit && hit.distance + 0.5));
     }
+    this.onMarginHover?.(this.aiLineDraw.locate(mouse, this.camera, hit && hit.distance + 0.5));
     const hovered = hit ? this.pointing.describe(hit) : null;
     const taking = this.cursorTool === "move" || this.cursorTool === "copy";
     this.pointed = hit && hovered ? {object: !!hovered.id, road: ROAD.test(hit.object.name),
@@ -1139,6 +1143,22 @@ export class TrackView {
         const ray = this.picker.ray;
         return this.groundAlong(ray.origin, ray.direction)?.point ?? null;
       }, spans => this.aiLineDraw.preview(spans, PREVIEW_LIFT), cursor => this.setToolCursor(cursor));
+  }
+
+  /** Side margins share the installed band's display edges and ray hits with the AI line inspector. */
+  editAiMargins(guide: MoveGuide | undefined, preview: MarginPreview, margins: MarginRange[],
+                add: (mark: MarginMark) => void, select: (id: string) => void,
+                hover: (value: ReturnType<ReturnType<typeof editMargins>["hover"]>) => void) {
+    if (!this.aiLine || !this.aiLineDraw.bandRows.length) return null;
+    const session = editMargins(this.renderer.domElement, this.scene, this.camera, guide, this.aiLineDraw, preview, margins,
+      mouse => (this.pointing.hit(mouse)?.distance ?? Infinity) + .5, add, select);
+    this.onMarginHover = hit => hover(session.hover(hit));
+    this.hoverDue = true;
+    return {
+      setSelected: (id: string | null) => { session.setSelected(id); this.dirty = true; },
+      click: (markNew: boolean) => session.click(this.mouse, markNew),
+      dispose: () => { this.onMarginHover = null; session.dispose(); this.dirty = true; },
+    };
   }
 
   setAiLine(lane: InstalledAiLine | null) {

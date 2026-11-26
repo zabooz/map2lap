@@ -61,9 +61,9 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", ai_moves: true, trees: false});
   const installed = await page.request.post(backend.url+"/api/editor/alpha/ai-line/recalculate",{data:{}});
   expect((await installed.json()).status).toBe("ready");
+  const guide = guideResponse(page);
   await openEditor(page);
   await keysOnView(page);
-  const guide = page.waitForResponse(r => r.url().endsWith("/ai-line/move-preview") && r.request().postDataJSON().guide);
   await page.keyboard.press("l");
   const result = await (await guide).json();
   expect(result.error).toBeUndefined();
@@ -154,8 +154,8 @@ test("dragging the AI line produces one removable, undoable saved move", async (
 
 test("Redraw finishes on the line, Escape discards the stroke, and a saved free stroke reopens", async ({page,backend}) => {
   await backend.post("/__test/rebuild", {name:"alpha", title:"Alpha Test", ai_moves:true, trees:false});
+  const response = guideResponse(page);
   await openEditor(page); await keysOnView(page);
-  const response = page.waitForResponse(r => r.url().endsWith("/ai-line/move-preview") && r.request().postDataJSON().guide);
   await page.keyboard.press("p");
   const guide = await (await response).json();
   const bar = page.locator("#edit-ai-line-set");
@@ -625,4 +625,223 @@ test("AI line button reports a saved track's calculation error in the Editor", a
   expect(error).toBeTruthy();
   await expect(page.locator("#edit-ai-line-alpha")).toContainText(error);
   await expect(bar.getByRole("alert")).toHaveCount(0);
+});
+
+const guideResponse = (page: Page) => page.waitForResponse(r =>
+  r.url().endsWith("/api/editor/alpha/ai-line/move-preview") && r.request().postDataJSON()?.guide);
+
+async function marginTrack(page: Page, backend: Backend, redraw = false) {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, ai_moves: true,
+    margin_profile: true, margin_redraw: redraw});
+  const url = "/api/editor/alpha/ai-line";
+  expect((await (await page.request.post(url + "/recalculate", {data: {}})).json()).status).toBe("ready");
+  return url;
+}
+
+async function marginMarks(page: Page) {
+  const response = guideResponse(page);
+  await openEditor(page);
+  await keysOnView(page);
+  await page.keyboard.press("m");
+  const bar = page.locator("#edit-ai-margin-set");
+  await expect(bar).toBeVisible();
+  const guide = await (await response).json();
+  const bounds = (await scene(page).boundingBox())!;
+  const three = await import("three");
+  const camera = new three.PerspectiveCamera(55, bounds.width / bounds.height, .5, 10000);
+  camera.position.set(128, 22, 5);
+  camera.lookAt(128, 0, -40);
+  camera.updateMatrixWorld();
+  const clickRow = async (metre: number) => {
+    const row = guide.rows.find((r: number[]) => r[3] >= metre);
+    const p = new three.Vector3(row[0], row[1] + .34, row[2]).project(camera);
+    await page.mouse.click(bounds.x + (p.x + 1) * bounds.width / 2, bounds.y + (1 - p.y) * bounds.height / 2);
+    return row[3] as number;
+  };
+  await expect(bar).not.toContainText("Preparing the AI line for editing …");
+  const start = await clickRow(105);
+  const end = await clickRow(185);
+  const right = bar.getByRole("spinbutton", {name: "Right", exact: true});
+  await expect(right).toBeEnabled();
+  await right.fill("0.75");
+  await right.press("Tab");
+  await keysOnView(page);
+  return {bar, start, end, clickRow, rows: guide.rows.length};
+}
+
+type Danger = {START: number; END: number; LEFT: number; RIGHT: number};
+
+async function passingHints(page: Page): Promise<Danger[]> {
+  const response = await page.request.get("/__test/ai-hints?name=alpha");
+  expect(response.ok()).toBe(true);
+  const ini = (await response.text()).trim();
+  if (!ini) return [];
+  return ini.split(/\r?\n\s*\r?\n/).map((block, i) => {
+    const [header, ...fields] = block.split(/\r?\n/);
+    expect(header).toBe(`[DANGER_${i}]`);
+    return Object.fromEntries(fields.map(field => {
+      const [key, value] = field.split("=");
+      return [key, Number(value)];
+    })) as Danger;
+  });
+}
+
+test.describe("Side margin", () => {
+  test("one Recalculate click places a first margin on an older line", async ({page, backend}) => {
+    const url = await marginTrack(page, backend);
+    await backend.post("/__test/ai-line-legacy", {name: "alpha"});
+    const {bar} = await marginMarks(page);
+    await expect(bar).toContainText("Recalculate the AI line to place side margins");
+    let recalculations = 0;
+    page.on("request", r => { if (r.url().endsWith(url + "/recalculate")) recalculations++; });
+    await page.getByRole("button", {name: "Recalculate AI line"}).click();
+    await page.locator("#save-dialog").getByRole("button", {name: "Overwrite"}).click();
+    await expect(page.getByText("AI line updated", {exact: true})).toBeVisible();
+    expect(recalculations).toBe(1);
+    const sections = await passingHints(page);
+    expect(sections.map(s => [s.LEFT, s.RIGHT])).toEqual([[.25, .25], [.25, .75], [.50, .75], [.50, .50]]);
+    expect((await (await page.request.get(url)).json()).hints).toMatchObject({state: "current", unplaced: null});
+  });
+
+  test("Side margin overrides one side and reaches ai_hints.ini", async ({page, backend}) => {
+    const url = await marginTrack(page, backend, true);
+    const installed = await (await page.request.get(url)).json();
+    const bytes = async () => (await page.request.get(url + "?r=" + (await (await page.request.get(url)).json()).revision)).body();
+    const before = await bytes();
+    const auto = await passingHints(page);
+    const {bar, start, end, rows} = await marginMarks(page);
+    expect(installed.count).toBeGreaterThan(rows);
+    const margins = async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiMargins;
+    await expect.poll(margins).toMatchObject([{left: null, right: .75}]);
+    const [margin] = await margins();
+    expect(margin.start.metre).toBeCloseTo(start, 2);
+    expect(margin.end.metre).toBeCloseTo(end, 2);
+    await expect(bar).toContainText("0.75 m · set");
+    await expect(bar).toContainText("0.25–0.50 m · Auto");
+    await page.keyboard.press("Control+z");
+    await expect.poll(margins).toEqual([]);
+    await page.keyboard.press("Control+y");
+    await expect.poll(margins).toEqual([margin]);
+    await page.keyboard.press("x");
+    await expect.poll(margins).toEqual([]);
+    await expect(bar).not.toContainText("0.75 m · set");
+    await page.keyboard.press("Control+z");
+    await expect.poll(margins).toEqual([margin]);
+    await page.getByRole("button", {name: "Recalculate AI line"}).click();
+    await expect.poll(async () => (await passingHints(page)).length).toBe(4);
+    const sections = await passingHints(page);
+    await test.info().attach("ai_hints.ini", {body: await (await page.request.get("/__test/ai-hints?name=alpha")).body(),
+      contentType: "text/plain"});
+    expect(sections.map(s => [s.LEFT, s.RIGHT])).toEqual([[.25, .25], [.25, .75], [.50, .75], [.50, .50]]);
+    expect(sections.map(s => s.START)).toEqual([0, sections[0].END, auto[1].START, sections[2].END]);
+    expect(sections[1].END).toBe(auto[0].END);
+    expect(sections[3].END).toBe(1);
+    // From route metre 105 onward the fixture is straight, so its remaining 3D distance equals the route distance.
+    const count = installed.count;
+    const x = (i: number) => before.readFloatLE(i * 4);
+    const y = (i: number) => before.readFloatLE((count + i) * 4);
+    const z = (i: number) => before.readFloatLE((2 * count + i) * 4);
+    let length = 0;
+    for (let i = 1; i < count; i++) length += Math.hypot(x(i)-x(i-1), y(i)-y(i-1), z(i)-z(i-1));
+    expect(sections[0].END).toBeCloseTo(1 - (-z(count - 1) - start) / length, 5);
+    expect(sections[2].END).toBeCloseTo(1 - (-z(count - 1) - end) / length, 5);
+    expect(await bytes()).toEqual(before);
+    expect(await (await page.request.get(url)).json()).toMatchObject({validity: "ready", hints: {state: "current"}});
+  });
+
+  test("a left margin fits entirely inside an existing right margin", async ({page, backend}) => {
+    await marginTrack(page, backend);
+    const {bar, clickRow} = await marginMarks(page);
+    await expect(bar).toContainText("0.25–0.50 m · Auto");
+    await bar.getByRole("button", {name: "New stretch", exact: true}).click();
+    await clickRow(120);
+    await clickRow(165);
+    const left = bar.getByRole("spinbutton", {name: "Left", exact: true});
+    await left.fill("0");
+    await left.press("Tab");
+    await expect(bar).toContainText("0.00 m · set");
+    await expect(bar).toContainText("0.75 m · Auto");
+    await clickRow(145);
+    await expect(bar).toContainText("Left 0.00 m · Right 0.75 m");
+    await clickRow(110);
+    await expect(bar.getByRole("spinbutton", {name: "Right", exact: true})).toHaveValue("0.75");
+    await expect.poll(async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiMargins)
+      .toMatchObject([{left: null, right: .75}, {left: 0, right: null}]);
+  });
+
+  test("reopening a track saved while AC was open enables a hint-only Recalculate", async ({page, backend}) => {
+    const url = await marginTrack(page, backend);
+    const automatic = await passingHints(page);
+    await marginMarks(page);
+    await backend.post("/__test/ac-running", {running: true});
+    await saveTrack(page);
+    const meta = async () => (await page.request.get(url)).json();
+    await expect.poll(meta).toMatchObject({validity: "ready", hints: {state: "stale"}});
+    expect(await passingHints(page)).toEqual(automatic);
+    await backend.post("/__test/ac-running", {running: false});
+    await openEditor(page);
+    const recalculate = page.getByRole("button", {name: "Recalculate AI line"});
+    await expect(recalculate).toBeEnabled();
+    await recalculate.click();
+    await expect(recalculate).toBeDisabled();
+    await expect.poll(meta).toMatchObject({validity: "ready", hints: {state: "current"}});
+    expect((await passingHints(page)).map(s => s.RIGHT)).toEqual([.25, .75, .75, .50]);
+  });
+
+  test("a replacement from another editor refreshes the displayed lane before using new preview fractions", async ({page, backend}) => {
+    const url = await marginTrack(page, backend);
+    const installed = await (await page.request.get(url)).json();
+    const {bar} = await marginMarks(page);
+    await expect(bar).toContainText("0.25–0.50 m · Auto");
+    await backend.post("/__test/ai-line", {name: "alpha"});
+    const replacement = await (await page.request.get(url)).json();
+    const replies: number[] = [], reads: string[] = [];
+    page.on("response", response => {
+      if (response.url().endsWith(url + "/margins") && response.request().postDataJSON()?.revision === installed.revision)
+        replies.push(response.status());
+      if (response.url().includes(url + "?r=")) reads.push(response.url());
+    });
+    const right = bar.getByRole("spinbutton", {name: "Right", exact: true});
+    await right.fill("0.65");
+    await right.press("Tab");
+    await expect.poll(() => replies).toContain(409);
+    await expect.poll(() => reads).toContain(backend.url + url + "?r=" + replacement.revision);
+    await expect(bar).toContainText("Not applied: the AI line was replaced by hand");
+  });
+
+  test("shows a guide preparation error in the active AI tool", async ({page, backend}) => {
+    await marginTrack(page, backend);
+    const message = "No supported driving surface at route metre 70";
+    await page.route("**/ai-line/move-preview", route =>
+      route.fulfill({status: 400, json: {error: message}}));
+    await openEditor(page);
+    await keysOnView(page);
+    for (const [key, id] of [["l", "line"], ["p", "line"], ["m", "margin"]]) {
+      await page.keyboard.press(key);
+      await expect(page.locator(`#edit-ai-${id}-set`)).toContainText(message);
+    }
+  });
+
+  test("opens one guide in the background and shares its pending response across all AI tools", async ({page, backend}) => {
+    await marginTrack(page, backend);
+    await backend.post("/__test/hold-guide", {hold: true});
+    const requests: string[] = [];
+    page.on("request", r => {
+      if (r.url().endsWith("/ai-line/move-preview") && r.postDataJSON()?.guide) requests.push(r.url());
+    });
+    const response = guideResponse(page);
+    await openEditor(page);
+    await expect.poll(() => requests.length).toBe(1);
+    await keysOnView(page);
+    for (const [key, id] of [["l", "line"], ["p", "line"], ["m", "margin"]]) {
+      await page.keyboard.press(key);
+      await expect(page.locator(`#edit-ai-${id}-set`)).toContainText("Preparing the AI line for editing …");
+    }
+    await backend.post("/__test/hold-guide", {hold: false});
+    expect((await (await response).json()).rows.length).toBeGreaterThan(0);
+    await expect(page.locator("#edit-ai-margin-set")).not.toContainText("Preparing the AI line for editing …");
+    await page.keyboard.press("l");
+    await expect(page.locator("#edit-ai-move")).toHaveAttribute("aria-pressed", "true");
+    expect(requests).toHaveLength(1);
+  });
 });
