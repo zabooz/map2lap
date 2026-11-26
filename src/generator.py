@@ -26,7 +26,7 @@ from track import build_tiles     # (first: sets the asphalt mesh switches and t
 from app import buildoptions, circuitlap, debugapp, mapcache, mytracks, settings, system, trackcode, version
 from app.paths import ROOT
 from scenery import dryness, farview, gates
-from track import aicorrections, aihints, ailinestate, fastlane, make_obj, make_track_folder, obj_to_kn5, objectlist, parallel, route_race
+from track import aicorrections, aihints, ailinestate, dnfparking, fastlane, make_obj, make_track_folder, obj_to_kn5, objectlist, parallel, route_race
 
 blockworker = build_tiles.blockworker
 roadsmod = build_tiles.roadsmod
@@ -650,6 +650,7 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
         if settings.load()["debug_app"]:        # (Settings; again on every build: the app of this release)
             debugapp.sync(make_track_folder.AC, True)
         model = os.path.join(root, name + ".kn5")
+        dnfparking.remove(model)
         route_race.remove_generated_files(model)
         (Path(root) / fastlane.FILE).unlink(missing_ok=True)
         (Path(root) / ailinestate.FILE).unlink(missing_ok=True)
@@ -685,6 +686,7 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
     if not area:
         progress("ai_line", 0, 0)
         fastlane.regenerate(kn5_path, circuit=circuit, log=log)
+        dnfparking.install(Path(kn5_path))
     progress("clean", 0, 0)
     if cache_gb is not None:
         mapcache.trim(cache_gb, log=log)

@@ -16,7 +16,7 @@ import numpy as np
 
 from app import (ailanejobs, cardensity, mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackkerbs, trackpaint, trackstitch, trackplace, tracksource, tracksurfaces,
                  tracktrees, trackvariation, trackview, trackwalls, weather, treespacing)
-from track import aihints, ailinestate, editorinfo, fastlane, groundmaterial, kn5, objectlist, route_race
+from track import aihints, ailinestate, dnfparking, editorinfo, fastlane, groundmaterial, kn5, objectlist, route_race
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
 ROOM_FACTOR = 1.1               # the disk must hold the kn5 once more, and a little: the rest of a track's folder is small
@@ -339,6 +339,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         mytracks.save(temporary, {**{k: v for k, v in info.items() if k not in OLD_KEYS}, "title": title, "edits": recipe})
         _ui_title(temporary, title)
         staged_old = os.path.join(temporary, name + ".kn5")
+        dnfparking.remove(staged_old)
         route_race.update_copy(staged_old, new_kn5, source_scan["points"])
         lane_state = None
         if kind == "area":
@@ -347,6 +348,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
             source_slot = ailanejobs.track(own)
             with source_slot.condition:
                 lane_state = ailinestate.carry(folder, new_kn5, kind == "circuit")
+            dnfparking.install(Path(new_kn5))
         # (a build started or a tab saved meanwhile: the triangles counted are no more the ones to go)
         if objectlist.state_of(path) != edits["base"] or trackedits.load(ac, name)["revision"] != edits["revision"]:
             raise Refused("The track or its changes changed meanwhile: nothing was saved")

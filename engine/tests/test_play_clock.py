@@ -363,6 +363,17 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.assertFalse(self.ini().has_section("CAR_1"))
         self.assertFalse(self.ini().has_option("SESSION_0", "STARTING_POSITION"))
 
+    def test_parking_migration_runs_only_for_a_race_with_opponents(self):
+        self.install_timed_route()
+        self.install_ai()
+        with mock.patch("track.dnfparking.install") as install:
+            for mode in ("practice", "hotlap", "race"):
+                opts = {"ai": {"opponents": 0}} if mode == "race" else {}
+                self.assertEqual((200, True), self.started(session=mode, **opts))
+            install.assert_not_called()
+            self.assertEqual((200, True), self.started(session="race", ai={"opponents": 1}))
+            install.assert_called_once_with(self.track / "one.kn5")
+
     def test_race_ai_aggression_defaults_to_half(self):
         self.install_timed_route()
         self.install_ai()

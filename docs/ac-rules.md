@@ -255,6 +255,12 @@ the log gives the reason and, for a surface failure, the route metre. Play keeps
 - AC parks retired opponents at their pit nodes on the road. Every track loads `retired_cars.lua` to disable
   collisions and hide each retired AI opponent, restoring both when it becomes active again. Use `isRetired`:
   an opponent passing its grid slot at racing speed can also report `isInPit`.
+  In an offline Race the script moves each retired AI from its pit to the track's optional off-road
+  `AC_TIME_ATTACK_0` spawn with `physics.teleportCarTo`. AC retains the car's retired state.
+  The generator, Editor save and first AI Race on an older installation prepare the spawn on the
+  installed collision terrain. If no suitable site is found, the car stays hidden at its pit.
+  [Track parking and native AC plugins](ac-plugins.md)
+
   The track grants physics access to track scripts in `surfaces.ini` and disables randomized spawn positioning
   to keep the painted slots and car positions aligned. Loading these tracks without CSP crashes Assetto Corsa.
   [CSP extended physics](https://cup.acstuff.club/docs/csp/tracks/enabling-extended-physics) ·

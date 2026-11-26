@@ -43,7 +43,7 @@ from app.paths import ROOT, SRC  # noqa: E402
 from server_editor import EditorHandlers, IMAGE_TYPES  # noqa: E402
 from server_library import LibraryHandlers, MATERIAL_UPLOADS  # noqa: E402
 from server_roadtools import RoadToolHandlers  # noqa: E402
-from track import ailinestate, fastlane, kn5, obj_to_kn5, route_race  # noqa: E402
+from track import ailinestate, dnfparking, fastlane, kn5, obj_to_kn5, route_race  # noqa: E402
 
 PORT = 8800
 job = {"state": "idle", "log": [], "result": None, "error": None,     # state: idle running stopping stopped done error
@@ -543,6 +543,16 @@ def _launch_play(ac, track_file, race_file, ini, selected_weather, effects, *, t
         with lock:
             if error := _play_blocker():
                 return 409, {"error": error}
+            if ini.getint("RACE", "CARS") > 1 and ini.getint("SESSION_0", "TYPE") == 3:
+                try:
+                    with trackcopy.alone():
+                        if route_race.ac_running():
+                            return 409, {"error": "Assetto Corsa is using the track"}
+                        dnfparking.install(Path(track_file))
+                except trackcopy.Busy:
+                    return 409, {"error": "Wait for the current Editor save before racing"}
+                except OSError as error:
+                    return 409, {"error": f"Could not prepare retired AI parking: {error}"}
             with open(race_file, "w", encoding="utf-8") as f:
                 ini.write(f, space_around_delimiters=False)
             system.start_ac(ac, weather_effects=effects)
