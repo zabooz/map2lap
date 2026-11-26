@@ -43,9 +43,9 @@ const SKY: (Light & {height: number})[] = [
   {height: -18, ambient: 0.03, ambientColour: "#7c8fce", sun: 0, sunColour: "#ff9a55", sky: "#060a14", moon: 0.15, night: 1},
   {height: -6, ambient: 0.3, ambientColour: "#8a9ccf", sun: 0, sunColour: "#ff9a55", sky: "#2c3c5e", moon: 0.1, night: 0.35},
   {height: 0, ambient: 1.0, ambientColour: "#d6d6e6", sun: 0, sunColour: "#ff9a55", sky: "#d9a98c", moon: 0, night: 0},
-  {height: 3, ambient: 1.2, ambientColour: "#e4e2ea", sun: 0.3, sunColour: "#ffa767", sky: "#e2bb9c", moon: 0, night: 0},
-  {height: 10, ambient: 1.7, ambientColour: "#f6f6f8", sun: 1.2, sunColour: "#ffd9ac", sky: "#b4cfe0", moon: 0, night: 0},
-  {height: 30, ambient: 2.0, ambientColour: "#ffffff", sun: 1.6, sunColour: "#fff4e0", sky: "#a9cfe9", moon: 0, night: 0},
+  {height: 3, ambient: 1.44, ambientColour: "#e4e2ea", sun: 0.396, sunColour: "#ffa767", sky: "#e2bb9c", moon: 0, night: 0},
+  {height: 10, ambient: 2.04, ambientColour: "#f6f6f8", sun: 1.584, sunColour: "#ffd9ac", sky: "#b4cfe0", moon: 0, night: 0},
+  {height: 30, ambient: 2.4, ambientColour: "#ffffff", sun: 2.112, sunColour: "#fff4e0", sky: "#a9cfe9", moon: 0, night: 0},
 ];
 
 export const MOON_COLOUR = "#aebfe6";           // cold: moonlight is the sun's, but the eye sees it blue in the dark

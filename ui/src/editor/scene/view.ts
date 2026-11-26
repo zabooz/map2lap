@@ -54,6 +54,7 @@ import {LoadingDraw} from "./loadingDraw";
 import {MeshPreparer, type PreparedMesh} from "./meshPrepare";
 
 const PARALLEL = 6;                 // meshes asked for at a time
+const REFERENCE_AMBIENT = 2;        // ambient intensity at which cloud colours and reflection maps render at their authored strength
 const PREPARE_BATCH = 32;           // ground tiles whose selection one request prepares at most (a pool of the cores, surfaceindex.prepare)
 const RESORT_M = 100, RESORT_EVERY_MS = 500;    // the queue of meshes sorted again when the view moved this far, at most this often: 66,000 take a while
 const GROUND = /^(1ROAD|1GRASS|1GRAVEL)_ground|^1ROAD_deck|^nocol_water|^nocol_far/;   // the meshes the view stays above: over a river's surface, not its bed
@@ -314,7 +315,7 @@ export class TrackView {
   private applyLight() {
     const light = lightAt(sunHeight(this.place, this.clock));
     const mood = weatherAppearance(this.weatherState ?? DEFAULT_WEATHER);
-    const sky = new THREE.Color(light.sky).lerp(new THREE.Color(mood.sky).multiplyScalar(Math.max(.02, light.ambient / 2)), mood.clouds * .85);
+    const sky = new THREE.Color(light.sky).lerp(new THREE.Color(mood.sky).multiplyScalar(Math.max(.02, light.ambient / REFERENCE_AMBIENT)), mood.clouds * .85);
     this.scene.background = sky;
     this.scene.fog = mood.fog > 0 ? new THREE.FogExp2(sky, mood.fog * .0025) : null;
     this.ambient.color.set(light.ambientColour); this.ambient.intensity = light.ambient * mood.ambient;
@@ -335,8 +336,8 @@ export class TrackView {
     return answer.status === 200 ? makeTexture(await answer.arrayBuffer(), file, this.renderer.capabilities.getMaxAnisotropy(), true) : null;
   }
 
-  /** The power of the models' reflections: they fade with the sky's light, full by day. */
-  private reflections() { return this.ambient.intensity / lightAt(90).ambient; }
+  /** Reflection strength follows the ambient light on the track. */
+  private reflections() { return this.ambient.intensity / REFERENCE_AMBIENT; }
 
   /** Its tab was opened or left. */
   show(on: boolean) {

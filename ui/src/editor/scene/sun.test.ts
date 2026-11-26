@@ -40,11 +40,9 @@ test("at the poles the numbers stay finite", () => {
   for (const lat of [90, -90]) for (const value of sunDirection({lat, lon: 0, utcOffset: 0}, 10)) expect(Number.isFinite(value)).toBe(true);
 });
 
-test("the day's light is the light the Editor has always had", () => {
-  const day = lightAt(40);
-  expect(day.ambient).toBeCloseTo(2, 5);
-  expect(day.sun).toBeCloseTo(1.6, 5);
-  expect(day.sky).toBe("#a9cfe9");
+test("daylight brightens sunlit surfaces and shadows as the sun rises", () => {
+  expect(lightAt(10)).toMatchObject({ambient: 2.04, sun: 1.584});
+  expect(lightAt(40)).toMatchObject({ambient: 2.4, sun: 2.112, sky: "#a9cfe9"});
 });
 
 test("with the sun down there is no sunlight and only a little ambient", () => {
