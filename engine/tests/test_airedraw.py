@@ -29,6 +29,34 @@ class RedrawTest(unittest.TestCase):
     def save(self, edit):
         (self.folder / "data/map2lap.json").write_text(json.dumps({"edits": {"aiCorrections": [edit]}}))
 
+    def test_preview_markers_and_new_ground_click_on_copy_use_the_resolved_frames(self):
+        from server_editor import _move_preview
+        self.write_track([(20, 10), (80, 10)], strips=[(-10,120,0,25)])
+        current, original = [0, 0], [0.001, 0.002]
+        convert = fastlane.airedraw.local_points
+        click = [50, 9, 12]
+        edit = self.redraw(20, 40, convert([click], current, original).tolist())
+        for a in (edit["anchor"], edit["end"]):
+            context = convert([[x, 9, z] for x, z in a["context"]], current, original)
+            a.update(context=context[:, [0, 2]].tolist(), origin=original, level=context[1, 1])
+        preview = _move_preview(self.model, {"aiCorrections": [edit]})
+        self.assertFalse(preview["skipped"])
+        markers = preview["controls"]["ink"]
+        np.testing.assert_allclose(markers, [[40, 9, 10], click, [60, 9, 10]], atol=.001)
+        basis = np.array(preview["toStored"]["ink"])
+        np.testing.assert_allclose(basis[0] + click @ basis[1:], edit["points"][0], atol=.001)
+
+    def test_unresolved_anchor_still_locates_the_rejected_clicks_on_a_copy(self):
+        from server_editor import _move_preview
+        self.write_track([(20, 10), (80, 10)])
+        edit = self.redraw(20, 40, [[50, 9, 12]])
+        edit["anchor"]["origin"] = [0.001, 0.002]
+        preview = _move_preview(self.model, {"aiCorrections": [edit]})
+        self.assertIn("Unresolved route anchor", preview["skipped"]["ink"])
+        expected = fastlane.airedraw.local_points(edit["points"], edit["anchor"]["origin"], [0, 0])
+        np.testing.assert_allclose(preview["controls"]["ink"][1:-1], expected)
+        self.assertIn("ink", preview["toStored"])
+
     def test_wide_inside_of_hairpin_accepts_move_and_redraw_in_preview_and_save(self):
         from server_editor import _move_preview
         path = [(20,10),(57,10),(64,14),(65,20),(60,25),(32,25),(30,33),(75,35),(75,10),(80,10)]

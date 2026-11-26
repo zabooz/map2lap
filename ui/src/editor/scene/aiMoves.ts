@@ -271,6 +271,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     note(drag.error); draw();
   }, opts);
   el.addEventListener("pointerup", async e => {
+    if (pencil.release(e)) { e.stopImmediatePropagation(); return; }
     if (!drag || e.button !== 0) return;
     e.stopImmediatePropagation();
     queue.clear(); ++serial;
@@ -287,7 +288,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     }
     drag = null; hoverCursor(); checkedPositions.clear(); setBand(keptBand); draw();
   }, opts);
-  el.addEventListener("pointercancel", () => { drag = null; hoverCursor(); checkedPositions.clear(); setBand(keptBand); queue.clear(); ++serial; draw(); }, opts);
+  el.addEventListener("pointercancel", () => { pencil.cancelDrag(); drag = null; hoverCursor(); checkedPositions.clear(); setBand(keptBand); queue.clear(); ++serial; draw(); }, opts);
   return {
     setMode(nextPen:boolean, nextFree:boolean) {
       if (nextPen !== pen || nextFree !== free) {

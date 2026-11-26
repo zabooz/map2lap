@@ -192,6 +192,90 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   await expect(page.getByRole("region",{name:"AI line point"})).toContainText("Route metre");
 });
 
+test("Redraw markers edit a saved stroke, reconnect a gap and undo once per gesture", async ({page,backend}) => {
+  await backend.post("/__test/rebuild", {name:"alpha",title:"Alpha Test",ai_moves:true,trees:false});
+  expect((await (await page.request.post("/api/editor/alpha/ai-line/recalculate",{data:{}})).json()).status).toBe("ready");
+  const response = guideResponse(page);
+  await openEditor(page); await keysOnView(page); await page.keyboard.press("p");
+  const guide = await (await response).json();
+  const bounds = (await scene(page).boundingBox())!, three = await import("three");
+  const camera = new three.PerspectiveCamera(55,bounds.width/bounds.height,.5,10000);
+  camera.position.set(128,22,5); camera.lookAt(128,0,-40); camera.updateMatrixWorld();
+  const screen = ([x,y,z]:number[]): [number,number] => {
+    const p = new three.Vector3(x,y+.38,z).project(camera);
+    return [bounds.x+(p.x+1)*bounds.width/2,bounds.y+(1-p.y)*bounds.height/2];
+  };
+  const row = (m:number, off=0) => {
+    const [x,y,z] = guide.rows.find((r:number[]) => r[3]>=m);
+    return [x+off,y,z];
+  };
+  const click = (p:number[], right=false) => page.mouse.click(...screen(p),{button:right?"right":"left"});
+  const edits = async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiCorrections;
+  await expect(page.locator("#edit-ai-line-set")).toContainText("Side limits");
+  const start=row(62), end=row(195);
+  await click(start); await click(start,true); // Back up at A: the next line click starts a new stroke.
+  await click(row(73)); await click(row(84,4)); await click(row(84,4),true); await click(start,true);
+  expect(await edits()).toEqual([]);
+  await click(start); await click(row(96,3.5)); await click(row(115,4));
+  await click(row(115,4),true); await click(row(135,5)); await click(end);
+  await expect.poll(edits).toHaveLength(1);
+  const [original] = await edits();
+  expect(original.points).toHaveLength(2);
+  const [first,second] = original.points;
+  expect(first[2]).toBeCloseTo(row(96)[2],-1);
+  expect(second[2]).toBeCloseTo(row(135)[2],-1);
+  // Compare the same marker pixels with the pen lifted and active. The measured band stays in both tools.
+  const [mx,my] = screen(first);
+  const patch = {x:Math.round(mx)-5,y:Math.round(my)-5,width:10,height:10};
+  await page.keyboard.press("l");
+  await expect(page.locator("#edit-ai-move")).toHaveAttribute("aria-pressed","true");
+  const bare = await page.screenshot({clip:patch});
+  await page.keyboard.press("p");
+  await expect.poll(async () => (await page.screenshot({clip:patch})).equals(bare)).toBe(false);
+  const marked = await page.screenshot({clip:patch});
+  await page.mouse.move(bounds.x+20,bounds.y+20);
+  await page.screenshot({path:test.info().outputPath("redraw-markers.png")});
+  await page.mouse.move(...screen(first)); await page.mouse.down();
+  await page.mouse.move(...screen(row(98,6)),{steps:4}); await page.mouse.up();
+  await expect.poll(async () => (await edits())[0].points[0]).not.toEqual(first);
+  expect((await edits())[0].id).toBe(original.id);
+  const undo = async () => {
+    const restored = page.waitForResponse(r => r.url().endsWith("/move-preview") &&
+      JSON.stringify(r.request().postDataJSON()?.aiCorrections?.[0]?.points) === JSON.stringify(original.points));
+    await page.keyboard.press("Control+z");
+    await expect.poll(edits).toEqual([original]);
+    await (await restored).finished();
+    await expect.poll(async () => (await page.screenshot({clip:patch})).equals(marked)).toBe(true);
+  };
+  await undo();
+  await page.mouse.move(...screen(first)); await page.mouse.down();
+  const url="**/ai-line/move-preview", reason="Insufficient clearance at route metre 105.0";
+  await page.route(url, route => route.fulfill({json:{skipped:{[original.id]:reason}}}));
+  await page.mouse.move(...screen(row(105,5)));
+  await expect(page.locator("#edit-ai-preview")).toContainText(reason);
+  const rejected = page.waitForResponse(url);
+  await page.mouse.up();
+  await (await rejected).finished(); await page.unroute(url);
+  await expect.poll(edits).toEqual([original]);
+  await click(first,true);
+  await expect.poll(edits).toEqual([{...original,points:[second]}]);
+  await undo();
+  const between = first.map((n:number,i:number) => (n+second[i])/2);
+  await click(between,true); await click(row(114,6)); await page.keyboard.press("Escape");
+  await expect(page.locator("#edit-ai-redraw")).toHaveAttribute("aria-pressed","true");
+  expect(await edits()).toEqual([original]);
+  await click(between,true); await click(row(114,6)); await click(second);
+  await expect.poll(async () => (await edits())[0]?.points.length).toBe(3);
+  const [joined] = await edits();
+  expect(joined).toEqual({...original,points:[first,joined.points[1],second]});
+  await undo();
+  await click(between,true); await click(row(155));
+  await expect.poll(async () => (await edits())[0]?.end.metre).not.toBe(original.end.metre);
+  expect((await edits())[0]).toMatchObject({id:original.id,points:[first]});
+  await undo();
+  await click(start,true); await expect.poll(edits).toEqual([]); await undo();
+});
+
 test("Save reuses a tree-only change, and defers a road change until Save after AC closes", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name:"alpha",title:"Alpha Test",ai_moves:true});
   const url = backend.url + "/api/editor/alpha/ai-line";

@@ -312,6 +312,22 @@ def _margin_preview(model, body):
     return preview
 
 
+def _stored_controls(item, route):
+    """Locate rejected clicks on a copy when a saved road anchor no longer resolves. Pure."""
+    local = fastlane.airedraw.local_points
+    origin = item["anchor"]["origin"]
+    def endpoint(anchor):
+        context = np.asarray(anchor["context"])
+        heading = context[-1] - context[0]
+        norm = np.linalg.norm(heading)
+        if norm:
+            heading = heading / norm
+        x, z = context[1] + heading * anchor.get("along", 0) + heading[::-1] * [1, -1] * anchor.get("lateral", 0)
+        return local([[x, anchor["level"], z]], anchor["origin"], route.origin)[0]
+    end = local([item["tail"]], origin, route.origin)[0] if "tail" in item else endpoint(item["end"])
+    return np.asarray([endpoint(item["anchor"]), *local(item["points"], origin, route.origin), end]).tolist()
+
+
 def _move_preview(model, body):
     """Editor-only guide and swept-width check. Never publishes a line."""
     files = [model, model.parent / fastlane.ROUTE, *map(Path, editorinfo.archives(model))]
@@ -329,14 +345,29 @@ def _move_preview(model, body):
     if error := fastlane.aicorrections.problem(items):
         raise ValueError(error)
     ink, centres, ends, skipped, spans, moves = {}, {}, {}, {}, [], []
+    controls, to_stored = {}, {}
     for item in items:
         key = item["id"]
         try:
-            centre, _ = route.resolve(item["anchor"])
             if item["kind"] == "redraw":
-                part = fastlane.airedraw.resolve(item, route, fastlane.SPACING/2)
+                origin = item["anchor"]["origin"]
+                if origin != route.origin:
+                    # Ground hits are in the copy's frame. Send the affine map back to the
+                    # recipe frame so editing one click preserves every untouched coordinate.
+                    basis = fastlane.airedraw.local_points(np.vstack((np.zeros(3), np.eye(3))), route.origin, origin)
+                    basis[1:] -= basis[0]
+                    to_stored[key] = basis.tolist()
+                try:
+                    resolved = fastlane.airedraw.control_points(item, route)
+                except ValueError:
+                    controls[key] = _stored_controls(item, route)
+                    raise
+                controls[key] = np.asarray(resolved[-1]).tolist()
+                part = fastlane.airedraw.resolve(item, route, fastlane.SPACING/2, resolved)
+                centre = part.start - item["anchor"].get("after", 0)
                 start, end = part.start, part.end
             else:
+                centre, _ = route.resolve(item["anchor"])
                 start,end = centre-item["range"], centre+item["range"]
             if any(start < b and end > a for a,b in spans):
                 raise ValueError(f"Overlapping correction at route metre {centre:.1f}")
@@ -372,7 +403,7 @@ def _move_preview(model, body):
     if record.get("skipped") and record.get("corrections") == items:
         if ailinestate.input_key(model, circuit) == record.get("inputs"):
             skipped.update(record["skipped"])
-    return {"samples": samples, "ink": ink, "yellow": yellow,
+    return {"samples": samples, "ink": ink, "controls": controls, "toStored": to_stored, "yellow": yellow,
             "skipped": skipped, "centres": centres, "ends": ends}
 
 

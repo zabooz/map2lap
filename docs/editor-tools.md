@@ -69,7 +69,13 @@ side limits. The overlay averages each side’s width over one car length in eit
 keeping the sampled centreline and the bank at each point. In a tight bend the displayed inside edge stops where adjacent cross-sections meet. The point inspector
 and AI file retain the measured widths.
 Free is selected initially. Shift switches Road/Free in Move and Redraw. Switching keeps the measured correction bands visible.
-Changing tools or pressing Escape discards an unfinished stroke; Escape without a stroke ends the tool. Right-click a saved correction to remove it. Free mode belongs to each new correction.
+In Redraw, a right-click while drawing takes back the last ground click. At the start it cancels the draft.
+Saved strokes show their endpoints and ground clicks in the current track frame. Drag a ground marker to reshape the
+curve. A rejected drop shows the reason and keeps the saved stroke. Right-click a ground marker to remove that point,
+or an endpoint to remove the whole stroke. Right-click between markers to open the curve there. Add new ground clicks,
+then click a remaining marker to keep the rest, or click the line ahead for a new endpoint. Each completed edit is one
+Undo step. Escape or a tool change discards an unfinished edit. Escape without a draft ends the tool.
+Free mode belongs to each new correction and stays with it during editing.
 Yellow marks off-road segments supported by a driving surface. Red marks an invalid section, with its reason and
 route metre on hover. At an open finish the dashed continuation accepts the end click for a free runout.
 Build as copy carries the correction recipe and resolves it on the new geometry.

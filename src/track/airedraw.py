@@ -64,7 +64,7 @@ def local_points(points, source, target):
     return np.asarray(result)
 
 
-def resolve(item, route, spacing):
+def control_points(item, route):
     """Resolve clicks and both endpoints against the current route. Pure."""
     start, start_y = route.resolve(item["anchor"])
     end, end_y = route.resolve(item["end"])
@@ -88,10 +88,16 @@ def resolve(item, route, spacing):
     start += item["anchor"].get("after", 0)
     if "tail" not in item:
         end += item["end"].get("after", 0)
+    return start, end, forward, onward, [a, *clicks, b]
+
+
+def resolve(item, route, spacing, controls=None):
+    """Sample the resolved control points at the requested spacing. Pure."""
+    start, end, forward, onward, points = controls or control_points(item, route)
     if end <= start:
         raise ValueError(f"End precedes the start at route metre {end:.1f}")
     try:
-        xyz = curve([a, *clicks, b], forward, onward, spacing)
+        xyz = curve(points, forward, onward, spacing)
     except ValueError as error:
         raise ValueError(f"{error} at route metre {start:.1f}") from error
     length = np.r_[0, np.cumsum(np.linalg.norm(np.diff(xyz[:, [0,2]],axis=0),axis=1))]

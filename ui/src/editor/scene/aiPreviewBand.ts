@@ -30,7 +30,7 @@ export function previewBand(rows: number[][]) {
 export function disposeStroke(root: THREE.Object3D) {
   root.removeFromParent();
   root.traverse(object => {
-    if (object instanceof THREE.Line || object instanceof THREE.Mesh) {
+    if (object instanceof THREE.Line || object instanceof THREE.Mesh || object instanceof THREE.Points) {
       object.geometry.dispose(); object.material.dispose();
     }
   });
