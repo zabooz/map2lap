@@ -129,11 +129,6 @@ def render(lane: Path, circuit: bool, margins: list, placement: tuple[aicorrecti
     return Hints(data, rejected, unplaced if margins and placement is None else None, spans)
 
 
-def contents(lane, circuit):
-    """Read the final v7 line and render the automatic passing hints."""
-    return render(lane, circuit, [], None, None).data
-
-
 def install(folder, data):
     """Atomically replace the owned INI, or remove it when the folder has no readable lane."""
     path = folder / FILE
@@ -151,13 +146,3 @@ def install(folder, data):
             os.replace(tmp, path)
         finally:
             tmp.unlink(missing_ok=True)
-
-
-def sync(folder, circuit):
-    """Reconcile a copied, manually replaced or legacy lane, including missing or unreadable previews."""
-    from track import fastlane
-    try:
-        data = contents(folder / fastlane.FILE, circuit)
-    except (FileNotFoundError, ValueError):
-        data = None
-    install(folder, data)

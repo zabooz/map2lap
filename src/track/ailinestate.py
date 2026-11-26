@@ -9,7 +9,7 @@ import tempfile
 
 import numpy as np
 
-from track import aicorrections, aihints, fastlane
+from track import aicorrections, aihints, aimargins, fastlane, route_race
 
 FILE = Path("data/map2lap_ai.json")
 # When line code changes, bump this and update LaneCodeVersionTest in engine/tests/test_fastlane.py.
@@ -64,13 +64,19 @@ def fingerprint(inputs, circuit):
     return digest.hexdigest()
 
 
-def _record(folder):
+def _raw_record(folder):
+    """Read the lane metadata independently of later geometry and recipe edits."""
     try:
         data = json.loads((folder / FILE).read_text(encoding="utf-8"))
-        if isinstance(data, dict) and data.get("schema") == 2 and data.get("code") == CODE_VERSION and data.get("corrections") == aicorrections.recipe(folder):
-            return data
+        return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
-        pass
+        return {}
+
+
+def _record(folder):
+    data = _raw_record(folder)
+    if data.get("schema") == 2 and data.get("code") == CODE_VERSION and data.get("corrections") == aicorrections.recipe(folder):
+        return data
     return {}
 
 
@@ -92,26 +98,147 @@ def checksum(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def record_ready(folder, inputs, skipped=None, *, circuit=False):
-    aihints.install(folder, aihints.contents(folder / fastlane.FILE, circuit))
-    _write(folder, inputs, "ready", lane=checksum(folder / fastlane.FILE), skipped=skipped or {})
+def _metres(record, lane, digest):
+    """Read finite recorded route metres only for the very same samples."""
+    if not digest or digest != record.get("lane") or record.get("metres") is None:
+        return None
+    try:
+        values = np.asarray(record["metres"], dtype=float)
+        if values.shape == (len(fastlane.read_lane(lane)[0]),) and np.isfinite(values).all():
+            return values
+    except (TypeError, ValueError):
+        pass
+    return None
 
 
-def publish(folder, inputs, candidate, skipped=None, *, circuit=False):
+def lane_metres(folder, lane: Path) -> np.ndarray | None:
+    """Recover the route correspondence bound to lane, even after its recipe has changed."""
+    return _metres(_raw_record(folder), lane, checksum(lane) if lane.is_file() else None)
+
+
+def _saved_margins(folder):
+    """Keep usable saved entries when an older or hand-edited recipe also has a bad margin."""
+    items = aimargins.recipe(folder)
+    if not isinstance(items, list):
+        return [], {"aiMargins": "Invalid side margin"}
+    margins, rejected, seen = [], {}, set()
+    for i, item in enumerate(items):
+        key = item.get("id") if isinstance(item, dict) else None
+        key = key if isinstance(key, str) and key else f"Margin {i + 1}"
+        error = aimargins.problem([item])
+        if error or key in seen:
+            rejected[key] = error or "Invalid side margin"
+        else:
+            seen.add(key)
+            margins.append(item)
+    return margins, rejected
+
+
+def _route(folder, circuit):
+    """Read the directed route when its origin and horizontal path can resolve saved anchors."""
+    try:
+        path, origin = fastlane.read_route(folder)
+    except (FileNotFoundError, ValueError):
+        return None
+    if (len(origin) != 2 or not np.isfinite(origin).all() or path.shape[1] != 2 or len(path) < 2
+            or not np.isfinite(path).all() or not (path[1:] != path[0]).any()):
+        return None
+    return aicorrections.Route(path, origin, circuit)
+
+
+def _render(folder, lane, circuit, margins, rejected, metres, unplaced):
+    """Resolve margins against the recipe's route and the selected lane's own samples."""
+    placement = None
+    if margins and metres is not None:
+        route = _route(folder, circuit)
+        if route is None:
+            # The surviving spline still supplies its own automatic passing widths.
+            automatic = aihints.render(lane, circuit, [], None, None)
+            for margin in margins:
+                metre = margin["start"]["metre"]
+                rejected[margin["id"]] = f"Unresolved route anchor at route metre {metre:.1f}: saved route unavailable"
+            return automatic._replace(rejected=rejected)
+        placement = route, metres
+    result = aihints.render(lane, circuit, margins, placement, unplaced)
+    return result._replace(rejected=rejected | result.rejected)
+
+
+def _expected(folder, circuit, lane=None, metres=None):
+    """Return the saved recipe's expected hints and whether the selected lane is readable."""
+    lane = folder / fastlane.FILE if lane is None else lane
+    margins, rejected = _saved_margins(folder)
+    unplaced = "recalculate" if margins else None
+    if not lane.is_file():
+        return aihints.Hints(b"", rejected, unplaced, []), False
+    if margins and metres is None:
+        record = _raw_record(folder)
+        digest = checksum(lane)
+        metres = _metres(record, lane, digest)
+        if record.get("status") == "ready" and record.get("lane") and record["lane"] != digest:
+            unplaced = "manual"
+    try:
+        return _render(folder, lane, circuit, margins, rejected, metres, unplaced), True
+    except fastlane.NoLine:
+        return aihints.Hints(b"", rejected, unplaced, []), False
+
+
+def hints(folder, circuit, *, lane=None, metres=None) -> aihints.Hints:
+    """Return the expected INI and margin placement for the saved recipe."""
+    return _expected(folder, circuit, lane, metres)[0]
+
+
+def sync_hints(folder, circuit) -> aihints.Hints:
+    """Install hints from the saved recipe and lane, removing the INI for an unreadable lane."""
+    result, readable = _expected(folder, circuit)
+    if not route_race.ac_running():
+        aihints.install(folder, result.data if readable else None)
+    return result
+
+
+def hints_state(folder, circuit) -> dict:
+    """Check the installed INI bytes against the recipe, independently of margin placement."""
+    expected = hints(folder, circuit)
+    path = folder / aihints.FILE
+    actual = path.read_bytes() if path.is_file() else b""
+    return dict(state="current" if actual == expected.data else "stale",
+                unplaced=expected.unplaced, rejected=expected.rejected)
+
+
+def _ready_data(folder, lane, skipped, circuit, metres):
+    """Render from the exact correspondence written to the ready record, including its precision."""
+    fields = dict(lane=checksum(lane), skipped=skipped or {})
+    if metres is not None:
+        metres = np.round(np.asarray(metres, dtype=float), 2)
+        fields["metres"] = metres.tolist()
+    margins, rejected = _saved_margins(folder)
+    result = _render(folder, lane, circuit, margins, rejected, metres, "recalculate")
+    return fields, result.data
+
+
+def record_ready(folder, inputs, skipped=None, *, circuit=False, metres=None):
+    """Record the generated lane, its route metres and passing hints in the build folder."""
+    fields, data = _ready_data(folder, folder / fastlane.FILE, skipped, circuit, metres)
+    if not route_race.ac_running():
+        aihints.install(folder, data)
+    _write(folder, inputs, "ready", **fields)
+
+
+def publish(folder, inputs, candidate, skipped=None, *, circuit=False, metres=None):
     """Install a worker's complete candidate, restoring the original bytes on metadata failure."""
     lane = folder / fastlane.FILE
     lane.parent.mkdir(exist_ok=True)
-    digest = checksum(candidate)
-    hints = aihints.contents(candidate, circuit)
+    fields, data = _ready_data(folder, candidate, skipped, circuit, metres)
     hint_path = folder / aihints.FILE
     previous_hints = hint_path.read_bytes() if hint_path.is_file() else None
     backup = candidate.with_suffix(".previous")
     if lane.exists():
         shutil.copy2(lane, backup)
+    if route_race.ac_running():
+        raise ValueError("Close Assetto Corsa before replacing the AI line.")
     os.replace(candidate, lane)
     try:
-        aihints.install(folder, hints)
-        _write(folder, inputs, "ready", lane=digest, skipped=skipped or {})
+        aihints.install(folder, data)
+        _write(folder, inputs, "ready", **fields)
     except OSError:
         if backup.exists():
             os.replace(backup, lane)
@@ -126,11 +253,20 @@ def clear(folder, inputs, message=None):
     mark_outdated(folder, inputs, message)
 
 
-def mark_outdated(folder, inputs, message=None):
+def mark_outdated(folder, inputs, message=None, *, keep=None):
     """Retain the last installed bytes for display while recording their race eligibility."""
-    if not (folder / fastlane.FILE).is_file():
+    lane = folder / fastlane.FILE
+    fields = {}
+    if lane.is_file():
+        if keep is None:
+            record = _raw_record(folder)
+            keep = record.get("lane"), record.get("metres")
+        digest, metres = keep
+        if metres is not None and digest == checksum(lane):
+            fields.update(lane=digest, metres=np.asarray(metres).tolist())
+    elif not route_race.ac_running():
         aihints.install(folder, None)
-    _write(folder, inputs, "failed" if message else "pending", message=message)
+    _write(folder, inputs, "failed" if message else "pending", message=message, **fields)
 
 
 def status(folder, inputs):
@@ -162,7 +298,6 @@ def carry(source, model, circuit):
     if (source / fastlane.FILE).is_file():
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / fastlane.FILE, target)
-    aihints.sync(model.parent, circuit)
     try:
         key = input_key(model, circuit)
         state = status(source, key)
@@ -170,7 +305,14 @@ def carry(source, model, circuit):
         key = None
         state = {"status": "failed", "message": reason(error)}
     if state["status"] in ("manual", "ready"):
+        (model.parent / FILE).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / FILE, model.parent / FILE)
     else:
-        mark_outdated(model.parent, key, state.get("message"))
+        record = _raw_record(source)
+        mark_outdated(model.parent, key, state.get("message"), keep=(record.get("lane"), record.get("metres")))
+    # Begin with the installed INI, including its absence, so a deferred Save
+    # carries exactly the bytes AC last saw even when the staging folder came from an older source.
+    old = source / aihints.FILE
+    aihints.install(model.parent, old.read_bytes() if old.is_file() else None)
+    sync_hints(model.parent, circuit)
     return {**state, "inputs": key}

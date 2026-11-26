@@ -2,14 +2,16 @@
 from configparser import ConfigParser
 import json
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-from track import aicorrections, aihints, aimargins, fastlane
+from track import aicorrections, aihints, ailinestate, aimargins, fastlane, route_race
 
 
 class SideMarginTest(unittest.TestCase):
@@ -21,13 +23,13 @@ class SideMarginTest(unittest.TestCase):
         self.route = aicorrections.Route(path, [0., 0.], False)
         self.write(path, np.where(self.metres < 150, 6.6, 7.0))
 
-    def write(self, path, widths, height=0.):
+    def write(self, path, widths, height=0., lane=None):
         points = np.zeros(len(path), fastlane.POINT)
         detail = np.zeros(len(path), fastlane.DETAIL)
         points["pos"][:, [0, 2]] = path
         points["pos"][:, 1] = height
         detail["left"] = detail["right"] = np.asarray(widths) / 2
-        fastlane._write_lane(self.lane, points, detail)
+        fastlane._write_lane(lane or self.lane, points, detail)
 
     def anchor(self, metre, level=0.):
         return dict(metre=metre, level=level, origin=self.route.origin,
@@ -72,7 +74,6 @@ class SideMarginTest(unittest.TestCase):
     def test_without_margins_the_ini_is_the_automatic_bytes(self):
         automatic = (b"[DANGER_0]\nSTART=0.000000000\nEND=0.500000000\nLEFT=0.50\nRIGHT=0.50\n\n"
                      b"[DANGER_1]\nSTART=0.500000000\nEND=1.000000000\nLEFT=0.75\nRIGHT=0.75\n\n")
-        self.assertEqual(aihints.contents(self.lane, False), automatic)
         self.assertEqual(self.render().data, automatic)
         hints = aihints.render(self.lane, False, [self.margin()], None, "manual")
         self.assertEqual((hints.data, hints.unplaced), (automatic, "manual"))
@@ -154,6 +155,175 @@ class SideMarginTest(unittest.TestCase):
         margin = self.margin()
         (data / "map2lap.json").write_text(json.dumps({"edits": {"aiMargins": [margin]}}))
         self.assertEqual(aimargins.recipe(self.folder), [margin])
+
+    def recipe(self, folder, *items):
+        data = folder / "data"
+        data.mkdir(parents=True, exist_ok=True)
+        (data / "map2lap.json").write_text(json.dumps({"edits": {"aiMargins": items}}))
+        (folder / fastlane.ROUTE).write_text("anchor 0 0\n0 0\n300 0\n")
+
+    def ready(self, metres):
+        self.recipe(self.folder)
+        ailinestate.record_ready(self.folder, "source", metres=metres)
+
+    def test_publish_uses_candidate_metres_not_the_installed_record(self):
+        self.ready(self.metres)
+        self.recipe(self.folder, self.margin())
+        candidate = self.folder / "candidate.ai"
+        self.write(self.route.path, 6., lane=candidate)
+        ailinestate.publish(self.folder, "recalculated", candidate, metres=self.metres + 40.004)
+        ini = ConfigParser()
+        ini.read(self.folder / aihints.FILE)
+        self.assertAlmostEqual(ini["DANGER_1"].getfloat("START"), .2)
+        self.assertEqual(ini["DANGER_1"].getfloat("LEFT"), .25)
+        self.assertEqual(ini["DANGER_1"].getfloat("RIGHT"), 1.)
+        np.testing.assert_array_equal(ailinestate.lane_metres(self.folder, self.lane), self.metres + 40)
+        self.assertEqual(ailinestate.hints_state(self.folder, False)["state"], "current")
+
+    def test_publish_without_candidate_metres_cannot_reuse_the_installed_correspondence(self):
+        self.ready(self.metres)
+        self.recipe(self.folder, self.margin())
+        candidate = self.folder / "candidate.ai"
+        shutil.copy2(self.lane, candidate)
+        ailinestate.publish(self.folder, "recalculated", candidate)
+        self.assertEqual((self.folder / aihints.FILE).read_bytes(), self.render().data)
+        self.assertEqual(ailinestate.hints_state(self.folder, False)["unplaced"], "recalculate")
+
+    def test_save_carry_renders_after_the_record_is_staged(self):
+        self.ready(self.metres + 40)
+        staged = self.folder / "staged"
+        self.recipe(staged, self.margin())
+        with patch.object(ailinestate, "input_key", return_value="source"):
+            state = ailinestate.carry(self.folder, staged / "new.kn5", False)
+        self.assertEqual(state["status"], "ready")
+        ini = ConfigParser()
+        ini.read(staged / aihints.FILE)
+        self.assertAlmostEqual(ini["DANGER_1"].getfloat("START"), .2)
+        self.assertEqual(ini["DANGER_1"].getfloat("RIGHT"), 1.)
+
+    def test_save_carry_keeps_metres_of_the_copied_lane_when_pending(self):
+        self.ready(self.metres)
+        staged = self.folder / "staged"
+        self.recipe(staged, self.margin())
+        with patch.object(ailinestate, "input_key", return_value="new geometry"):
+            state = ailinestate.carry(self.folder, staged / "new.kn5", False)
+        self.assertEqual(state["status"], "pending")
+        np.testing.assert_array_equal(ailinestate.lane_metres(staged, staged / fastlane.FILE), self.metres)
+        self.assertEqual((staged / aihints.FILE).read_bytes(), self.render(self.margin()).data)
+
+    def test_save_carry_preserves_existing_and_missing_hints_while_ac_runs(self):
+        self.ready(self.metres)
+        staged = self.folder / "staged"
+        self.recipe(staged, self.margin())
+        source = self.folder / aihints.FILE
+        target = staged / aihints.FILE
+        with patch.object(ailinestate, "input_key", return_value="source"), patch.object(route_race, "ac_running", return_value=True):
+            for installed in (b"[old]\r\n", b"", None):
+                with self.subTest(installed=installed):
+                    if installed is None:
+                        source.unlink()
+                    else:
+                        source.write_bytes(installed)
+                    target.write_bytes(b"from an earlier staged source")
+                    ailinestate.carry(self.folder, staged / "new.kn5", False)
+                    self.assertEqual(target.read_bytes() if target.exists() else None, installed)
+
+    def test_sync_and_build_record_defer_installed_hints_while_ac_runs(self):
+        self.ready(self.metres)
+        ini = self.folder / aihints.FILE
+        before = ini.read_bytes()
+        self.recipe(self.folder, self.margin())
+        with patch.object(route_race, "ac_running", return_value=True):
+            for write in (lambda: ailinestate.sync_hints(self.folder, False),
+                          lambda: ailinestate.record_ready(self.folder, "build", metres=self.metres)):
+                with self.subTest(write=write):
+                    ini.write_bytes(before)
+                    write()
+                    self.assertEqual(ini.read_bytes(), before)
+            self.lane.unlink()
+            ailinestate.mark_outdated(self.folder, "build", "missing lane")
+            self.assertEqual(ini.read_bytes(), before)
+
+    def test_publish_defers_the_whole_candidate_while_ac_runs(self):
+        self.ready(self.metres)
+        before = [(path, path.read_bytes()) for path in (
+            self.lane, self.folder / aihints.FILE, self.folder / ailinestate.FILE)]
+        candidate = self.folder / "candidate.ai"
+        shutil.copy2(self.lane, candidate)
+        with patch.object(route_race, "ac_running", return_value=True):
+            with self.assertRaisesRegex(ValueError, "Close Assetto Corsa"):
+                ailinestate.publish(self.folder, "recalculation", candidate, metres=self.metres + 40)
+        self.assertTrue(candidate.is_file())
+        for path, expected in before:
+            self.assertEqual(path.read_bytes(), expected)
+
+    def test_missing_saved_route_rejects_margins_and_keeps_the_lane_and_automatic_hints(self):
+        self.ready(self.metres)
+        self.recipe(self.folder, self.margin())
+        (self.folder / fastlane.ROUTE).unlink()
+        installed = self.lane.read_bytes()
+        result = ailinestate.sync_hints(self.folder, False)
+        self.assertIn("Unresolved route anchor at route metre 100", result.rejected["m1"])
+        self.assertEqual((self.folder / aihints.FILE).read_bytes(), self.render().data)
+        self.assertEqual(self.lane.read_bytes(), installed)
+        self.assertEqual(ailinestate.hints_state(self.folder, False)["state"], "current")
+
+    def test_unreadable_route_geometry_keeps_automatic_hints(self):
+        self.ready(self.metres)
+        self.recipe(self.folder, self.margin())
+        for route in ("anchor 0 0\n", "unknown\n0 0\n300 0\n",
+                      "anchor 0 0\n0 0\n0 0\n", "anchor 0 0\n0 0 0\n300 0 0\n",
+                      "anchor 0 0\n0 0\nnan 0\n"):
+            with self.subTest(route=route):
+                (self.folder / fastlane.ROUTE).write_text(route)
+                result = ailinestate.sync_hints(self.folder, False)
+                self.assertIn("saved route unavailable", result.rejected["m1"])
+                self.assertEqual(result.data, self.render().data)
+
+    def test_outdated_record_keeps_metres_of_unchanged_lane(self):
+        self.ready(self.metres)
+        self.recipe(self.folder, self.margin())
+        for message in (None, "failed to regenerate"):
+            ailinestate.mark_outdated(self.folder, "changed inputs", message)
+            np.testing.assert_array_equal(ailinestate.lane_metres(self.folder, self.lane), self.metres)
+            self.assertEqual(ailinestate.hints(self.folder, False).data, self.render(self.margin()).data)
+        self.write(self.route.path, 8.)
+        ailinestate.mark_outdated(self.folder, "new inputs")
+        self.assertIsNone(ailinestate.lane_metres(self.folder, self.lane))
+
+    def test_legacy_record_without_metres_is_unplaced_recalculate(self):
+        ailinestate.record_ready(self.folder, "legacy")
+        self.recipe(self.folder, self.margin())
+        record = self.folder / ailinestate.FILE
+        legacy = json.loads(record.read_bytes())
+        for data in (legacy, dict(legacy, metres=[0, 50]), {}):
+            record.write_text(json.dumps(data))
+            result = ailinestate.hints(self.folder, False)
+            self.assertEqual(result.unplaced, "recalculate")
+            self.assertEqual(result.data, self.render().data)
+
+    def test_hand_replaced_lane_is_unplaced_manual_and_keeps_automatic_hints(self):
+        self.ready(self.metres)
+        self.recipe(self.folder, self.margin())
+        self.write(self.route.path, 6.6)
+        result = ailinestate.sync_hints(self.folder, False)
+        self.assertEqual(result.unplaced, "manual")
+        self.assertEqual((self.folder / aihints.FILE).read_bytes(), self.render().data)
+
+    def test_hints_state_current_and_stale(self):
+        self.ready(self.metres)
+        def state():
+            return ailinestate.hints_state(self.folder, False)
+        self.assertEqual(state(), dict(state="current", unplaced=None, rejected={}))
+        self.recipe(self.folder, self.margin())
+        self.assertEqual(state(), dict(state="stale", unplaced=None, rejected={}))
+        ailinestate.sync_hints(self.folder, False)
+        self.assertEqual(state()["state"], "current")
+        self.recipe(self.folder)
+        self.assertEqual(ailinestate.sync_hints(self.folder, False).data, self.render().data)
+        self.write(self.route.path, 5.)
+        (self.folder / aihints.FILE).unlink()
+        self.assertEqual(state()["state"], "current")
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ class LaneCodeVersionTest(unittest.TestCase):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (13, "577af9e8f0c846d2438d4affd84a7470a57572ff22a17fb99b3833263640001a")
+        expected = (13, "ab34b6b110a5f8fe84b42b2afb1bf7aa32d076a82598e8f3d19226571d3ce98e")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments or refactors proven to preserve the generated line, update only the digest.")
@@ -239,9 +239,50 @@ class AILineTest(unittest.TestCase):
         meshes["1WALL_slab"] = strip(-8, .5, -4, 4, -.5, -.5)
         self.assertFalse(fastlane._fits_chord(fastlane._local_roads(meshes), *chord, 1.))
 
+    def anchor(self, metre):
+        return dict(metre=metre, level=9, origin=[0, 0],
+                    context=[[20 + metre + d, 10] for d in (-5, 0, 5)])
+
+    def test_calculation_returns_one_route_metre_per_written_sample(self):
+        self.write_track([(20, 10), (80, 10)], mapped_width=6.5)
+        move = dict(id="move", kind="move", free=False, range=10, routeOffset=-.3, anchor=self.anchor(30))
+        redraw = dict(id="ink", kind="redraw", free=False, anchor=self.anchor(20), end=self.anchor(40),
+                      points=[[50, 9, 11]])
+
+        def written_count(corrections):
+            (self.folder / "data/map2lap.json").write_text(json.dumps({"edits": {"aiCorrections": corrections}}))
+            inputs = fastlane.lane_inputs(self.model, False, print)
+            skipped, metres = fastlane.calculate(self.model, inputs, False, self.lane, print)
+            count = len(fastlane.read_lane(self.lane)[0])
+            self.assertEqual(skipped, {})
+            self.assertEqual(metres.shape, (count,))
+            self.assertTrue(np.isfinite(metres).all())
+            return count
+
+        automatic = written_count([])
+        self.assertEqual(written_count([move]), automatic)
+        # Redraw samples the authored arc more densely than the automatic guide it replaces.
+        self.assertGreater(written_count([redraw]), automatic)
+
+    def test_margins_leave_fingerprint_and_lane_bytes_unchanged(self):
+        from track import ailinestate
+        self.write_track([(20, 10), (80, 10)], mapped_width=6.5)
+        self.generate()
+        record = self.folder / ailinestate.FILE
+        saved = record.read_bytes()
+        self.assertEqual(len(json.loads(saved)["metres"]), len(fastlane.read_lane(self.lane)[0]))
+        key = ailinestate.input_key(self.model, False)
+        digest = ailinestate.checksum(self.lane)
+        margin = dict(id="m", start=self.anchor(20), end=self.anchor(40), left=None, right=1.)
+        (self.folder / "data/map2lap.json").write_text(json.dumps({"edits": {"aiMargins": [margin]}}))
+        self.assertEqual(ailinestate.inspect(self.model, False), {"status": "ready", "inputs": key, "lane": digest})
+        ailinestate.sync_hints(self.folder, False)
+        self.assertEqual(ailinestate.checksum(self.lane), digest)
+        self.assertEqual(record.read_bytes(), saved)
+
     def test_new_build_and_editor_recalculation_replace_passing_hints(self):
         from app import ailanejobs
-        from track import aihints
+        from track import aihints, ailinestate
         self.write_track([(-10, 10), (120, 10)], mapped_width=6.2)
         self.generate()
         hints = self.folder / aihints.FILE
@@ -249,7 +290,25 @@ class AILineTest(unittest.TestCase):
         self.write_track([(-10, 10), (120, 10)], mapped_width=8.)
         self.assertEqual("ready", ailanejobs.ensure(self.model, False, force=True)["status"])
         self.assertIn("LEFT=1.00", hints.read_text())
-        self.assertEqual(hints.read_bytes(), aihints.contents(self.lane, False))
+        self.assertEqual(hints.read_bytes(),
+                         b"[DANGER_0]\nSTART=0.000000000\nEND=1.000000000\nLEFT=1.00\nRIGHT=1.00\n\n")
+        self.assertEqual(len(json.loads((self.folder / ailinestate.FILE).read_bytes())["metres"]),
+                         len(fastlane.read_lane(self.lane)[0]))
+
+    def test_build_keeps_its_lane_and_valid_margins_with_a_malformed_saved_margin(self):
+        from track import aihints, ailinestate
+        self.write_track([(20, 10), (80, 10)], mapped_width=6.5)
+        self.generate()
+        lane = self.lane.read_bytes()
+        valid = dict(id="placed", start=self.anchor(20), end=self.anchor(40), left=None, right=1.)
+        broken = dict(id="broken", start=self.anchor(10), left=1., right=None)
+        (self.folder / "data/map2lap.json").write_text(json.dumps({"edits": {"aiMargins": [broken, valid]}}))
+        self.assertTrue(fastlane.regenerate(self.model, circuit=False, log=lambda line: None))
+        self.assertEqual(self.lane.read_bytes(), lane)
+        result = ailinestate.hints(self.folder, False)
+        self.assertEqual(result.rejected, {"broken": "Invalid side margin"})
+        self.assertEqual([span.id for span in result.spans], ["placed"])
+        self.assertIn(b"RIGHT=1.00", (self.folder / aihints.FILE).read_bytes())
 
     def test_ai_road_edge_controls_band_and_fingerprint(self):
         from unittest.mock import patch

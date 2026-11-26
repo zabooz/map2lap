@@ -64,12 +64,12 @@ def read_lane(path):
     """Read the v7 point and detail arrays from path, with any trailing data kept opaque."""
     data = Path(path).read_bytes()
     if len(data) < HEADER.size:
-        raise ValueError("Incomplete AI line header")
+        raise NoLine("Incomplete AI line header")
     version, n, _, _ = HEADER.unpack_from(data)
     extra = HEADER.size + n * POINT.itemsize
     end = extra + COUNT.size + n * DETAIL.itemsize
     if version != 7 or n < 2 or end > len(data) or COUNT.unpack_from(data, extra)[0] != n:
-        raise ValueError("Invalid v7 AI line or mismatched counts")
+        raise NoLine("Invalid v7 AI line or mismatched counts")
     return np.frombuffer(data, POINT, n, HEADER.size), np.frombuffer(data, DETAIL, n, extra + COUNT.size), data[end:]
 
 
@@ -1335,12 +1335,17 @@ def _racing_records(base, stations, road, circuit, mapped, route, report_returns
         scale = reduced
 
 
-def lane_inputs(model, circuit, log, *, preview=False):
-    """Read exactly the geometry, markers and mapped carriageways used for this line."""
-    with (model.parent / ROUTE).open("rb") as stream:
+def read_route(folder):
+    """Read the route's X/Z path and anchor origin from the track folder."""
+    with (folder / ROUTE).open("rb") as stream:
         header = stream.readline().split()
         origin = tuple(map(float, header[1:3])) if header[:1] == [b"anchor"] else ()
-        path = np.loadtxt(stream, ndmin=2)
+        return np.loadtxt(stream, ndmin=2), origin
+
+
+def lane_inputs(model, circuit, log, *, preview=False):
+    """Read exactly the geometry, markers and mapped carriageways used for this line."""
+    path, origin = read_route(model.parent)
     scan = kn5.scan(model)
     markers = {key: matrix for key, matrix in scan["points"].items()
                if re.fullmatch(r"(?:AC_START_|M2_GRID_)\d+|AC_TIME_\d+_[LR]", key)}
@@ -1655,8 +1660,8 @@ def _reference_with_redraws(model, inputs, circuit, report_returns, *, diagnosti
     return reference, skipped
 
 
-def calculate(model, inputs, circuit, lane, log):
-    """Compute from already-read inputs and write the complete spline to lane."""
+def calculate(model, inputs, circuit, lane, log) -> tuple[dict, np.ndarray]:
+    """Write the spline to lane and return skipped corrections and its samples' route metres."""
     start = perf_counter()
     needs_floor_check = False
     reference_returns = set()
@@ -1708,7 +1713,7 @@ def calculate(model, inputs, circuit, lane, log):
         noun = "location" if len(returns) == 1 else "locations"
         log(f"AI line {model.stem}: local return to reference at {len(returns)} {noun} (route metres {shown}{suffix})")
     log(f"AI line: {len(points):,} points in {perf_counter() - start:.2f} s")
-    return skipped
+    return skipped, ribbon.metres
 
 
 def regenerate(model, *, circuit, log=print):
@@ -1719,8 +1724,8 @@ def regenerate(model, *, circuit, log=print):
     try:
         inputs = lane_inputs(model, circuit, log)
         fingerprint = ailinestate.fingerprint(inputs, circuit)
-        skipped = calculate(model, inputs, circuit, model.parent / FILE, log)
-        ailinestate.record_ready(model.parent, fingerprint, skipped, circuit=circuit)
+        skipped, metres = calculate(model, inputs, circuit, model.parent / FILE, log)
+        ailinestate.record_ready(model.parent, fingerprint, skipped, circuit=circuit, metres=metres)
     except ailinestate.ERRORS as error:
         reason = ailinestate.reason(error)
         ailinestate.clear(model.parent, fingerprint, reason)

@@ -53,6 +53,7 @@ def _carry_ai(folder, race):
 
 def remove_race_layout(model):
     """Retire Map2Lap's old Race layout in a closed or staged track folder. Keep the default timing and user files."""
+    from track import ailinestate
     model = Path(model)
     folder = model.parent
     race, ui = folder / LAYOUT, folder / UI
@@ -62,7 +63,7 @@ def remove_race_layout(model):
         return False
     _carry_ai(folder, race)
     if not (folder / "data").is_symlink():
-        aihints.sync(folder, False)
+        ailinestate.sync_hints(folder, False)
     if not (race / "ai/fast_lane.ai").exists():
         (race / aihints.FILE).unlink(missing_ok=True)
     for path in (ui / "ui_track.json", folder / RACE_MODEL, *(race / data for data in LAYOUT_DATA)):
