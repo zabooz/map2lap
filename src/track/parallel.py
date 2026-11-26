@@ -4,8 +4,10 @@ BeamNG.Earth's state (blockworker._s) is global, hence processes rather than thr
 initializer. The cache copes with that (writes go through a temporary file + os.replace, pid in the name).
 """
 import multiprocessing
+import multiprocessing.connection
 import os
 import random
+import threading
 import time
 from concurrent.futures import ProcessPoolExecutor
 
@@ -66,6 +68,29 @@ def retry_locked(fn):
             time.sleep(wait)
 
 
+def _end_with_parent():
+    """In a pool worker: exit as soon as the process that started it is gone. The pool doesn't notice by itself:
+    its workers wait on a task queue whose pipe they hold open themselves, so after a server killed without
+    shutdown they slept on for days, holding about 70 MB each. The spawn sentinel is the parent's pipe (POSIX)
+    or process handle (Windows); it becomes ready when the parent ends."""
+    parent = multiprocessing.parent_process()
+    if parent is None:
+        return
+
+    def watch():
+        multiprocessing.connection.wait([parent.sentinel])
+        os._exit(1)   # (not sys.exit: the main thread may sit in a task or a blocking read)
+
+    threading.Thread(target=watch, name="end-with-parent", daemon=True).start()
+
+
+def _start_worker(initializer, initargs):
+    """A worker's first step: watch the parent, then the caller's own initializer."""
+    _end_with_parent()
+    if initializer is not None:
+        initializer(*initargs)
+
+
 def pool(n, initializer=None, initargs=()):
     # (Not max_tasks_per_child: with it the pool hung under Python 3.12/Windows, tested; 3.14 untried. BeamNG.Earth
     # keeps map and elevation data in memory per process: on 300 km each process grows from 0.9 to about 1.8 GB (GB_PER_WORKER), which is
@@ -74,4 +99,4 @@ def pool(n, initializer=None, initargs=()):
     # Linux' default fork would copy the parent's state and threads into it, and builds could differ between systems)
     ctx = multiprocessing.get_context("spawn")
     named.use_for_workers(ctx)
-    return ProcessPoolExecutor(max_workers=n, initializer=initializer, initargs=initargs, mp_context=ctx)
+    return ProcessPoolExecutor(max_workers=n, initializer=_start_worker, initargs=(initializer, initargs), mp_context=ctx)
