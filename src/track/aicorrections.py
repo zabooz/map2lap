@@ -19,6 +19,19 @@ def recipe(folder):
     return (data.get("edits") or {}).get("aiCorrections", [])
 
 
+def anchor_problem(anchor: dict) -> str | None:
+    """Check the shape and finite coordinates of one stored route anchor. Pure."""
+    try:
+        if (np.shape(anchor["context"]) != (3, 2) or np.shape(anchor["origin"]) != (2,)
+                or not np.isfinite([anchor["metre"], anchor["level"], anchor.get("lateral", 0), anchor.get("angle", 0),
+                                    anchor.get("along", 0), anchor.get("after", 0)]).all()
+                or not np.isfinite(anchor["context"]).all() or not np.isfinite(anchor["origin"]).all()):
+            return "Invalid AI correction anchor"
+    except (TypeError, KeyError, ValueError):
+        return "Invalid AI line move"
+    return None
+
+
 def problem(items):
     """Return a draft schema error, leaving route-dependent validation to calculation. Pure."""
     if not isinstance(items, list):
@@ -45,11 +58,8 @@ def problem(items):
             else:
                 return "Unknown AI correction"
             for target in anchors:
-                if (np.shape(target["context"]) != (3, 2) or np.shape(target["origin"]) != (2,)
-                        or not np.isfinite([target["metre"], target["level"], target.get("lateral", 0), target.get("angle", 0),
-                                             target.get("along", 0), target.get("after", 0)]).all()
-                        or not np.isfinite(target["context"]).all() or not np.isfinite(target["origin"]).all()):
-                    return "Invalid AI correction anchor"
+                if error := anchor_problem(target):
+                    return error
             ids.add(item["id"])
         except (TypeError, KeyError, ValueError):
             return "Invalid AI line move"

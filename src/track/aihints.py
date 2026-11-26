@@ -2,8 +2,12 @@
 import os
 from pathlib import Path
 import tempfile
+from typing import NamedTuple
 
 import numpy as np
+
+from track import aicorrections, aimargins
+from track.aimargins import Span
 
 FILE = Path("data/ai_hints.ini")
 KEEP_M = 5.5  # Two 2 m cars, the E30s' ~1.3 m native body gap and ~0.2 m spare. Wider cars need more.
@@ -31,14 +35,20 @@ def _runs(ends, levels):
     return result
 
 
-def sections(points, detail, circuit):
-    """Normalized START/END and symmetric metre hints from the serialized XYZ and side widths. Pure."""
+def _stations(points, circuit):
+    """Cumulative 3D lane metres, including the circuit's closing chord. Pure."""
     xyz = points["pos"].astype(float)
-    widths = detail["left"].astype(float) + detail["right"]
     if circuit:
         xyz = np.vstack((xyz, xyz[0]))
+    return np.r_[0., np.cumsum(np.linalg.norm(np.diff(xyz, axis=0), axis=1))]
+
+
+def sections(points, detail, circuit):
+    """Normalized START/END and symmetric metre hints from the serialized XYZ and side widths. Pure."""
+    stations = _stations(points, circuit)
+    widths = detail["left"].astype(float) + detail["right"]
+    if circuit:
         widths = np.r_[widths, widths[0]]
-    stations = np.r_[0., np.cumsum(np.linalg.norm(np.diff(xyz, axis=0), axis=1))]
     length = stations[-1]
     if not np.isfinite(length) or length <= 0 or not np.isfinite(widths).all():
         return []
@@ -64,12 +74,64 @@ def sections(points, detail, circuit):
             for (start, level), (end, _) in zip(changes, changes[1:] + [(length, 0)]) if level]
 
 
-def contents(lane, circuit):
-    """Read the final v7 line and render AC's consecutively numbered danger intervals."""
-    from track import fastlane
+def merge(auto: list[tuple[float, float, float]], spans: list[Span]) -> list[tuple[float, float, float, float]]:
+    """Cut the automatic profile where either manual side starts or ends. Pure."""
+    automatic, left, right = {}, {}, {}
+    for a, b, hint in auto:
+        automatic[a] = hint
+        automatic.setdefault(b, 0.)
+    for span in spans:
+        for a, b in aimargins.intervals(span.start, span.end, 1.):
+            if a == b:
+                continue
+            for profile, value in ((left, span.left), (right, span.right)):
+                if value is not None:
+                    profile[a] = value
+                    profile.setdefault(b, None)
+
+    cuts = sorted({0., 1.} | automatic.keys() | left.keys() | right.keys())
+    default, left_value, right_value = 0., None, None
+    result = []
+    for a, b in zip(cuts, cuts[1:]):
+        default = automatic.get(a, default)
+        left_value = left.get(a, left_value)
+        right_value = right.get(a, right_value)
+        pair = (default if left_value is None else left_value, default if right_value is None else right_value)
+        if pair == (0., 0.):
+            continue
+        if result and result[-1][1] == a and result[-1][2:] == pair:
+            result[-1] = (result[-1][0], b, *pair)
+        else:
+            result.append((a, b, *pair))
+    return result
+
+
+class Hints(NamedTuple):
+    data: bytes
+    rejected: dict[str, str]
+    unplaced: str | None
+    spans: list[Span]
+
+
+def render(lane: Path, circuit: bool, margins: list, placement: tuple[aicorrections.Route, np.ndarray] | None,
+           unplaced: str | None) -> Hints:
+    """Render the installed lane with the recipe's placeable side margins and report rejected anchors."""
+    from track import fastlane, obj_to_kn5
     points, detail, _ = fastlane.read_lane(lane)
-    return "".join(f"[DANGER_{i}]\nSTART={a:.9f}\nEND={b:.9f}\nLEFT={hint:.2f}\nRIGHT={hint:.2f}\n\n"
-                   for i, (a, b, hint) in enumerate(sections(points, detail, circuit))).encode("ascii")
+    auto = sections(points, detail, circuit)
+    spans, rejected = [], {}
+    if margins and placement is not None:
+        route, metres = placement
+        spans, rejected = aimargins.place(margins, route, metres, _stations(points, circuit),
+                                          points["pos"][:, 1], circuit, obj_to_kn5.LEVEL_GAP_M)
+    data = "".join(f"[DANGER_{i}]\nSTART={a:.9f}\nEND={b:.9f}\nLEFT={left:.2f}\nRIGHT={right:.2f}\n\n"
+                   for i, (a, b, left, right) in enumerate(merge(auto, spans))).encode("ascii")
+    return Hints(data, rejected, unplaced if margins and placement is None else None, spans)
+
+
+def contents(lane, circuit):
+    """Read the final v7 line and render the automatic passing hints."""
+    return render(lane, circuit, [], None, None).data
 
 
 def install(folder, data):
