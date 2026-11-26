@@ -188,12 +188,12 @@ def _save(ac, name, copy_to, title, revision):
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
     changed = (edits["deleted"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"]
-               or edits.get("models") or edits.get("surfaces") or edits.get("trees") or edits.get("walls") or edits.get("kerbs") or edits.get("stitches") or edits.get("aiCorrections")
+               or edits.get("models") or edits.get("surfaces") or edits.get("trees") or edits.get("walls") or edits.get("kerbs") or edits.get("stitches") or edits.get("aiCorrections") or edits.get("aiMargins")
                or edits.get('tree_spacing') or edits.get('car_density'))
     # (a cold track's kn5 holds its model bindings and regional paints itself: an empty list there removes them, so it is a change)
     built = trackview.recipe(ac, name) if source is None else None
     held = built and built.get("cold_models") and any(built[key] for key in ("models", "paints", "placed", "deleted"))
-    if not (changed or held or source or copy_to or (built and built.get("aiCorrections"))):
+    if not (changed or held or source or copy_to or (built and (built.get("aiCorrections") or built.get("aiMargins")))):
         raise Refused("Nothing to save: nothing is changed")
     objects, trees = trackview.list_of(path), trackview.treefx_of(path)
     # (the first Save: the track as it is, kept before anything is written. Replaced, its file itself can stay as that; a copy leaves
@@ -283,7 +283,9 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
                 going[i] = going.get(i, np.zeros_like(mask)) | mask
     try:
         skip = {name + ".kn5", name + '.uv2', objectlist.FILE, str(trackpaint.BUNDLE)}
-        skip.update((str(fastlane.FILE), str(ailinestate.FILE), str(aihints.FILE)))
+        skip.update((str(fastlane.FILE), str(ailinestate.FILE)))
+        if kind != "area":
+            skip.add(str(aihints.FILE))
         _copy_folder(folder, temporary, skip)
         new_kn5 = os.path.join(temporary, new + ".kn5")
         materials, images, change, added, native_config, drop_textures, native_files = trackdetail.saved(ac, name, edits["base"], textures.values(), scan, change, path, added)
@@ -331,6 +333,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
                   "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "trees": edits.get("trees", []), "walls": walls,
                   "kerbs": edits.get("kerbs", []),
                   "stitches": edits.get("stitches", []), "aiCorrections": edits.get("aiCorrections", []),
+                  "aiMargins": edits.get("aiMargins", []),
                   "trees_next": edits.get("trees_next", 0), "detail_profile": trackdetail.PROFILE,
                   "region_geometry": tracknative.GEOMETRY_CACHE_VERSION, "ground_format": groundmaterial.GROUND_FORMAT,
                   "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
@@ -343,7 +346,8 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         route_race.update_copy(staged_old, new_kn5, source_scan["points"])
         lane_state = None
         if kind == "area":
-            aihints.install(Path(temporary), None)
+            if not route_race.ac_running():
+                aihints.install(Path(temporary), None)
         else:
             source_slot = ailanejobs.track(own)
             with source_slot.condition:

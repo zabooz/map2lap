@@ -1291,7 +1291,8 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                     return self._send(404, {"error": "No saved build settings for this track"})
                 title = info["title"]
                 mode = {"kind": "circuit", "circuit_source": name} if info.get("kind") == "circuit" else {}
-                if (info.get("edits") or {}).get("aiCorrections"):
+                edits = info.get("edits") or {}
+                if edits.get("aiCorrections") or edits.get("aiMargins"):
                     mode["ai_source"] = name
                 if body.get("copy"):
                     name, title = mytracks.copy_name(settings.ac_path(), name, title)

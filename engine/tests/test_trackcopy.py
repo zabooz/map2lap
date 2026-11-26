@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(ENGINE, "..", "src")))
 
 import generator  # noqa: E402  (sets the engine's path)
 from app import mytracks, trackcopy, trackedits, tracksource, trackview, version  # noqa: E402
-from track import kn5, objectlist  # noqa: E402
+from track import aimargins, kn5, objectlist  # noqa: E402
 
 IDENTITY = (1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0)
 START = (1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 5.0, 6.0, 7.0, 1.0)
@@ -115,6 +115,67 @@ class Base(unittest.TestCase):
         return set(self.xs(self.meshes(kn5.read(self.own(name))["root"])["1WALL_cars_0_0"]))
 
 
+class SideMarginSaveTest(Base):
+    def setUp(self):
+        super().setUp()
+        def anchor(m):
+            return {"metre": m, "level": 0, "origin": [1, 2], "context": [[m-5, 0], [m, 0], [m+5, 0]]}
+        self.margin = {"id": "m1", "start": anchor(10), "end": anchor(20), "left": None, "right": .75}
+
+    def draft(self, **parts):
+        now = trackedits.load(self.ac, "t")
+        return trackedits.save(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": "x",
+                                               "deleted": [], **parts})
+
+    def test_save_keeps_side_margins_in_the_recipe(self):
+        self.draft(aiMargins=[self.margin])
+        trackcopy.save(self.ac, "t")
+        self.assertEqual([self.margin], aimargins.recipe(Path(self.root)))
+        self.assertEqual([self.margin], trackedits.saved_edits(self.ac, "t")["aiMargins"])
+        self.assertEqual(0, trackedits.changes(self.ac, "t"))
+
+    def test_save_as_restores_margin_recipe_and_history_on_the_copy(self):
+        history = {"past": ["a"], "future": [], "entries": {"a": {"aiMargins": ["i"]}}, "items": {"i": self.margin}}
+        self.draft(aiMargins=[self.margin], history=history)
+        self.copy()
+        copy = trackedits.load_with_history(self.ac, "t_mod")
+        self.assertEqual(history["items"], copy["history"]["items"])
+        self.assertEqual([self.margin], copy["aiMargins"])
+        self.assertEqual([self.margin], copy["saved"]["aiMargins"])
+        self.assertEqual([], aimargins.recipe(Path(self.root)))
+
+    def test_cold_margin_recipe_can_remove_its_last_margin(self):
+        mytracks.save(self.root, {**mytracks.load(self.root), "edits": {"aiMargins": [self.margin]}})
+        self.assertEqual([self.margin], trackedits.load(self.ac, "t")["aiMargins"])
+        self.draft(aiMargins=[])
+        self.assertEqual(1, trackedits.changes(self.ac, "t"))
+        trackcopy.save(self.ac, "t")
+        self.assertEqual([], aimargins.recipe(Path(self.root)))
+
+    def test_invalid_margin_rejected_in_draft_and_unreadable_from_disk(self):
+        bad = [{**self.margin, "right": .76}]
+        with self.assertRaisesRegex(trackedits.Invalid, "Invalid side margin value"):
+            self.draft(aiMargins=bad)
+        self.draft(aiMargins=[])
+        path = Path(trackedits.path_of("t"))
+        data = json.loads(path.read_text())
+        path.write_text(json.dumps({**data, "aiMargins": bad}))
+        self.assertEqual(1, trackedits.load(self.ac, "t")["outdated"])
+        path.unlink()
+        mytracks.save(self.root, {**mytracks.load(self.root), "edits": {"aiMargins": bad}})
+        self.assertEqual(1, trackedits.load(self.ac, "t")["outdated"])
+
+    def test_draft_counts_and_preserves_margins_in_recipe_order(self):
+        margins = [self.margin, {**self.margin, "id": "m2", "right": 0}]
+        self.draft(aiMargins=margins)
+        self.assertEqual(2, trackedits.changes(self.ac, "t"))
+        self.draft()
+        self.assertEqual(margins, trackedits.load(self.ac, "t")["aiMargins"])
+        trackcopy.save(self.ac, "t")
+        self.draft(aiMargins=margins[::-1])
+        self.assertGreater(trackedits.changes(self.ac, "t"), 0)
+
+
 class FilterTest(Base):
     def test_save_as_stages_the_outdated_preview_without_calculating(self):
         lane = Path(self.root, "ai/fast_lane.ai")
@@ -131,6 +192,15 @@ class FilterTest(Base):
         (Path(self.root) / hints).write_text("[DANGER_0]\n")
         self.copy()
         self.assertFalse((Path(self.own("t_mod")).parent / hints).exists())
+
+    def test_area_save_defers_removing_installed_hints_while_ac_runs(self):
+        mytracks.save(self.root, {**mytracks.load(self.root), "area": [1., 2., 3., 4.]})
+        hints = Path(self.root, "data/ai_hints.ini")
+        hints.write_bytes(b"installed hints")
+        self.edits(["t_0_0#1"])
+        with mock.patch("track.route_race.ac_running", return_value=True):
+            trackcopy.save(self.ac, "t")
+        self.assertEqual(b"installed hints", hints.read_bytes())
 
     def test_a_car_goes_front_and_back_and_nothing_else(self):
         self.edits(["t_0_0#1"])

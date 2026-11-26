@@ -26,7 +26,7 @@ from track import build_tiles     # (first: sets the asphalt mesh switches and t
 from app import buildoptions, circuitlap, debugapp, mapcache, mytracks, settings, system, trackcode, version
 from app.paths import ROOT
 from scenery import dryness, farview, gates
-from track import aicorrections, aihints, ailinestate, dnfparking, fastlane, make_obj, make_track_folder, obj_to_kn5, objectlist, parallel, route_race
+from track import aicorrections, aihints, ailinestate, aimargins, dnfparking, fastlane, make_obj, make_track_folder, obj_to_kn5, objectlist, parallel, route_race
 
 blockworker = build_tiles.blockworker
 roadsmod = build_tiles.roadsmod
@@ -397,7 +397,7 @@ def _refuse_saved(name):
 
 
 def build(points, width, name, title=None, log=print, clean=False, area=None, progress=None, cache_gb=None, upto=None,
-          line=None, kind="route", circuit_timing=None, ai_corrections=None):
+          line=None, kind="route", circuit_timing=None, ai_corrections=None, ai_margins=None):
     """The whole chain up to the track folder; returns a dict with paths and figures.
     progress(phase, done, total): progress for the generator page (phases: PHASES).
     line: (route [(lat, lon), ...], index of the end pin in it) instead of OSRM's: an earlier build's route as it was,
@@ -412,10 +412,11 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     if not upto:
         _refuse_saved(slug(name))
     with plancache.one_run(os.path.join(ROOT, "cache")):
-        return _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, kind, circuit_timing, ai_corrections)
+        return _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, kind,
+                      circuit_timing, ai_corrections, ai_margins)
 
 
-def _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, kind="route", circuit_timing=None, ai_corrections=None):
+def _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, kind="route", circuit_timing=None, ai_corrections=None, ai_margins=None):
     """build, its processes sharing their plans."""
     progress = progress or (lambda phase, done, total: None)
     t_start = time.perf_counter()
@@ -564,6 +565,8 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
     anc.update(options)
     if ai_corrections:
         anc["aiCorrections"] = ai_corrections
+    if ai_margins:
+        anc["aiMargins"] = ai_margins
     if area:                # (without route and start: obj_to_kn5.start_empties takes the road nearest the anchor)
         anc["area"] = [float(v) for v in area]
     else:
@@ -654,7 +657,8 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
         route_race.remove_generated_files(model)
         (Path(root) / fastlane.FILE).unlink(missing_ok=True)
         (Path(root) / ailinestate.FILE).unlink(missing_ok=True)
-        aihints.install(Path(root), None)
+        if not route_race.ac_running():
+            aihints.install(Path(root), None)
         for old in glob.glob(os.path.join(root, "*.kn5")):
             os.remove(old)
         log("Writing kn5 ...")              # (our own writer instead of Blender + ksEditor, see obj_to_kn5.py)
@@ -678,10 +682,10 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
             info.update(kind="circuit", timing=mytracks.circuit_timing(json.load(f).get("timing")))
     info.update(buildoptions.checked(anc))
     info["code"] = trackcode.encode(info)
-    if anc.get("aiCorrections"):
-        # Only hand-authored line edits transfer to a rebuilt KN5. Its own
-        # meshes are the source for future Editor edits on this copy.
-        info["edits"] = {"aiCorrections": anc["aiCorrections"]}
+    # The route anchors travel with the rebuilt copy, whose new meshes become its Editor source.
+    ai = {key: anc[key] for key in ("aiCorrections", "aiMargins") if anc.get(key)}
+    if ai:
+        info["edits"] = ai
     mytracks.save(root, info)
     if not area:
         progress("ai_line", 0, 0)
@@ -708,7 +712,7 @@ def main():
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--area", type=float, nargs=4, metavar=("S", "W", "N", "E"), help="area instead of a route")
     mode.add_argument("--circuit", action="store_true", help="close the lap from the last pin back to the first")
-    ap.add_argument("--ai-source", help="reuse the saved AI corrections from this track")
+    ap.add_argument("--ai-source", help="reuse the saved AI line corrections and side margins from this track")
     ap.add_argument("--circuit-source", help="reuse this installed Circuit's full saved line for Rebuild")
     ap.add_argument("--clean", action="store_true", help="delete the temporary data afterwards")
     ap.add_argument("--result", action="store_true", help="a line RESULT <json> at the end (for server.py)")
@@ -726,8 +730,12 @@ def main():
         def progress(phase, done, total):
             print("PROGRESS " + json.dumps(build_progress(phase, done, total, area=bool(a.area))), flush=True)
     line, timing = _saved_circuit(a.circuit_source) if a.circuit_source else (None, None)
-    moves = aicorrections.recipe(Path(make_track_folder.AC) / "content" / "tracks" / slug(a.ai_source)) if a.ai_source else []
-    res = build(pts, a.width, a.name, a.title, clean=a.clean, area=a.area, progress=progress, line=line, circuit_timing=timing, ai_corrections=moves,
+    moves, margins = [], []
+    if a.ai_source:
+        source = Path(make_track_folder.AC) / "content" / "tracks" / slug(a.ai_source)
+        moves, margins = aicorrections.recipe(source), aimargins.recipe(source)
+    res = build(pts, a.width, a.name, a.title, clean=a.clean, area=a.area, progress=progress, line=line, circuit_timing=timing,
+                ai_corrections=moves, ai_margins=margins,
                 cache_gb=settings.load()["cache_gb"] if a.cache_gb is None else a.cache_gb,
                 kind="circuit" if a.circuit else "route")
     if a.result:

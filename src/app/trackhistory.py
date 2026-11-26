@@ -21,7 +21,7 @@ MAX_STEPS = 100             # Undo steps kept, as many in the page (ui/src/edito
 MAX_BYTES = 10 * 1024 * 1024    # their size: the oldest go first, the newest stays however large (one long smoothing is a few 100 kB)
 MAX_KEY = 32
 # The parts of a step that are lists of objects, by item key; the others (sorts, paint ids, spacing, density) are kept as they are.
-KEYED = ("removed", "heights", "placed", "copies", "models", "surfaces", "trees", "walls", "kerbs", "stitches", "aiCorrections")
+KEYED = ("removed", "heights", "placed", "copies", "models", "surfaces", "trees", "walls", "kerbs", "stitches", "aiCorrections", "aiMargins")
 
 
 def path_of(name):

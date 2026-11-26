@@ -1,4 +1,5 @@
 """Hand-set side margins on the installed racing line, checked through AC's INI."""
+from concurrent.futures import Future
 from configparser import ConfigParser
 import json
 from pathlib import Path
@@ -6,7 +7,7 @@ import shutil
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -309,6 +310,65 @@ class SideMarginTest(unittest.TestCase):
         result = ailinestate.sync_hints(self.folder, False)
         self.assertEqual(result.unplaced, "manual")
         self.assertEqual((self.folder / aihints.FILE).read_bytes(), self.render().data)
+
+    def run_generator(self, name, *args):
+        """Run the build CLI and its folder/recipe writers with a stand-in tile and KN5 in this test's AC."""
+        import generator
+        target = self.folder / "content/tracks" / name
+        (target / "data").mkdir(parents=True, exist_ok=True)
+        tile = Future()
+        tile.set_result((0, 0, 0.))
+        def convert(*_, prepare_output, **kwargs):
+            path = Path(prepare_output(True, 1))
+            path.touch()
+            return path
+        points = [(0, 0), (0, .002)]
+        with (patch.object(sys, "argv", ["generator", "--name", name, "--cache-gb", "0", *args, "--", "0,0", "0,.002"]),
+              patch.object(generator, "ROOT", str(self.folder)),
+              patch.object(generator.make_track_folder, "AC", str(self.folder)),
+              patch.object(generator, "route", return_value=(points, 220)),
+              patch.object(generator, "extend", return_value=[]),
+              patch.object(generator, "road_rules", return_value={"country": "", "left_hand": False, "mph": False}),
+              patch.object(generator, "corridor_tiles", return_value=[(0, 0)]),
+              patch.object(generator.parallel, "pool") as pool,
+              patch.object(generator.make_obj, "main", return_value=(0, 0, 0, [])),
+              patch.object(generator.gates, "build", return_value=None),
+              patch.object(generator.farview, "build", return_value=None),
+              patch.object(generator, "where", return_value=("", "")),
+              patch.object(generator.settings, "load", return_value={"debug_app": False}),
+              patch.object(generator.make_track_folder, "make", return_value=target),
+              patch.object(generator.obj_to_kn5, "convert", side_effect=convert),
+              patch.object(fastlane, "regenerate"), patch.object(generator.mapcache, "trim")):
+            pool.return_value.__enter__.return_value.submit.return_value = tile
+            generator.main()
+        return target
+
+    def test_copy_rebuild_carries_side_margins_alone(self):
+        import server
+        from app import mytracks
+        source = self.folder / "content/tracks/source"
+        (source / "data").mkdir(parents=True)
+        margins = [self.margin()]
+        mytracks.save(source, {"title": "Source", "points": [[0, 0], [0, .002]], "edits": {"aiMargins": margins}})
+        handler = object.__new__(server.Handler)
+        handler.path = "/api/rebuild"
+        handler._body = Mock(return_value={"name": "source", "copy": True})
+        handler._send = Mock()
+        with (patch.object(server.settings, "ac_path", return_value=str(self.folder)),
+              patch.object(server, "start_build", return_value=(200, {"ok": True})) as start):
+            handler.do_POST()
+        handler._send.assert_called_once_with(200, {"ok": True})
+        self.assertEqual("source", start.call_args.kwargs.get("ai_source"))
+        target = self.run_generator(start.call_args.args[0], "--ai-source", start.call_args.kwargs["ai_source"])
+        self.assertEqual({"aiMargins": margins}, mytracks.load(target)["edits"])
+
+    def test_generator_defers_removing_installed_ini_while_ac_runs(self):
+        hints = self.folder / "content/tracks/existing" / aihints.FILE
+        hints.parent.mkdir(parents=True)
+        hints.write_bytes(b"installed hints")
+        with patch.object(route_race, "ac_running", return_value=True):
+            self.run_generator("existing")
+        self.assertEqual(b"installed hints", hints.read_bytes())
 
     def test_hints_state_current_and_stale(self):
         self.ready(self.metres)
