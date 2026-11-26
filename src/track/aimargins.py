@@ -98,8 +98,8 @@ def _reserve(occupied, item, parts):
         occupied[side].extend(parts)
 
 
-def place(items, route: aicorrections.Route, metres: np.ndarray, stations: np.ndarray,
-          heights: np.ndarray, circuit: bool, level_gap: float) -> tuple[list[Span], dict[str, str]]:
+def placements(items, route: aicorrections.Route, metres: np.ndarray, stations: np.ndarray,
+               heights: np.ndarray, circuit: bool, level_gap: float):
     """Place the recipe's directed route stretches on the installed lane's 3D stations. Pure."""
     samples = metres
     if circuit:
@@ -115,14 +115,31 @@ def place(items, route: aicorrections.Route, metres: np.ndarray, stations: np.nd
         return float(np.interp(metre, samples, stations) / stations[-1])
 
     occupied = {"left": [], "right": []}
-    spans, rejected = [], {}
+    spans, rejected, locations = [], {}, {}
     for item in items:
+        key = item["id"]
+        marks = {}
+        for endpoint in ("start", "end"):
+            try:
+                marks[endpoint] = _endpoint(item[endpoint], route, metres, heights, circuit, level_gap)
+            except ValueError as exc:
+                rejected.setdefault(key, str(exc))
+        # A surviving anchor can still be highlighted if its partner no longer resolves.
+        locations[key] = {endpoint: fraction(metre) for endpoint, metre in marks.items()}
+        if key in rejected:
+            continue
         try:
-            start, end = (_endpoint(item[k], route, metres, heights, circuit, level_gap)
-                          for k in ("start", "end"))
-            start, end = _extent(start, end, samples, circuit, route.length)
+            start, end = _extent(marks["start"], marks["end"], samples, circuit, route.length)
             _reserve(occupied, item, intervals(start, end, route.length))
-            spans.append(Span(item["id"], fraction(start), fraction(end), _setting(item["left"]), _setting(item["right"])))
+            spans.append(Span(key, locations[key]["start"], locations[key]["end"],
+                              _setting(item["left"]), _setting(item["right"])))
         except ValueError as exc:
-            rejected[item["id"]] = str(exc)
+            rejected[key] = str(exc)
+    return spans, rejected, locations
+
+
+def place(items, route: aicorrections.Route, metres: np.ndarray, stations: np.ndarray,
+          heights: np.ndarray, circuit: bool, level_gap: float) -> tuple[list[Span], dict[str, str]]:
+    """Return placed spans and reasons for rejected items on the installed lane. Pure."""
+    spans, rejected, _ = placements(items, route, metres, stations, heights, circuit, level_gap)
     return spans, rejected

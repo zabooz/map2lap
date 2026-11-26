@@ -12,6 +12,15 @@ export const isChanged = (s: EditState) => s.removed.length > 0 || s.objectSorts
   || s.placed.length > 0 || s.copies.length > 0 || s.paints.length > 0 || (s.models?.length ?? 0) > 0
   || s.surfaces.length > 0 || (s.trees?.length ?? 0) > 0 || (s.walls?.length ?? 0) > 0 || (s.kerbs?.length ?? 0) > 0 || (s.stitches?.length ?? 0) > 0 || (s.aiCorrections?.length ?? 0) > 0
   || !!s.treeSpacing || !!s.carDensity;
+type SaveAction = "save" | "recalculate" | "play";
+type SavedLine = {status: string; inputs?: string; message?: string; hints?: {state: string; unplaced: string | null}};
+
+/** Whether this Save action still needs a lane or hint update on the written folder. Pure. */
+export function needsAiUpdate(action: SaveAction, line: SavedLine) {
+  return action !== "play" && (line.status === "pending" || (action === "recalculate" &&
+    (line.status !== "ready" || line.hints?.state === "stale" || line.hints?.unplaced === "recalculate")));
+}
+
 /** Never saved here, nothing changed: nothing to save, as a file just opened. Pure. */
 const isAsBuilt = (s: EditState) => !isChanged(s) && !s.recipe;
 const clock = (at: number) => new Date(at * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
@@ -29,7 +38,7 @@ export function useSave({name, timedMode, edits, state, view, onSaved, lanePendi
 
   /** The track written as its edits say (trackcopy.save): in its place, or (copyTitle) as a new track the Editor then goes on
       with. The name it was written as, or null. */
-  const write = async (copyTitle: string | null, action: "save" | "recalculate" | "play") => {
+  const write = async (copyTitle: string | null, action: SaveAction) => {
     setAsking(null);
     setSaving({busy: true, text: null});
     await edits.settled();
@@ -41,7 +50,7 @@ export function useSave({name, timedMode, edits, state, view, onSaved, lanePendi
       setSaving({busy: false, text: "Not saved: the changes could not be kept. Nothing was written."});
       return null;
     }
-    const r = await post<{name: string; title: string; aiLine?: {status: string; inputs: string; message?: string}}>(`/api/editor/${encodeURIComponent(name)}/save`,
+    const r = await post<{name: string; title: string; aiLine?: SavedLine}>(`/api/editor/${encodeURIComponent(name)}/save`,
                                                        {copy: copyTitle !== null, title: copyTitle, revision});
     edits.hold(false);
     if (r.error || !r.name) {
@@ -52,7 +61,7 @@ export function useSave({name, timedMode, edits, state, view, onSaved, lanePendi
     if (copyTitle !== null) edits.handOver(r.name);
     else edits.markSaved();
     const line = r.aiLine;
-    if (action !== "play" && line && (line.status === "pending" || (action === "recalculate" && line.status !== "ready")))
+    if (line && needsAiUpdate(action, line))
       void updateAiLine(r.name, action === "recalculate", line.inputs);
     else if (action === "save" && line?.status === "failed" && line.message) aiLineError(r.name, line.message);
     onSaved(r.name);

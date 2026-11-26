@@ -352,6 +352,8 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
             source_slot = ailanejobs.track(own)
             with source_slot.condition:
                 lane_state = ailinestate.carry(folder, new_kn5, kind == "circuit")
+                hints = ailinestate.hints_state(Path(temporary), kind == "circuit")
+                lane_state["hints"] = {key: hints[key] for key in ("state", "unplaced")}
             dnfparking.install(Path(new_kn5))
         # (a build started or a tab saved meanwhile: the triangles counted are no more the ones to go)
         if objectlist.state_of(path) != edits["base"] or trackedits.load(ac, name)["revision"] != edits["revision"]:

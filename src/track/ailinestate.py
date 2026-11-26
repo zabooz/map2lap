@@ -18,6 +18,10 @@ CODE_VERSION = 13
 ERRORS = (AssertionError, IndexError, KeyError, OSError, ValueError, struct.error)
 
 
+class Deferred(ValueError):
+    """AC started before this update could be installed."""
+
+
 def reason(error):
     """User-visible reason for a failed lane. Pure."""
     if isinstance(error, KeyError):
@@ -153,23 +157,23 @@ def _render(folder, lane, circuit, margins, rejected, metres, unplaced):
         route = _route(folder, circuit)
         if route is None:
             # The surviving spline still supplies its own automatic passing widths.
-            automatic = aihints.render(lane, circuit, [], None, None)
+            automatic, profile = aihints.render_profile(lane, circuit, [], None, None)
             for margin in margins:
                 metre = margin["start"]["metre"]
                 rejected[margin["id"]] = f"Unresolved route anchor at route metre {metre:.1f}: saved route unavailable"
-            return automatic._replace(rejected=rejected)
+            return automatic._replace(rejected=rejected), profile
         placement = route, metres
-    result = aihints.render(lane, circuit, margins, placement, unplaced)
-    return result._replace(rejected=rejected | result.rejected)
+    result, profile = aihints.render_profile(lane, circuit, margins, placement, unplaced)
+    return result._replace(rejected=rejected | result.rejected), profile
 
 
-def _expected(folder, circuit, lane=None, metres=None):
-    """Return the saved recipe's expected hints and whether the selected lane is readable."""
+def _expected(folder, circuit, lane=None, metres=None, margins=None):
+    """Return expected hints and their profile. An absent profile indicates an unreadable lane."""
     lane = folder / fastlane.FILE if lane is None else lane
-    margins, rejected = _saved_margins(folder)
+    margins, rejected = _saved_margins(folder) if margins is None else (margins, {})
     unplaced = "recalculate" if margins else None
     if not lane.is_file():
-        return aihints.Hints(b"", rejected, unplaced, []), False
+        return aihints.Hints(b"", rejected, unplaced, []), None
     if margins and metres is None:
         record = _raw_record(folder)
         digest = checksum(lane)
@@ -177,9 +181,9 @@ def _expected(folder, circuit, lane=None, metres=None):
         if record.get("status") == "ready" and record.get("lane") and record["lane"] != digest:
             unplaced = "manual"
     try:
-        return _render(folder, lane, circuit, margins, rejected, metres, unplaced), True
+        return _render(folder, lane, circuit, margins, rejected, metres, unplaced)
     except fastlane.NoLine:
-        return aihints.Hints(b"", rejected, unplaced, []), False
+        return aihints.Hints(b"", rejected, unplaced, []), None
 
 
 def hints(folder, circuit, *, lane=None, metres=None) -> aihints.Hints:
@@ -187,11 +191,24 @@ def hints(folder, circuit, *, lane=None, metres=None) -> aihints.Hints:
     return _expected(folder, circuit, lane, metres)[0]
 
 
-def sync_hints(folder, circuit) -> aihints.Hints:
+def margin_preview(folder, circuit, margins):
+    """Preview draft margins on the installed lane using the same placement and merge as the INI."""
+    result, profile = _expected(folder, circuit, margins=margins)
+    profile = profile or aihints.Profile([], [], {})
+    locations = dict(profile.locations)
+    for key, error in result.rejected.items():
+        locations[key] = {**locations.get(key, {}), "error": error}
+    return dict(auto=profile.auto, sections=profile.sections, margins=locations, unplaced=result.unplaced)
+
+
+def sync_hints(folder, circuit, *, report_deferred=False) -> aihints.Hints:
     """Install hints from the saved recipe and lane, removing the INI for an unreadable lane."""
-    result, readable = _expected(folder, circuit)
-    if not route_race.ac_running():
-        aihints.install(folder, result.data if readable else None)
+    result, profile = _expected(folder, circuit)
+    if route_race.ac_running():
+        if report_deferred:
+            raise Deferred("Close Assetto Corsa before updating the AI hints.")
+    else:
+        aihints.install(folder, result.data if profile is not None else None)
     return result
 
 
@@ -211,7 +228,7 @@ def _ready_data(folder, lane, skipped, circuit, metres):
         metres = np.round(np.asarray(metres, dtype=float), 2)
         fields["metres"] = metres.tolist()
     margins, rejected = _saved_margins(folder)
-    result = _render(folder, lane, circuit, margins, rejected, metres, "recalculate")
+    result, _ = _render(folder, lane, circuit, margins, rejected, metres, "recalculate")
     return fields, result.data
 
 
@@ -234,7 +251,7 @@ def publish(folder, inputs, candidate, skipped=None, *, circuit=False, metres=No
     if lane.exists():
         shutil.copy2(lane, backup)
     if route_race.ac_running():
-        raise ValueError("Close Assetto Corsa before replacing the AI line.")
+        raise Deferred("Close Assetto Corsa before replacing the AI line.")
     os.replace(candidate, lane)
     try:
         aihints.install(folder, data)

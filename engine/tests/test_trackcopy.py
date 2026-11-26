@@ -129,7 +129,8 @@ class SideMarginSaveTest(Base):
 
     def test_save_keeps_side_margins_in_the_recipe(self):
         self.draft(aiMargins=[self.margin])
-        trackcopy.save(self.ac, "t")
+        result = trackcopy.save(self.ac, "t")
+        self.assertEqual({"state": "current", "unplaced": "recalculate"}, result["aiLine"]["hints"])
         self.assertEqual([self.margin], aimargins.recipe(Path(self.root)))
         self.assertEqual([self.margin], trackedits.saved_edits(self.ac, "t")["aiMargins"])
         self.assertEqual(0, trackedits.changes(self.ac, "t"))

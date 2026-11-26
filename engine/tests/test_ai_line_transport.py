@@ -1,7 +1,9 @@
 """The Editor sends the installed AI line as revisioned little-endian columns."""
+from concurrent.futures import ThreadPoolExecutor
 import struct
 import sys
 import tempfile
+from threading import Event
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -9,7 +11,7 @@ from unittest import mock
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-from app import mytracks, settings
+from app import ailanejobs, mytracks, settings
 from server_editor import EditorHandlers
 from track import fastlane, obj_to_kn5
 
@@ -50,7 +52,8 @@ class AiLineTransportTest(unittest.TestCase):
         args, headers = self.request()
         code, status = args
         self.assertEqual(200, code)
-        self.assertEqual({"status", "message", "closed", "revision", "count", "canCalculate", "validity"}, status.keys())
+        self.assertEqual({"status", "message", "closed", "revision", "count", "canCalculate", "validity", "hints"}, status.keys())
+        self.assertEqual({"state": "stale", "unplaced": None, "rejected": {}}, status["hints"])
         self.assertTrue(status["canCalculate"])
         self.assertEqual("pending", status["validity"])
         self.assertEqual(("ready", True, 2), (status["status"], status["closed"], status["count"]))
@@ -63,6 +66,38 @@ class AiLineTransportTest(unittest.TestCase):
         columns = [(i + .25, i + .5) for i in range(1, 24)]
         columns[4] = (16_777_217, -2)
         self.assertEqual(tuple(value for col in columns for value in col), values)
+
+    def test_status_and_margin_preview_wait_for_the_complete_saved_folder(self):
+        import server
+        self.write()
+        model = self.directory / "lane.kn5"
+        previous = self.directory.with_name("previous")
+        def preview():
+            handler = object.__new__(server.Handler)
+            handler.path = "/api/editor/lane/ai-line/margins"
+            handler._body = mock.Mock(return_value={"aiMargins": []})
+            handler._own_page = mock.Mock(return_value=True)
+            handler._send = mock.Mock()
+            handler.do_POST()
+            return handler._send.call_args
+        with ThreadPoolExecutor(1) as pool:
+            for request in (self.request, preview):
+                with self.subTest(request=request.__name__):
+                    entered = Event()
+                    def ac_path():
+                        entered.set()
+                        return str(self.directory.parents[2])
+                    with mock.patch.object(settings, "ac_path", side_effect=ac_path):
+                        with ailanejobs.changing(model):
+                            self.directory.rename(previous)
+                            try:
+                                reply = pool.submit(request)
+                                self.assertTrue(entered.wait(5))
+                                with self.assertRaises(TimeoutError):
+                                    reply.result(timeout=.1)
+                            finally:
+                                previous.rename(self.directory)
+                        self.assertEqual(200, reply.result(timeout=5).args[0])
 
     def test_stage_range_includes_interpolated_gate_speeds_and_excludes_runout(self):
         mytracks.save(self.directory, {"kind": "route"})

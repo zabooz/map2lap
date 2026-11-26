@@ -106,6 +106,12 @@ def merge(auto: list[tuple[float, float, float]], spans: list[Span]) -> list[tup
     return result
 
 
+class Profile(NamedTuple):
+    auto: list[tuple[float, float, float]]
+    sections: list[tuple[float, float, float, float]]
+    locations: dict[str, dict[str, float]]
+
+
 class Hints(NamedTuple):
     data: bytes
     rejected: dict[str, str]
@@ -116,17 +122,25 @@ class Hints(NamedTuple):
 def render(lane: Path, circuit: bool, margins: list, placement: tuple[aicorrections.Route, np.ndarray] | None,
            unplaced: str | None) -> Hints:
     """Render the installed lane with the recipe's placeable side margins and report rejected anchors."""
+    hints, _ = render_profile(lane, circuit, margins, placement, unplaced)
+    return hints
+
+
+def render_profile(lane: Path, circuit: bool, margins: list, placement: tuple[aicorrections.Route, np.ndarray] | None,
+                   unplaced: str | None) -> tuple[Hints, Profile]:
+    """Calculate the INI and its Editor preview from a single placement and merge."""
     from track import fastlane, obj_to_kn5
     points, detail, _ = fastlane.read_lane(lane)
     auto = sections(points, detail, circuit)
-    spans, rejected = [], {}
+    spans, rejected, locations = [], {}, {}
     if margins and placement is not None:
         route, metres = placement
-        spans, rejected = aimargins.place(margins, route, metres, _stations(points, circuit),
-                                          points["pos"][:, 1], circuit, obj_to_kn5.LEVEL_GAP_M)
+        spans, rejected, locations = aimargins.placements(margins, route, metres, _stations(points, circuit),
+                                                         points["pos"][:, 1], circuit, obj_to_kn5.LEVEL_GAP_M)
+    profile = Profile(auto, merge(auto, spans), locations)
     data = "".join(f"[DANGER_{i}]\nSTART={a:.9f}\nEND={b:.9f}\nLEFT={left:.2f}\nRIGHT={right:.2f}\n\n"
-                   for i, (a, b, left, right) in enumerate(merge(auto, spans))).encode("ascii")
-    return Hints(data, rejected, unplaced if margins and placement is None else None, spans)
+                   for i, (a, b, left, right) in enumerate(profile.sections)).encode("ascii")
+    return Hints(data, rejected, unplaced if margins and placement is None else None, spans), profile
 
 
 def install(folder, data):

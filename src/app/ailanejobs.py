@@ -98,7 +98,7 @@ def _calculate(model, circuit, slot, revision, original, key):
             if answer["inputs"] != key:
                 return _failed(answer.get("message", "The worker read different track inputs. Please retry."))
             if route_race.ac_running():
-                return _failed("Close Assetto Corsa before replacing the AI line.")
+                raise ailinestate.Deferred("Close Assetto Corsa before replacing the AI line.")
             if message := answer.get("message"):
                 if original["status"] not in ("ready", "manual"):
                     ailinestate.mark_outdated(model.parent, key, message)
@@ -108,7 +108,25 @@ def _calculate(model, circuit, slot, revision, original, key):
             return ailinestate.status(model.parent, key)
 
 
-def ensure(model, circuit, *, force=False, retry=False, saved_inputs=None):
+def _installed_state(folder, circuit, state, retry, place_margins):
+    """Update installed hints if requested. Return None when the lane needs a worker."""
+    status = state["status"]
+    if place_margins and status in ("ready", "manual"):
+        hints = ailinestate.hints_state(folder, circuit)
+        if status == "ready" and hints["unplaced"] == "recalculate":
+            return None
+        # Margins on a hand-recorded lane can only refresh its automatic hints.
+        if status == "ready" or hints["unplaced"] == "manual":
+            if hints["state"] == "stale":
+                ailinestate.sync_hints(folder, circuit, report_deferred=True)
+                hints["state"] = "current"
+            return {**state, "hints": hints}
+    if status == "pending" or retry and status in ("manual", "failed"):
+        return None
+    return state
+
+
+def ensure(model, circuit, *, force=False, retry=False, saved_inputs=None, place_margins=False):
     """Check the installed inputs, sharing an in-flight calculation with all waiters."""
     model = Path(model)
     slot = track(model)
@@ -129,12 +147,17 @@ def ensure(model, circuit, *, force=False, retry=False, saved_inputs=None):
                     if saved_inputs is not None and key != saved_inputs:
                         return {"status": "superseded"}
                     original = ailinestate.status(model.parent, key)
-                    requested = original["status"] == "pending" or (retry and original["status"] in ("manual", "failed"))
-                    if not (force or requested):
-                        return original
+                    if place_margins and route_race.ac_running():
+                        raise ailinestate.Deferred("Close Assetto Corsa before updating the AI line.")
+                    if not force:
+                        installed = _installed_state(model.parent, circuit, original, retry, place_margins)
+                        if installed is not None:
+                            return installed
                     if route_race.ac_running():
-                        return _failed("Close Assetto Corsa before calculating the AI line.")
+                        raise ailinestate.Deferred("Close Assetto Corsa before calculating the AI line.")
                     revision = slot.revision, objectlist.state_of(model)
+                except ailinestate.Deferred as error:
+                    return {"status": "deferred", "message": str(error)}
                 except ailinestate.ERRORS as error:
                     return _failed(ailinestate.reason(error))
                 finally:
@@ -149,6 +172,8 @@ def ensure(model, circuit, *, force=False, retry=False, saved_inputs=None):
             result = _failed("AI line worker stopped unexpectedly.")
             try:
                 result = _calculate(model, circuit, slot, revision, original, key)
+            except ailinestate.Deferred as error:
+                result = {"status": "deferred", "message": str(error)}
             except ailinestate.ERRORS as error:
                 result = _failed(ailinestate.reason(error))
             finally:
@@ -172,7 +197,7 @@ def race(model, circuit, choice, launch):
     while True:
         state = ensure(model, circuit, force=force)
         force = False
-        if state["status"] == "failed":
+        if state["status"] in ("failed", "deferred"):
             return 409, {"lane": "failed", "error": state["message"]}
         if state["status"] == "manual":
             token = state["inputs"] + "." + state["lane"]
@@ -188,9 +213,9 @@ def race(model, circuit, choice, launch):
             try:
                 if ailinestate.inspect(model, circuit) != state:
                     continue
-                # A manually accepted lane or a pre-hints build can reach Race without a new publication.
-                if (state["status"] == "manual" or not (model.parent / aihints.FILE).is_file()) and not route_race.ac_running():
-                    ailinestate.sync_hints(model.parent, circuit)
+                if (not (model.parent / aihints.FILE).is_file()
+                        or ailinestate.hints_state(model.parent, circuit)["state"] == "stale"):
+                    ailinestate.sync_hints(model.parent, circuit, report_deferred=True)
             except ailinestate.ERRORS as error:
                 return 409, {"lane": "failed", "error": ailinestate.reason(error)}
             return launch()

@@ -1,4 +1,5 @@
 """Editor data HTTP endpoints; Handler supplies response, request and same-page helpers."""
+from contextlib import contextmanager
 import json
 import os
 import struct
@@ -8,13 +9,23 @@ from urllib.parse import parse_qs, urlsplit
 
 import generator
 import numpy as np
-from app import mytracks, settings, trackedits, trackinspect, trackview
-from track import ailinestate, editorinfo, fastlane, route_race
+from app import ailanejobs, mytracks, settings, trackedits, trackinspect, trackview
+from track import ailinestate, aimargins, editorinfo, fastlane, route_race
 
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
 LANE_CHANGED = "The installed AI line changed. Reopen the tool to load its current revision."
 LANE_DETAILS = ("speed", "gas", "brake", "lat_g", "radius", "left", "right", "camber", "direction",
                 "normal", "length", "forward", "tag", "grade")
+
+
+@contextmanager
+def _installed_lane(name):
+    """Read one installed lane and recipe together, including across Save's folder swap."""
+    ac = settings.ac_path()
+    slot = ailanejobs.track(Path(ac, "content", "tracks", name, name + ".kn5"))
+    with slot.condition:
+        slot.condition.wait_for(lambda: not slot.writing)
+        yield Path(trackview.kn5_path(ac, name))
 
 
 def _lane_revision(stat):
@@ -253,6 +264,14 @@ def _ink_preview(ref, wider, item, section, band):
     return rows[np.searchsorted(measured, indices)].tolist()
 
 
+def _margin_preview(model, body):
+    """Return the draft's side margins as fractions of the installed AI line."""
+    margins = body.get("aiMargins") if isinstance(body, dict) else None
+    if error := aimargins.problem(margins):
+        raise ValueError(error)
+    return ailinestate.margin_preview(model.parent, mytracks.is_circuit(model.parent), margins)
+
+
 def _move_preview(model, body):
     """Editor-only guide and swept-width check. Never publishes a line."""
     files = [model, model.parent / fastlane.ROUTE, *map(Path, editorinfo.archives(model))]
@@ -354,19 +373,21 @@ class EditorHandlers:
     def _ai_line(self, name, revision=None):
         """The spline accompanying the installed KN5 of track name, independent of its source and draft."""
         try:
-            model = trackview.kn5_path(settings.ac_path(), generator.slug(name))
-            data = _lane_data(Path(model), revision)
-            if revision is None:
-                info = mytracks.load(Path(model).parent) or {}
-                data["canCalculate"] = not bool(info.get("area"))
-                if data["canCalculate"]:
-                    try:
-                        state = ailinestate.inspect(Path(model), mytracks.is_circuit(Path(model).parent))
-                    except ailinestate.ERRORS:
-                        state = ailinestate.status(Path(model).parent, None)
-                    data["validity"] = state["status"]
-                    if state.get("message"):
-                        data["message"] = state["message"]
+            with _installed_lane(generator.slug(name)) as model:
+                data = _lane_data(model, revision)
+                if revision is None:
+                    info = mytracks.load(model.parent) or {}
+                    data["canCalculate"] = not bool(info.get("area"))
+                    if data["canCalculate"]:
+                        circuit = mytracks.is_circuit(model.parent)
+                        data["hints"] = ailinestate.hints_state(model.parent, circuit)
+                        try:
+                            state = ailinestate.inspect(model, circuit)
+                        except ailinestate.ERRORS:
+                            state = ailinestate.status(model.parent, None)
+                        data["validity"] = state["status"]
+                        if state.get("message"):
+                            data["message"] = state["message"]
         except trackview.NotOurs:
             if revision is not None:
                 return self._send(409, {"error": LANE_CHANGED})

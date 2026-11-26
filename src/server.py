@@ -1049,14 +1049,20 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
     def do_POST(self):
         if route := re.fullmatch(r"/api/feedback(?:/([1-9][0-9]*)/(messages|seen))?", self.path):
             return self._feedback(route)
-        move = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/move-preview", self.path)
-        if move:
+        preview = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/(move-preview|margins)", self.path)
+        if preview:
             if not self._own_page():
-                return self._send(403, {"error": "Only the editor can preview a move"})
+                return self._send(403, {"error": "Only the editor can preview AI line edits"})
             try:
-                from server_editor import _move_preview
-                model = Path(trackview.kn5_path(settings.ac_path(), move[1]))
-                return self._send(200, _move_preview(model, self._body()))
+                from server_editor import _installed_lane, _margin_preview, _move_preview
+                body = self._body()
+                if preview[2] == "margins":
+                    with _installed_lane(preview[1]) as model:
+                        result = _margin_preview(model, body)
+                else:
+                    model = Path(trackview.kn5_path(settings.ac_path(), preview[1]))
+                    result = _move_preview(model, body)
+                return self._send(200, result)
             except (trackview.NotOurs, *ailinestate.ERRORS) as e:
                 return self._send(400, {"error": ailinestate.reason(e)})
         lane = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/recalculate", self.path)
@@ -1081,8 +1087,9 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
             with lock:
                 if error := _play_blocker():
                     return self._send(200, {"status": "deferred", "message": error})
-            result = ailanejobs.ensure(model, mytracks.is_circuit(model.parent), retry=retry, saved_inputs=saved_inputs)
-            if result["status"] == "superseded":
+            result = ailanejobs.ensure(model, mytracks.is_circuit(model.parent), retry=retry, saved_inputs=saved_inputs,
+                                       place_margins=retry)
+            if result["status"] in ("superseded", "deferred") or result.get("hints", {}).get("unplaced") == "manual":
                 return self._send(200, result)
             if result["status"] != "ready":
                 return self._send(409, {"error": result.get("message", "The installed AI line changed. Please retry.")})

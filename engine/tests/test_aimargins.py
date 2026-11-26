@@ -52,6 +52,11 @@ class SideMarginTest(unittest.TestCase):
             self.assertEqual(ini[name]["LEFT"], f"{left:.2f}")
             self.assertEqual(ini[name]["RIGHT"], f"{right:.2f}")
 
+    def test_render_returns_the_four_hint_fields(self):
+        data, rejected, unplaced, spans = self.render(self.margin())
+        self.assertTrue(data)
+        self.assertEqual(({}, None, "m1"), (rejected, unplaced, spans[0].id))
+
     def test_right_margin_over_two_automatic_widths_keeps_left_automatic(self):
         hints = self.render(self.margin())
         self.assertSections(hints, [[0, 1/3, .5, .5], [1/3, .5, .5, 1.],
@@ -310,6 +315,195 @@ class SideMarginTest(unittest.TestCase):
         result = ailinestate.sync_hints(self.folder, False)
         self.assertEqual(result.unplaced, "manual")
         self.assertEqual((self.folder / aihints.FILE).read_bytes(), self.render().data)
+
+    def test_acceptance_right_margin_saved_while_ac_runs_reaches_the_next_race(self):
+        from app import ailanejobs
+        self.ready(self.metres)
+        automatic = (self.folder / aihints.FILE).read_bytes()
+        checksum = ailinestate.checksum(self.lane)
+        expected = self.render(self.margin()).data
+        staged = self.folder / "staged"
+        self.recipe(staged, self.margin())
+        model = staged / "saved.kn5"
+        model.touch()
+        with patch.object(ailinestate, "input_key", return_value="source"):
+            with patch.object(route_race, "ac_running", return_value=True):
+                ailinestate.carry(self.folder, model, False)
+            installed = self.folder / "installed"
+            staged.rename(installed)
+            ini = installed / aihints.FILE
+            self.assertEqual(automatic, ini.read_bytes())
+            self.assertEqual("stale", ailinestate.hints_state(installed, False)["state"])
+            def launch():
+                self.assertEqual(expected, ini.read_bytes())
+                return 200, {"ok": True}
+            self.assertEqual((200, {"ok": True}), ailanejobs.race(installed / model.name, False, {}, launch))
+            self.assertEqual(checksum, ailinestate.checksum(installed / fastlane.FILE))
+
+    def post_lane(self, endpoint, body):
+        """Call the Editor's installed-lane POST route using this test's model."""
+        import server
+        model = self.folder / "track.kn5"
+        model.touch(exist_ok=True)
+        handler = object.__new__(server.Handler)
+        handler.path = "/api/editor/track/ai-line/" + endpoint
+        handler._body = Mock(return_value=body)
+        handler._own_page = Mock(return_value=True)
+        handler._send = Mock()
+        with (patch.object(server.trackview, "kn5_path", return_value=model),
+              patch.object(server.trackedits, "changes", return_value=0),
+              patch.object(server, "_play_blocker", return_value=None),
+              patch.object(ailinestate, "input_key", return_value="source")):
+            handler.do_POST()
+        return handler._send.call_args.args
+
+    def test_stale_hints_recalculate_defers_while_ac_runs(self):
+        self.ready(self.metres)
+        self.recipe(self.folder, self.margin())
+        ini = self.folder / aihints.FILE
+        before = ini.read_bytes()
+        for body in ({}, {"inputs": "source", "retry": True}):
+            with self.subTest(body=body), patch.object(route_race, "ac_running", return_value=True):
+                code, answer = self.post_lane("recalculate", body)
+                self.assertEqual((200, "deferred"), (code, answer.get("status")))
+                self.assertTrue(answer["message"])
+                self.assertEqual(before, ini.read_bytes())
+
+    def test_recalculate_only_syncs_stale_hints_and_checks_saved_inputs(self):
+        from app import ailanejobs
+        self.ready(self.metres)
+        self.recipe(self.folder, self.margin())
+        ini = self.folder / aihints.FILE
+        automatic = ini.read_bytes()
+        self.assertEqual((200, {"status": "superseded"}), self.post_lane("recalculate", {"inputs": "older"}))
+        self.assertEqual(automatic, ini.read_bytes())
+        for body in ({}, {"inputs": "source"}):
+            with self.subTest(body=body), patch.object(ailanejobs, "compute") as calculate:
+                ini.write_bytes(automatic)
+                code, answer = self.post_lane("recalculate", body)
+                self.assertEqual((200, "ready"), (code, answer.get("status")))
+                self.assertEqual(self.render(self.margin()).data, ini.read_bytes())
+                calculate.assert_not_called()
+
+    def test_recalculate_with_unplaced_margins_calculates_once(self):
+        from app import ailanejobs
+        def worker(model, circuit, candidate):
+            shutil.copy2(self.lane, candidate)
+            return {"inputs": "source", "metres": self.metres.tolist()}
+        for body in ({"retry": True, "inputs": "source"}, {}):
+            self.ready(None)
+            self.recipe(self.folder, self.margin())
+            with self.subTest(body=body), patch.object(ailanejobs, "compute", side_effect=worker) as calculate:
+                # A background Save update may reach the route after another Save made the line ready.
+                self.assertEqual("ready", self.post_lane("recalculate", {"retry": False, "inputs": "source"})[1]["status"])
+                calculate.assert_not_called()
+                for _ in range(2):
+                    response = self.post_lane("recalculate", body)
+                    self.assertEqual("ready", response[1]["status"])
+                calculate.assert_called_once()
+                self.assertEqual(self.render(self.margin()).data, (self.folder / aihints.FILE).read_bytes())
+
+    def test_race_start_never_migrates_unplaced_margins(self):
+        from app import ailanejobs
+        self.ready(None)
+        self.recipe(self.folder, self.margin())
+        with patch.object(ailinestate, "input_key", return_value="source"), patch.object(ailanejobs, "compute") as calculate:
+            ini = self.folder / aihints.FILE
+            ini.write_bytes(b"older hints")
+            self.assertEqual((200, {}), ailanejobs.race(self.folder / "track.kn5", False, {}, lambda: (200, {})))
+            self.assertEqual(self.render().data, ini.read_bytes())
+            calculate.assert_not_called()
+
+    def test_accepted_manual_race_syncs_the_automatic_ini_without_calculating(self):
+        from app import ailanejobs
+        self.ready(self.metres)
+        self.recipe(self.folder, self.margin())
+        self.write(self.route.path, 6.6)
+        digest = ailinestate.checksum(self.lane)
+        ini = self.folder / aihints.FILE
+        ini.write_bytes(b"obsolete")
+        choice = {"useInstalled": "source." + digest}
+        with patch.object(ailinestate, "input_key", return_value="source"), patch.object(ailanejobs, "compute") as calculate:
+            self.assertEqual((200, {}), ailanejobs.race(self.folder / "track.kn5", False, choice, lambda: (200, {})))
+            self.assertEqual(self.render().data, ini.read_bytes())
+            self.assertEqual(digest, ailinestate.checksum(self.lane))
+            calculate.assert_not_called()
+
+    def test_margin_only_recalculate_after_save_preserves_manual_line(self):
+        from app import ailanejobs
+        self.ready(self.metres)
+        self.recipe(self.folder, self.margin())
+        self.write(self.route.path, 6.6)
+        before = self.lane.read_bytes()
+        for body in ({"inputs": "source", "retry": True}, {"retry": True}):
+            with self.subTest(body=body), patch.object(ailanejobs, "compute") as calculate:
+                code, result = self.post_lane("recalculate", body)
+                self.assertEqual((200, "manual"), (code, result.get("status")))
+                calculate.assert_not_called()
+        self.assertEqual(before, self.lane.read_bytes())
+        self.assertEqual(self.render().data, (self.folder / aihints.FILE).read_bytes())
+
+    def test_recalculate_defers_if_ac_starts_before_installing_hints_or_lane(self):
+        from app import ailanejobs
+        self.ready(self.metres)
+        self.recipe(self.folder, self.margin())
+        ini = self.folder / aihints.FILE
+        automatic = ini.read_bytes()
+        # AC can start between the initial check and the final filesystem write.
+        with patch.object(route_race, "ac_running", side_effect=[False, True, True, True]):
+            code, result = self.post_lane("recalculate", {})
+        self.assertEqual((200, "deferred"), (code, result.get("status")))
+        self.assertEqual(automatic, ini.read_bytes())
+        self.ready(None)
+        self.recipe(self.folder, self.margin())
+        reply = {"inputs": "source", "metres": self.metres.tolist()}
+        def worker(model, circuit, candidate):
+            shutil.copy2(self.lane, candidate)
+            running.return_value = True
+            return reply
+        with (patch.object(route_race, "ac_running", return_value=False) as running,
+              patch.object(ailanejobs, "compute", side_effect=worker)):
+            code, result = self.post_lane("recalculate", {})
+        self.assertEqual((200, "deferred"), (code, result.get("status")))
+        self.assertEqual(automatic, ini.read_bytes())
+        self.assertIsNone(ailinestate.lane_metres(self.folder, self.lane))
+
+    def test_margin_preview_reports_sections_and_rejections(self):
+        self.ready(self.metres + 40)
+        self.recipe(self.folder, self.margin(10, 20))
+        bad = self.margin(150, 220, id="overlap")
+        unresolved = self.margin(90, 110, id="off")
+        unresolved["start"]["context"] = [[0, 100], [5, 100], [10, 100]]
+        both = dict(unresolved, id="both", end=unresolved["start"])
+        code, preview = self.post_lane("margins", {"aiMargins": [self.margin(), bad, unresolved, both]})
+        self.assertEqual(200, code)
+        np.testing.assert_allclose(preview["auto"], [[0, .5, .5], [.5, 1, .75]])
+        np.testing.assert_allclose(preview["sections"], [[0,.2,.5,.5], [.2,.5,.5,1.],
+                                                        [.5,160/300,.75,1.], [160/300,1,.75,.75]])
+        self.assertEqual({"start": .2, "end": 160/300}, preview["margins"]["m1"])
+        np.testing.assert_allclose([preview["margins"]["overlap"][k] for k in ("start", "end")], [110/300, .6])
+        self.assertIn("Overlaps", preview["margins"]["overlap"]["error"])
+        self.assertAlmostEqual(70/300, preview["margins"]["off"]["end"])
+        self.assertNotIn("start", preview["margins"]["off"])
+        self.assertEqual({"error"}, preview["margins"]["both"].keys())
+        self.assertIsNone(preview["unplaced"])
+        self.assertEqual([self.margin(10, 20)], aimargins.recipe(self.folder))
+        for invalid in ({}, {"aiMargins": [self.margin(right=.76)]}, []):
+            code, error = self.post_lane("margins", invalid)
+            self.assertEqual(400, code)
+            self.assertIn("Invalid side margin", error["error"])
+
+    def test_preview_uses_draft_margins_for_legacy_and_manual_lines(self):
+        self.ready(None)
+        for state in ("recalculate", "manual"):
+            if state == "manual":
+                self.write(self.route.path, 6.6)
+            for items in ([self.margin()], []):
+                code, preview = self.post_lane("margins", {"aiMargins": items})
+                self.assertEqual(200, code)
+                self.assertEqual(state if items else None, preview["unplaced"])
+                self.assertEqual({}, preview["margins"])
+                self.assertTrue(preview["sections"])
 
     def run_generator(self, name, *args):
         """Run the build CLI and its folder/recipe writers with a stand-in tile and KN5 in this test's AC."""
