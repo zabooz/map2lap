@@ -11,6 +11,7 @@ import {MeshFetchError} from "../scene/requests";
 import type {TrackView} from "../scene/view";
 import type {Place} from "../types";
 import type {ToolController} from "./toolHost";
+import type {Tool} from "./toolDefs";
 import {thenView, ToolChoice, ToolOptions} from "./ToolOptions";
 import styles from "./AiLine.module.css";
 
@@ -43,11 +44,17 @@ function Legend({slow, fast}: {slow: number; fast: number}) {
 
 type AiLineAnswer = Awaited<ReturnType<typeof fetchAiLine>> | {status: "error"; message: string};
 
-/** Check the installed revision when the tool opens, after recalculation and after Save. Visibility does not affect a transfer. */
-export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, editable, routeTrack}: {
-  name: string; view: TrackView; enabled: boolean; writes: number; unsaved: boolean; edits: TrackEdits; moves: AiCorrection[]; editable: boolean; routeTrack: boolean;
+/** The AI line tools: which one is on. */
+export type AiLineMode = "move" | "redraw";
+const AI_TOOLS: Tool[] = ["ai-move", "ai-redraw"];
+
+/** Move line and Redraw line, two tools over one installed line: either one shows it. mode: the one on, null: neither. Checks the
+    installed revision when one of them is taken up from another tool (not between the two), after recalculation and after Save.
+    Visibility does not affect a transfer. */
+export function useAiLine({name, view, mode, writes, unsaved, edits, moves, editable, routeTrack}: {
+  name: string; view: TrackView; mode: AiLineMode | null; writes: number; unsaved: boolean; edits: TrackEdits; moves: AiCorrection[]; editable: boolean; routeTrack: boolean;
 }) {
-  const [pen, setPen] = useState(false);
+  const enabled = mode !== null, pen = mode === "redraw";
   const [free, setFree] = useState(true);
   const job = useSyncExternalStore(subscribeAiUpdates, () => aiUpdate(name));
   const [validity, setValidity] = useState<string>();
@@ -120,19 +127,15 @@ export function useAiLine({name, view, enabled, writes, unsaved, edits, moves, e
 
   const controller: ToolController = {
     toggleMode: () => { if (canEdit) setFree(value => !value); },
-    ctrlAction: () => { if (canEdit) setPen(value => !value); },
-    activate: () => { setError(""); setAttempt(value => value + 1); },
-    clear: () => { setHovered(null); setPen(false); },
+    // (between Move line and Redraw line the line shown stays: the session's mode switches, an unfinished stroke is discarded)
+    activate: ({tool}) => { setError(""); if (!AI_TOOLS.includes(tool)) setAttempt(value => value + 1); },
+    clear: () => setHovered(null),
     options: <>
-      <ToolOptions id="edit-ai-line-set" title="AI line" note={unsaved ? "Line from the last build or save" : undefined}
+      <ToolOptions id="edit-ai-line-set" title={pen ? "Redraw line" : "Move line"} note={unsaved ? "Line from the last build or save" : undefined}
         options={canEdit ? {
           shift: <span>
             <ToolChoice label="Road" on={!free} hint="Stay on the selected road" onClick={thenView(view, () => setFree(false))} />
             <ToolChoice label="Free" on={free} hint="Allow driveable surfaces off the road" onClick={thenView(view, () => setFree(true))} />
-          </span>,
-          ctrl: <span>
-            <ToolChoice label="Move" on={!pen} hint="Drag the line sideways" onClick={thenView(view, () => setPen(false))} />
-            <ToolChoice label="Redraw" on={pen} hint="Draw a replacement section" onClick={thenView(view, () => setPen(true))} />
           </span>,
         } : undefined}
         actions={<>

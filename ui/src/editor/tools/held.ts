@@ -81,7 +81,6 @@ class ModifierAlone {
 }
 
 export class AltAlone extends ModifierAlone { constructor() { super("Alt"); } }
-export class CtrlAlone extends ModifierAlone { constructor() { super("Control"); } }
 
 /** Text entry and modal dialogs own their keyboard while the Editor remains mounted. */
 export function editorInputBlocked(target: EventTarget | null) {

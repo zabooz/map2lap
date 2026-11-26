@@ -1,5 +1,5 @@
 import {expect, test} from "bun:test";
-import {CtrlAlone, AltAlone, heldOf, ShiftAlone} from "./held";
+import {AltAlone, heldOf, ShiftAlone} from "./held";
 
 const keys = (shiftKey: boolean, ctrlKey: boolean, altKey: boolean) => heldOf({shiftKey, ctrlKey, altKey});
 
@@ -47,16 +47,4 @@ test("Shift with another key (Ctrl+Shift+Z), a click, the wheel or typed in a fi
   shift.down(key("Shift")); shift.down(key("Z", {ctrlKey: true, shiftKey: true})); expect(shift.up(key("Shift"))).toBe(false);
   shift.down(key("Shift")); shift.other(); expect(shift.up(key("Shift"))).toBe(false);
   shift.down({...key("Shift"), inField: true}); expect(shift.up(key("Shift"))).toBe(false);
-});
-
-test("Ctrl alone switches once, shortcuts, other modifiers, fields, clicks and wheel do not", () => {
-  const ctrl = new CtrlAlone();
-  ctrl.down(key("Control")); expect(ctrl.up(key("Control"))).toBe(true);
-  expect(ctrl.up(key("Control"))).toBe(false);
-  for (const other of ["z", "y", "s", "Shift", "Alt"]) {
-    ctrl.down(key("Control")); ctrl.down(key(other)); expect(ctrl.up(key("Control"))).toBe(false);
-  }
-  ctrl.down(key("Control")); ctrl.other(); ctrl.down(key("Control",{repeat:true}));
-  expect(ctrl.up(key("Control"))).toBe(false);
-  ctrl.down({...key("Control"), inField:true}); expect(ctrl.up(key("Control"))).toBe(false);
 });

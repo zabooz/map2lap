@@ -74,7 +74,7 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   await page.keyboard.press("Shift");
   await expect(bar.getByRole("button",{name:"Road",exact:true})).toHaveAttribute("aria-pressed","true");
   await wheelWith(page, ["Control"], -100);
-  await expect(bar.getByRole("button",{name:"Move",exact:true})).toHaveAttribute("aria-pressed","true");
+  await expect(page.locator("#edit-ai-move")).toHaveAttribute("aria-pressed","true");
   const bounds = (await scene(page).boundingBox())!;
   const row = result.rows.find((r: number[]) => r[3] > 104);
   // Initial camera looks from 45 m behind and 22 m above AC_START_0.
@@ -130,15 +130,19 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   let checks = 0;
   page.on("request", r => { if (r.url().endsWith("/move-preview")) checks++; });
   await page.getByTestId("nav-editor").focus();
-  await page.keyboard.press("Control");
-  await expect(bar.getByRole("button",{name:"Redraw",exact:true})).toHaveAttribute("aria-pressed","true");
+  await page.keyboard.press("Control");      // (Ctrl by itself switches nothing any more)
+  await expect(page.locator("#edit-ai-move")).toHaveAttribute("aria-pressed","true");
+  await page.keyboard.press("p");            // (Redraw line keeps the line shown and its guide: nothing is read again)
+  await expect(page.locator("#edit-ai-redraw")).toHaveAttribute("aria-pressed","true");
+  await expect(bar).toContainText("Redraw line");
   await expect.poll(async () => (await page.screenshot({clip:patch})).equals(before)).toBe(true);
   await expect(bar).toContainText("Side limits");
   await page.screenshot({path:"../out/ai-line-save/04-redraw.png"});
   expect(checks).toBe(0);
   await page.mouse.move(x,y);
   await expect(scene(page)).toHaveCSS("cursor","crosshair");
-  await page.keyboard.press("Control");
+  await page.keyboard.press("l");
+  await expect(page.locator("#edit-ai-move")).toHaveAttribute("aria-pressed","true");
   await page.mouse.move(x+15,y); await page.mouse.down(); await page.mouse.move(x+20,y); await page.mouse.up();
   await expect.poll(async () => (await moves())[0]?.routeOffset).not.toBe(afterSave[0].routeOffset);
   expect(await moves()).toMatchObject([{id:initial.id}]);
@@ -152,12 +156,11 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   await backend.post("/__test/rebuild", {name:"alpha", title:"Alpha Test", ai_moves:true, trees:false});
   await openEditor(page); await keysOnView(page);
   const response = page.waitForResponse(r => r.url().endsWith("/ai-line/move-preview") && r.request().postDataJSON().guide);
-  await page.keyboard.press("l");
+  await page.keyboard.press("p");
   const guide = await (await response).json();
   const bar = page.locator("#edit-ai-line-set");
   await expect(bar.getByRole("button",{name:"Free",exact:true})).toHaveAttribute("aria-pressed","true");
-  await page.keyboard.press("Control");
-  await expect(bar.getByRole("button",{name:"Redraw",exact:true})).toHaveAttribute("aria-pressed","true");
+  await expect(page.locator("#edit-ai-redraw")).toHaveAttribute("aria-pressed","true");
   const bounds=(await scene(page).boundingBox())!, three=await import("three");
   const camera=new three.PerspectiveCamera(55,bounds.width/bounds.height,.5,10000);
   camera.position.set(128,22,5); camera.lookAt(128,0,-40); camera.updateMatrixWorld();
@@ -169,7 +172,7 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   const click = (metre:number, off=0) => page.mouse.click(...position(metre,off));
   const moves=async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiCorrections;
   await click(105);
-  await page.keyboard.press("Control"); await page.keyboard.press("Control");
+  await page.keyboard.press("l"); await page.keyboard.press("p");     // (another tool discards the unfinished stroke)
   await click(105); await click(91);
   await expect(page.locator("#edit-ai-preview")).toContainText("End precedes the start");
   await page.keyboard.press("Escape");
@@ -184,7 +187,7 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   await expect(page.getByText("AI line updated",{exact:true})).toBeVisible();
   await expect(bar).toContainText("Side limits");
   expect(await moves()).toEqual([stroke]);
-  await bar.getByRole("button",{name:"Move",exact:true}).click();
+  await page.locator("#edit-ai-move").click();
   await page.mouse.move(...position(100));
   await expect(page.getByRole("region",{name:"AI line point"})).toContainText("Route metre");
 });
@@ -229,7 +232,7 @@ test("Play saves a road change and Practice leaves its installed preview pending
   expect(requests).toBe(0);
 });
 
-test("L shows the installed AI line", async ({page, backend}) => {
+test("L and P show the installed AI line", async ({page, backend}) => {
   let statusReads = 0, binaryReads = 0;
   page.on("request", request => {
     const url = new URL(request.url());
@@ -241,10 +244,15 @@ test("L shows the installed AI line", async ({page, backend}) => {
   const c = await keysOnView(page);
   await page.keyboard.press("l");
   const ai = page.getByRole("heading", {name: "AI", exact: true}).locator("..");
-  await expect(ai.getByRole("button", {name: "AI line", exact: true})).toHaveAttribute("aria-pressed", "true");
+  await expect(ai.getByRole("button", {name: "AI line", exact: true})).toHaveCount(0);
+  await expect(ai.getByRole("button", {name: "Move line", exact: true})).toHaveAttribute("aria-pressed", "true");
   const bar = page.locator("#edit-ai-line-set");
   await expect(bar).toContainText("No AI line is installed");
-  await page.keyboard.press("Escape");
+  await page.keyboard.press("p");
+  await expect(ai.getByRole("button", {name: "Redraw line", exact: true})).toHaveAttribute("aria-pressed", "true");
+  await expect(bar).toContainText("No AI line is installed");
+  await page.keyboard.press("p");
+  await expect(bar).toHaveCount(0);
   await deleteTree(page);
   await backend.post("/__test/ai-line", {name: "alpha"});
   await page.keyboard.press("l");

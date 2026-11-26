@@ -113,7 +113,7 @@ export function EditTools({name, title, routeTrack, timedMode, visible, taken, v
   const placingWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
   const setPlacingWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { placingWheel.current = wheel; }, []);
   const [aiLineWrites, setAiLineWrites] = useState(0);
-  const aiLine = useAiLine({name, view, routeTrack, enabled: tool === "ai-line", writes: aiLineWrites,
+  const aiLine = useAiLine({name, view, routeTrack, mode: tool === "ai-move" ? "move" : tool === "ai-redraw" ? "redraw" : null, writes: aiLineWrites,
     unsaved: unsavedAiDraft, edits, moves: state.aiCorrections, editable});
   const saving = useSave({lanePending: aiLine.pending && !aiLine.working, name, timedMode, edits, state, view, onSaved: savedName => {
     if (savedName === name) setAiLineWrites(writes => writes + 1);
@@ -250,7 +250,7 @@ export function EditTools({name, title, routeTrack, timedMode, visible, taken, v
   const placing = {wheel: (keys: WheelKeys, by: number) => placingWheel.current(keys, by), takesWheel: true};
   const controllers: ToolControllers = {
     select: select.controller, camera: camera.controller, smooth: band.controller, separate: separation.controller, bank: banking.controller, kerb: kerbs.controller,
-    stitch: stitch.controller, "ai-line": aiLine.controller, elevation: elevation.controller, move: move.controller, delete: remover.controller,
+    stitch: stitch.controller, "ai-move": aiLine.controller, "ai-redraw": aiLine.controller, elevation: elevation.controller, move: move.controller, delete: remover.controller,
     copy: {...placing, options: <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setPlacingWheel} onFailed={setCopyFailed} />},
     // (Insert and Groups draw their bars themselves: they stay mounted with the Library)
     model: placing, group: placing,

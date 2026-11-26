@@ -1,7 +1,7 @@
 // The Editor's tools defined once: id, name, sidebar group, key, tooltip, help, and how each takes a left pick. ToolPanel, Help, the
 // keyboard and the tool host (useToolHost) read only this. What a tool does stays in its own hook. Pure.
 
-export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "separate" | "bank" | "kerb" | "stitch" | "ai-line" | "model" | "group";
+export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "separate" | "bank" | "kerb" | "stitch" | "ai-move" | "ai-redraw" | "model" | "group";
 export type ToolGroup = "general" | "road" | "ai" | "terrain" | "objects";
 
 /** What a click's pick means while the tool is on (useSelection). select: the pinned selection of objects, ground surfaces and
@@ -65,13 +65,19 @@ export const TOOL_DEFS: ToolDef[] = [
     help: [["N", "turn Stitch road on or off"], ["Click twice", "A and B on the same road: ground, deck or tunnel floor"],
       ["Shift + wheel", "width by 0.1 m"], ["Auto width", "the ground road's width at A and B"], ["Apply", "replace the surface between A and B"],
       ["Ctrl+Z", "undo the stitch"]]},
-  {tool: "ai-line", group: "ai", id: "edit-ai-line", label: "AI line", key: "L", selection: "none", free: true,
-    hint: "Inspect speed and side limits or edit the driving line (L)",
-    help: [["L", "show or hide the installed AI line"], ["Hover over the band", "show the route metre and point data"],
+  // (both AI line tools show the installed line with its speed and side limits, also on a track that can't be edited now)
+  {tool: "ai-move", group: "ai", id: "edit-ai-move", label: "Move line", key: "L", selection: "none", free: true,
+    hint: "Show the installed AI line with speed and side limits; drag it sideways to correct it (L)",
+    help: [["L", "turn Move line on or off; it shows the installed AI line"], ["Hover over the band", "show the route metre and point data"],
       ["Drag", "move the line sideways or adjust an existing move; larger offsets blend over a longer distance"], ["Shift", "switch between Free (default) and Road"],
-      ["Ctrl", "switch between Move and Redraw; discard an unfinished stroke"],
-      ["Redraw", "click the line, click the ground, then click the line ahead to finish"],
-      ["Esc", "discard the current stroke"], ["Right-click", "remove a correction"],
+      ["Right-click", "remove a correction"],
+      ["Save", "update an outdated line in the background"], ["Recalculate AI line", "save edits and update the line if needed"]]},
+  {tool: "ai-redraw", group: "ai", id: "edit-ai-redraw", label: "Redraw line", key: "P", selection: "none", free: true,
+    hint: "Draw a replacement section of the AI line: click the line, click the ground, then click the line ahead (P)",
+    help: [["P", "turn Redraw line on or off; it shows the installed AI line"],
+      ["Click", "the line to start, the ground to shape the curve, the line ahead in driving order to finish"],
+      ["Shift", "switch between Free (default) and Road"], ["Esc", "discard the current stroke; without one, end the tool"],
+      ["Right-click", "remove a correction"],
       ["Save", "update an outdated line in the background"], ["Recalculate AI line", "save edits and update the line if needed"]]},
   {tool: "elevation", group: "terrain", id: "edit-elevation", label: "Elevation", key: "H", selection: "single",
     hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)",

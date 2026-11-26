@@ -4,7 +4,7 @@ import {useEffect, useEffectEvent, useState, type ReactNode} from "react";
 import type {Picked, WheelKeys} from "../types";
 import type {TrackView} from "../scene/view";
 import {toasts} from "../../components/toastStore";
-import {editorInputBlocked, AltAlone, CtrlAlone, ShiftAlone} from "./held";
+import {editorInputBlocked, AltAlone, ShiftAlone} from "./held";
 import {globalKey, toolDef, type GlobalKey, type SelectionRule, type Tool} from "./toolDefs";
 
 /** What a tool takes while it is on; anything left out goes to the camera or to the shared selection. Called with the newest
@@ -21,7 +21,6 @@ export interface ToolController {
   toggleMode?(): void;
   /** Alt pressed and let go by itself (Select: the picked ground's texture or the trees' replacement). */
   altAction?(): void;
-  ctrlAction?(): void;
   /** Taken up (from: the tool that was on, with what was picked then): Select→Smooth starts at the picked road. */
   activate?(from: {tool: Tool; picked: Picked | null}): void;
   /** Laid down or Esc: its marks, previews and requests on their way are dropped. */
@@ -95,7 +94,6 @@ export function useToolHost({view, tool, setTool, editable, picked, deletable, c
   useEffect(() => { view.selection.setAdding((rule === "select" || rule === "multi") && editable); }, [view, rule, editable]);
 
   const [alt] = useState(() => new AltAlone()), [shift] = useState(() => new ShiftAlone());
-  const [ctrl] = useState(() => new CtrlAlone());
   // (an effect event: Delete pressed right after a click reaches what that click picked, not the keys' state before it)
   const keyDown = useEffectEvent((e: KeyboardEvent) => {
     const control = e.ctrlKey || e.metaKey;
@@ -119,7 +117,6 @@ export function useToolHost({view, tool, setTool, editable, picked, deletable, c
   const modifierUp = useEffectEvent((e: KeyboardEvent) => {
     const blocked = paused || editorInputBlocked(e.target);
     if (shift.up(e) && !blocked) active?.toggleMode?.();
-    if (ctrl.up(e) && !blocked) active?.ctrlAction?.();
   });
 
   useEffect(() => {
@@ -138,11 +135,10 @@ export function useToolHost({view, tool, setTool, editable, picked, deletable, c
     const down = (e: KeyboardEvent) => {
       const keys = {key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey,
         repeat: e.repeat, inField: editorInputBlocked(e.target)};
-      ctrl.down(keys);
       shift.down({...keys, inField: keys.inField || keys.altKey || keys.ctrlKey || keys.metaKey});
     };
     const up = (e: KeyboardEvent) => modifierUp(e);
-    const other = () => { alt.other(); shift.other(); ctrl.other(); };       // (a modifier with a click or the wheel, or the window left: Alt+Tab)
+    const other = () => { alt.other(); shift.other(); };       // (a modifier with a click or the wheel, or the window left: Alt+Tab)
     window.addEventListener("keydown", down, true); window.addEventListener("keyup", up);
     for (const type of ["pointerdown", "wheel"]) window.addEventListener(type, other, true);
     window.addEventListener("blur", other);
@@ -151,7 +147,7 @@ export function useToolHost({view, tool, setTool, editable, picked, deletable, c
       for (const type of ["pointerdown", "wheel"]) window.removeEventListener(type, other, true);
       window.removeEventListener("blur", other); other();
     };
-  }, [alt, ctrl, shift, visible]);
+  }, [alt, shift, visible]);
 
   /** Take up next: the tool on is cleared, next activated if it can work now. */
   const switchTool = (next: Tool) => {
