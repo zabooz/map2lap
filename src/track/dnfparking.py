@@ -14,7 +14,8 @@ MODEL = "map2lap_dnf.kn5"
 ROOT = "M2L_DNF_PARKING"
 SPAWN = "AC_TIME_ATTACK_0"
 SCRIPT = Path(__file__).with_name("retired_cars.lua")
-OLD_SCRIPT = "13a631e30b6d1c37b2d90a0c06b0d6f0918f31e2d7713fed41cee7e6f078a105"
+OLD_SCRIPTS = {"13a631e30b6d1c37b2d90a0c06b0d6f0918f31e2d7713fed41cee7e6f078a105",
+               "be66a89f9a71c43d8860c0c878f5d55866016e85209214c1a56a9f5b39d5928b"}
 # Leave at least 30 m between the stationary car and the racing line,
 # including a hairpin returning behind the grid. Klagenfurt's tested site is 40 m away.
 CLEAR = 30.
@@ -150,6 +151,19 @@ def remove(model):
             return
 
 
+def _install_script(surfaces, ext, source):
+    """Enable the managed track physics script, including routes without a parking model."""
+    surface_bytes = surfaces.read_bytes()
+    if not re.search(rb"(?im)^\s*\[_SCRIPTING_PHYSICS\]\s*$", surface_bytes):
+        road_pitch = rb"(?im)^(\[SURFACE_0\][^\[]*?^WAV_PITCH[ \t]*=[ \t]*)0(?=[ \t]*\r?$)"
+        surface_bytes = re.sub(road_pitch, rb"\g<1>extended-0", surface_bytes, count=1)
+        _write(surfaces, surface_bytes + b"\n[_SCRIPTING_PHYSICS]\nALLOW_TRACK_SCRIPTS=1\n")
+    _write(ext.with_name(SCRIPT.name), source)
+    cfg = ext.read_bytes()
+    if not re.search(rb"(?im)^\s*SCRIPT\s*=\s*retired_cars\.lua\s*$", cfg):
+        _write(ext, cfg + b"\n[SCRIPT_...]\nSCRIPT = retired_cars.lua\n")
+
+
 def install(model):
     """Prepare a generated track for offline AI racing; publish the model list last."""
     model = Path(model)
@@ -169,11 +183,13 @@ def install(model):
     else:
         return False  # An external model list can provide its own Time Attack spawn.
     old, source = _read(script).replace(b"\r\n", b"\n"), SCRIPT.read_bytes().replace(b"\r\n", b"\n")
-    if old and old != source and hashlib.sha256(old).hexdigest() != OLD_SCRIPT:
+    if old and old != source and hashlib.sha256(old).hexdigest() not in OLD_SCRIPTS:
         return False
     pos = location(model)
     if pos is None:
         remove(model)
+        if legacy or route_race.has_gates(kn5.scan(model)["points"]):
+            _install_script(surfaces, ext, source)
         return False
     marker = obj_to_kn5.empty(SPAWN, pos, (0., 0., 1.))
     root = kn5.Node(1, ROOT, 1, matrix=IDENTITY, children=[marker])
@@ -181,15 +197,7 @@ def install(model):
     # A write interrupted before models.ini was published may already have left this model.
     if extra.exists() and current != managed and _read(extra) != payload:
         return False
-    surface_bytes = surfaces.read_bytes()
-    if not re.search(rb"(?im)^\s*\[_SCRIPTING_PHYSICS\]\s*$", surface_bytes):
-        road_pitch = rb"(?im)^(\[SURFACE_0\][^\[]*?^WAV_PITCH[ \t]*=[ \t]*)0(?=[ \t]*\r?$)"
-        surface_bytes = re.sub(road_pitch, rb"\g<1>extended-0", surface_bytes, count=1)
-        _write(surfaces, surface_bytes + b"\n[_SCRIPTING_PHYSICS]\nALLOW_TRACK_SCRIPTS=1\n")
-    _write(script, source)
-    cfg = ext.read_bytes()
-    if not re.search(rb"(?im)^\s*SCRIPT\s*=\s*retired_cars\.lua\s*$", cfg):
-        _write(ext, cfg + b"\n[SCRIPT_...]\nSCRIPT = retired_cars.lua\n")
+    _install_script(surfaces, ext, source)
     _write(extra, payload)
     _write(config, managed)
     return True

@@ -1,18 +1,23 @@
 # Extending Assetto Corsa
 
-## Retired AI on Map2Lap tracks
+## Retired AI and A–B race finishers
 
 AC returns a retired opponent to its pit. On Map2Lap tracks that position also belongs to the grid.
 An active opponent can stop behind the retired car even after the track script hides it and disables
 collisions. The race still needs to count the retired car as a DNF.
 
 The track script waits for an AI opponent to have both `isRetired` and `isInPit` during an offline Race.
-It skips replays, the player and cars that finished normally. With CSP track physics enabled and the
+With CSP track physics enabled and the
 Map2Lap parking node present, it calls `physics.teleportCarTo(i, 'TIME_ATTACK')` once per retirement.
 AC resolves that spawn to `AC_TIME_ATTACK_0` and keeps `isRetired` set. Leaving the pit clears
 `isInPit`. In the coordinate-based teleport experiments the cars lost their retired state and returned
 to the track. The observed difference depends on the transport call. The native plugin trial used the
 same spawn call from Lua. [Runtime logic](../src/track/retired_cars.lua)
+
+On an A–B Route, classified AI opponents can block the timing gate as the field queues behind them.
+During an offline Race, the same script checks for the finish gate, `isRaceFinished` and a counted lap.
+It sends each finisher to its own pit once and parks its AI inputs until the session restarts. The gate
+and race checks also apply on tracks without a separate DNF parking model. The player keeps driving.
 
 A build or Editor save can add a small model called `map2lap_dnf.kn5`. On an older installation,
 Map2Lap prepares it on the next Race with AI. The model list loads it alongside the main track and any

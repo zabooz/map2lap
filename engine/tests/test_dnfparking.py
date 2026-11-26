@@ -1,8 +1,12 @@
 """Offline AI parking on an existing collision surface and migration of generated tracks."""
 from pathlib import Path
+import hashlib
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -49,6 +53,71 @@ class ParkingTest(unittest.TestCase):
         self.assertIn("KEEP=1", (self.folder/"extension/ext_config.ini").read_text())
         self.assertEqual((self.folder/"extension/ext_config.ini").read_text().count("retired_cars.lua"), 1)
         self.assertIn("ALLOW_TRACK_SCRIPTS=1", (self.folder/"data/surfaces.ini").read_text())
+
+    def test_ab_finish_script_migrates_without_offroad_parking(self):
+        self.write_model([kn5.Node(1, gate, 1, matrix=self.identity) for gate in route_race.GATES])
+        old = b"-- previous Map2Lap retirement script"
+        target = self.folder / "extension/retired_cars.lua"
+        target.write_bytes(old)
+        with mock.patch.object(park, "OLD_SCRIPTS", {hashlib.sha256(old).hexdigest()}):
+            self.assertFalse(park.install(self.model))  # No parking model was added.
+        self.assertIn("teleportCarTo", target.read_text())
+        self.assertIn("Pits", target.read_text())
+        self.assertIn("ALLOW_TRACK_SCRIPTS=1", (self.folder / "data/surfaces.ini").read_text())
+        self.assertFalse((self.folder / park.MODEL).exists())
+
+    @unittest.skipUnless(shutil.which("lua"), "Lua interpreter unavailable")
+    def test_only_classified_offline_route_opponents_return_once_per_race(self):
+        harness = """
+local sim = { raceSessionType=3, carsCount=2 }
+local car = { isAIControlled=true, isRetired=false, isRaceFinished=true, lapCount=0 }
+local route, calls, permitted = false, 0, true
+script = {}
+ac = {SessionType={Race=3}, SpawnSet={Pits='PIT'}, getSim=function() return sim end,
+      getCar=function(i) assert(i==1) return car end,
+      findNodes=function() return {size=function() return route and 1 or 0 end} end,
+      onSessionStart=function(f) restart=f end}
+local held = false
+physics = {allowed=function() return permitted end,
+           setAINoInput=function(i,state) assert(i==1) held=state end,
+           teleportCarTo=function(i,set) assert(i==1 and set=='PIT') calls=calls+1 end}
+function loadTrack()
+  dofile(arg[1])
+end
+loadTrack()
+car.lapCount=1
+script.update(0.1)
+assert(calls==0)
+route=true
+loadTrack()
+car.lapCount=0
+script.update(0.1)
+car.lapCount=1
+sim.isOnlineRace=true
+script.update(0.1)
+sim.isOnlineRace=false
+sim.isReplayActive=true
+script.update(0.1)
+sim.isReplayActive=false
+sim.raceSessionType=1
+script.update(0.1)
+sim.raceSessionType=3
+permitted=false
+script.update(0.1)
+permitted=true
+assert(calls==0)
+script.update(0.1)
+car.isRaceFinished=false
+script.update(0.1)
+car.isRaceFinished=true
+script.update(0.1)
+assert(calls==1 and held)
+restart()
+assert(not held)
+script.update(0.1)
+assert(calls==2)
+"""
+        subprocess.run(["lua", "-", str(park.SCRIPT)], input=harness, text=True, check=True)
 
     def test_old_physics_migration_changes_wave_pitch_only_in_the_road_section(self):
         self.write_model([plane("1GRASS_ground_0", 0, -40, 12, 7)])
