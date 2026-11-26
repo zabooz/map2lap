@@ -31,7 +31,7 @@ class PassingHintsTest(unittest.TestCase):
         for circuit in (False, True):
             with self.subTest(circuit=circuit):
                 self.write([[0,0,0], [80,0,0], [80,0,80]], [4., 6.6, 14.])
-                self.hints.write_bytes(b"[DANGER_0]\nSTART=0\nEND=1\nLEFT=1\nRIGHT=1\n")
+                self.hints.write_bytes(b"[DANGER_0]\nSTART=0.000000000\nEND=1.000000000\nLEFT=1.00\nRIGHT=1.00\n")
                 self.assertEqual("stale", ailinestate.hints_state(self.folder, circuit)["state"])
                 ailinestate.sync_hints(self.folder, circuit)
                 self.assertEqual(self.hints.read_bytes(), b"")
@@ -64,9 +64,9 @@ class PassingHintsTest(unittest.TestCase):
         old = self.folder / route_race.LAYOUT
         self.write([[0,0,0], [80,0,0]], 7., old / fastlane.FILE)
         (old / "data").mkdir()
-        (old / "data/ai_hints.ini").write_text("[stale]\n")
+        (old / "data/ai_hints.ini").write_text("[DANGER_0]\nSTART=0.000000000\nEND=1.000000000\nLEFT=0.50\nRIGHT=0.50\n")
         self.assertTrue(route_race.remove_race_layout(model))
-        self.assertEqual(self.hints.read_bytes(), b"")
+        self.assertEqual(self.hints.read_bytes(), b"[old]\n")
         self.assertFalse(old.exists())
 
 

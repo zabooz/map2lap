@@ -115,7 +115,7 @@ def _installed_state(folder, circuit, state, retry, place_margins):
         hints = ailinestate.hints_state(folder, circuit)
         if status == "ready" and hints["unplaced"] == "recalculate":
             return None
-        # A hand-recorded lane has no route correspondence for placing danger zones.
+        # A hand-recorded lane has no route correspondence for placing AI hint zones.
         if status == "ready" or hints["unplaced"] == "manual":
             if hints["state"] == "stale":
                 ailinestate.sync_hints(folder, circuit, report_deferred=True)

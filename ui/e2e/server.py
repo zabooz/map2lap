@@ -101,6 +101,22 @@ def ground(name, mat, x0, z0, size=TILE, y=0.0, grid=GRID, height=None):
     return mesh(name, mat, pos, [(0, 1, 0)] * len(pos), uv, tri)
 
 
+def downhill_hairpin():
+    """A descending six-metre road with a semicircular right turn for the AI hint tools."""
+    turn = np.linspace(0, math.pi, 25)
+    path = np.array([(128, 0), (128, -60), *((144 - 16 * np.cos(t), -120 - 16 * np.sin(t)) for t in turn),
+                     (160, -60), (160, 0)])
+    metres = np.r_[0., np.cumsum(np.linalg.norm(np.diff(path, axis=0), axis=1))]
+    tangent = np.gradient(path, axis=0)
+    right = tangent[:, ::-1] * [-1, 1] / np.linalg.norm(tangent, axis=1)[:, None]
+    positions = [(x, (40 - m) * .04, z) for p, r, m in zip(path, right, metres) for x, z in (p - 3*r, p + 3*r)]
+    a = np.arange(0, len(positions)-2, 2)
+    tris = np.r_[np.c_[a,a+1,a+2], np.c_[a+1,a+3,a+2]]
+    road = mesh("1ROAD_ground_0_0", 0, positions, [(0,1,0)] * len(positions),
+                [(x/TILE,z/TILE) for x, _, z in positions], tris.ravel())
+    return road, path.tolist(), metres[-1]
+
+
 def hill_at(z):
     """A hill of 3 m across the road, ahead of the start, as the smooth tool's tests want to take away."""
     return 3.0 * math.exp(-((z + 80.0) / 18.0) ** 2)
@@ -179,7 +195,7 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None, roof_material=None, ground_quality="sd", circuit=None, ai_moves=False, margin_profile=False, margin_redraw=False):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None, roof_material=None, ground_quality="sd", circuit=None, ai_moves=False, margin_profile=False, margin_redraw=False, hairpin=False):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     ground_specular: (ksSpecular, ksSpecularEXP) of its ground tiles, which then shine (else they have none).
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
@@ -229,6 +245,11 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
         for gate, z in (("AC_AB_START", -44), ("AC_AB_FINISH", -230)):
             for side, x in (("L", 123), ("R", 133)):
                 tree.children.append(obj_to_kn5.empty(gate + "_" + side, (x, 0, z), (0, 0, -1)))
+    if hairpin:
+        tree.children[0], hairpin_path, length = downhill_hairpin()
+        for gate, x, z, height, direction in (("START", 128, -44, -.16, -1), ("FINISH", 160, -35, (75-length)*.04, 1)):
+            for side, offset in (("L", -3), ("R", 3)):
+                tree.children.append(obj_to_kn5.empty(f"AC_AB_{gate}_{side}", (x+offset, height, z), (0,0,direction)))
     if terrain_cell_m == 1:
         # A full 1 m tile exceeds 65,535 vertices: use the actual export splitter rather than wrapping its indices.
         x, z = np.meshgrid(np.arange(257.), np.arange(-256., 1.))
@@ -340,6 +361,9 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
                 features = [dict(id=str(z), layer="roads", tags={"highway": "residential"},
                                  spec={"kind": "paved", "width": width}, geometry=[[[128, z], [128, end]]])
                             for z, end, width in ((0, -140, 5.7), (-140, -256, 6.2))]
+            if hairpin and ty == -1:
+                features = [dict(id="hairpin", layer="roads", tags={"highway":"residential"},
+                                 spec={"kind":"paved", "width":6}, geometry=[hairpin_path])]
             if structure and features:
                 features[0]['level_ranges'] = [[156 / 512, 196 / 512, structure]]
             paint.finish(features=features)
@@ -347,7 +371,8 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
         editorinfo.install(os.path.join(root, name + ".kn5"), parts)
     with open(os.path.join(root, "data", "map2lap_route.txt"), "w", encoding="utf-8") as f:
         stations = [0, 100, 140, 180, 250] if margin_profile else [0, 250]
-        f.write(f"anchor {ANCHOR[0]} {ANCHOR[1]}\n" + "".join(f"128 {-m}\n" for m in stations))
+        path = hairpin_path if hairpin else [(128, -m) for m in stations]
+        f.write(f"anchor {ANCHOR[0]} {ANCHOR[1]}\n" + "".join(f"{x} {z}\n" for x, z in path))
     current = track_version or version.TRACK_VERSION
     mytracks.save(root, {"version": current, "track_version": current, "title": title, "points": [[42.9, 9.36], [north, 9.36]],
                          "width": corridor_width, "area": None, "length_m": 250.0, "area_m": None, "tiles": 2,
@@ -547,6 +572,9 @@ class Handler(server.Handler):
             return self._send(200, {"dimensions": [width, height], "weights": [float(v[height // 2, width // 2]) for v in weights.values()]})
         if self.path == "/__test/calls":
             return self._send(200, calls)
+        if self.path.startswith("/__test/fast-lane?name="):
+            name = generator.slug(self.path.split("=", 1)[1])
+            return self._send(200, (Path(AC, "content/tracks", name) / fastlane.FILE).read_bytes(), "application/octet-stream")
         if self.path.startswith("/__test/ai-hints?name="):
             name = generator.slug(self.path.split("=", 1)[1])
             path = Path(AC, "content/tracks", name, "data/ai_hints.ini")
@@ -602,7 +630,7 @@ class Handler(server.Handler):
                        tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"), walls=body.get("walls", False),
                        tree_model=body.get('tree_model', 'spruce'), terrain_cell_m=body.get('terrain_cell_m', 2),
                        parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'), structure=body.get('structure'), roof_material=body.get('roof_material'), ground_quality=body.get('ground_quality', 'sd'), ai_moves=body.get('ai_moves', False),
-                       margin_profile=body.get('margin_profile', False), margin_redraw=body.get('margin_redraw', False))
+                       hairpin=body.get('hairpin', False), margin_profile=body.get('margin_profile', False), margin_redraw=body.get('margin_redraw', False))
         elif self.path == "/__test/ai-line":
             lane = Path(AC, "content", "tracks", body["name"], fastlane.FILE)
             points = np.zeros(3, dtype=fastlane.POINT)

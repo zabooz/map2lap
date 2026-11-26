@@ -3,7 +3,7 @@ import {post} from "../../api";
 import type {AiMove, AiCorrection} from "../state/edits";
 import {disposeStroke, previewBand, PreviewQueue} from "./aiPreviewBand";
 import {Pencil} from "./aiPencil";
-import {screenPoint} from "./pointer";
+import {CLICK_PX, screenPoint} from "./pointer";
 
 import {routeDistance, routeAnchor, type Checked, type MoveGuide} from "./aiGuide";
 
@@ -40,7 +40,8 @@ function placeAt(move: AiMove, x: number, z: number) {
 export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THREE.PerspectiveCamera,
   guide: MoveGuide, url: string, corrections: AiCorrection[], showGuide: boolean,
   add: (move: AiCorrection) => void, remove: (id: string) => void, note: (why: string) => void, hint: (text: string) => void,
-  redraw: () => void, groundDistance: (mouse: THREE.Vector2) => number, groundPoint: (mouse: THREE.Vector2) => THREE.Vector3 | null, previewing: (spans:number[][][]) => void, cursor: (value:string) => void) {
+  redraw: () => void, groundDistance: (mouse: THREE.Vector2) => number, groundPoint: (mouse: THREE.Vector2) => THREE.Vector3 | null, previewing: (spans:number[][][]) => void, cursor: (value:string) => void,
+  hintAt: (mouse:THREE.Vector2) => (() => void) | undefined) {
   let pen = false, free = true;
   let lastPointer: PointerEvent | null = null;
   const saved = corrections.filter(item => item.kind === "move");
@@ -57,7 +58,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
   const distances = new Map(saved.map(item => [item.id, item.anchor.metre]));
   const samples = new Map<number, number[]>();
   const invalid = new Map<string, string>();
-  let drag: {i: number; start: THREE.Vector3; initial: THREE.Vector3; peak: number; delta: [number,number]; move: AiMove; shift: number; error: string} | null = null;
+  let drag: {hint?: () => void; x:number; y:number; i: number; start: THREE.Vector3; initial: THREE.Vector3; peak: number; delta: [number,number]; move: AiMove; shift: number; error: string} | null = null;
   const liveYellow = new Set<number>();
   let busy = false, serial = 0;
   const queue = new PreviewQueue();
@@ -187,7 +188,9 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
   const opts = {capture: true, signal};
   el.addEventListener("pointerdown", e => {
     lastPointer = e;
-    if (pencil.press(e)) return;
+    const hint = !pencil.engaged && e.button === 0 && !e.shiftKey ? hintAt(screenPoint(e,el)) : undefined;
+    if (hint && pen) return; // Let the tool host select on click. A redraw already underway owns its end click.
+    if (!hint && pencil.press(e)) return;
     if (busy || (e.button !== 0 && e.button !== 2)) return;
     const i = pick(e);
     if (i < 0) return;
@@ -208,7 +211,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     const move: AiMove = {id:existing?.id ?? crypto.randomUUID(), kind:"move", range:existing?.range ?? MIN_RANGE,
       free:existing?.free ?? free, anchor:routeAnchor(guide, centre, peakRow[1])};
     const initial = new THREE.Vector3().fromArray(positions, i*3);
-    drag = {i, start, initial, peak, delta:existing && deltas.get(existing.id) || [0,0], move, shift:0, error:""};
+    drag = {hint, x:e.clientX, y:e.clientY, i, start, initial, peak, delta:existing && deltas.get(existing.id) || [0,0], move, shift:0, error:""};
     cursor("grabbing");
     e.stopImmediatePropagation(); e.preventDefault(); el.setPointerCapture(e.pointerId);
   }, opts);
@@ -233,6 +236,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
       return;
     }
     e.stopImmediatePropagation();
+    if (drag.hint && Math.hypot(e.clientX-drag.x,e.clientY-drag.y) >= CLICK_PX) drag.hint = undefined;
     const p = intersection(e);
     if (!p) return;
     const r = guide.rows[drag.i], move = drag.move;
@@ -277,7 +281,8 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     queue.clear(); ++serial;
     const gesture = drag, {move} = drag;
     if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-    if (Math.abs(drag.shift) > .001) {
+    if (drag.hint && Math.hypot(e.clientX-drag.x,e.clientY-drag.y) < CLICK_PX) drag.hint();
+    else if (Math.abs(drag.shift) > .001) {
       busy = true;
       const check = await post<Checked>(url, {aiCorrections: withMove(move)});
       busy = false;

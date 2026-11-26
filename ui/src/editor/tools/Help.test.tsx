@@ -8,7 +8,8 @@ test("Transform, Smooth road and Insert use T, R and E consistently without dupl
     const entry = TOOLS.find(t => t.tool === tool)!;
     expect(entry.key).toBe(key); expect(entry.hint).toContain(`(${key}`);
   }
-  expect(new Set(TOOLS.map(t => t.key)).size).toBe(TOOLS.length);
+  const keys = TOOLS.flatMap(t => t.key ? [t.key] : []);
+  expect(new Set(keys).size).toBe(keys.length);
 });
 
 test("Help says how the Editor is worked, then the keys of the tool that is on", () => {
@@ -25,6 +26,20 @@ test("every tool has its keys, Elevation its soft edge", () => {
     expect(renderToStaticMarkup(<Help tool={tool} />)).toContain("<dt>");
   }
   expect(renderToStaticMarkup(<Help tool="elevation" />)).toMatch(/Ctrl \+ Alt \+ wheel.*soft edge/);
+});
+
+test("AI hint help explains how to tune a downhill hairpin", () => {
+  const corner = renderToStaticMarkup(<Help tool="ai-corner" />);
+  expect(corner).toMatch(/0\.85.*slower/);
+
+  const braking = renderToStaticMarkup(<Help tool="ai-braking" />);
+  expect(braking).toContain("1.00 is neutral");
+  expect(braking).toMatch(/0\.90.*earlier/);
+  expect(braking).toMatch(/1\.10.*later/);
+
+  const limit = renderToStaticMarkup(<Help tool="ai-speed-limit" />);
+  expect(limit).toMatch(/positive.*km\/h/i);
+  expect(limit).toMatch(/start.*before.*target speed/i);
 });
 
 test("Select's help names Alt and the right-click menu, Smooth road's that R starts at a picked road", () => {

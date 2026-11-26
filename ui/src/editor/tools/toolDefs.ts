@@ -1,7 +1,10 @@
 // The Editor's tools defined once: id, name, sidebar group, key, tooltip, help, and how each takes a left pick. ToolPanel, Help, the
 // keyboard and the tool host (useToolHost) read only this. What a tool does stays in its own hook. Pure.
 
-export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "separate" | "bank" | "kerb" | "stitch" | "ai-move" | "ai-redraw" | "ai-margin" | "model" | "group";
+import type {ScalarHint} from "../state/edits";
+
+import {hintSteps, type HintKind} from "../aiHints";
+export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "separate" | "bank" | "kerb" | "stitch" | "ai-move" | "ai-redraw" | "ai-margin" | "ai-corner" | "ai-braking" | "ai-speed-limit" | "model" | "group";
 export type ToolGroup = "general" | "road" | "ai" | "terrain" | "objects";
 
 /** What a click's pick means while the tool is on (useSelection). select: the pinned selection of objects, ground surfaces and
@@ -20,11 +23,26 @@ export interface ToolDef {
   hint: string;                   // the button's tooltip
   help: [string, string][];       // Help's keys: what a click, a held key or the wheel with one does
   selection: SelectionRule;
+  hintKind?: HintKind;
   free?: boolean;                 // changes nothing: also on a track that can't be edited now
   library?: boolean;              // taking it up opens the Library; it is on once something is chosen there
 }
 
+const PICK_HINT: [string,string] = ["Click a coloured hint", "select that zone and open its tool"];
+const START_HINT: [string,string] = ["Shift + click", "start a new zone inside an existing hint"];
+
 const TURN_RAISE_SIZE: [string, string][] = [["Shift + wheel", "turn"], ["Ctrl + wheel", "raise"], ["Alt + wheel", "size"]];
+
+function scalarTool(tool: Tool, hintKind: ScalarHint, label: string, key: string, setting: string): ToolDef {
+  const steps = hintSteps(hintKind);
+  return {tool, hintKind, label, group:"ai", id:`edit-${tool}`, key, selection:"none", hint:`${setting} (${key})`,
+    help:[[key, `turn ${label} on or off. All AI tools show the four hint colours.`],
+      ["Shift + wheel", `adjust by ${steps.shift}${steps.unit}`], ["Ctrl + wheel", `adjust by ${steps.ctrl}${steps.unit}`],
+      ["Click twice", "mark a stretch of the AI band, in driving order on a Circuit"],
+      ["Value", setting], PICK_HINT, START_HINT,
+      ["Drag A or B", "move an endpoint"], ["Alt + wheel", "visit the next or previous zone of this type"],
+      ["Esc", "discard unfinished marks"], ["X or Delete", "remove the selected zone"], ["Ctrl+Z / Ctrl+Y", "undo or redo"]]};
+}
 
 export const TOOL_DEFS: ToolDef[] = [
   {tool: "select", group: "general", id: "edit-select", label: "Select", key: "V", selection: "select", free: true,
@@ -66,16 +84,17 @@ export const TOOL_DEFS: ToolDef[] = [
       ["Shift + wheel", "width by 0.1 m"], ["Auto width", "the ground road's width at A and B"], ["Apply", "replace the surface between A and B"],
       ["Ctrl+Z", "undo the stitch"]]},
   // (both AI line tools show the installed line with its speed and side limits, also on a track that can't be edited now)
-  {tool: "ai-move", group: "ai", id: "edit-ai-move", label: "Move line", key: "L", selection: "none", free: true,
-    hint: "Show the installed AI line with speed and side limits; drag it sideways to correct it (L)",
-    help: [["L", "turn Move line on or off; it shows the installed AI line"], ["Hover over the band", "show the route metre and point data"],
+  {tool: "ai-move", group: "ai", id: "edit-ai-move", label: "Move line", key: "1", selection: "none", free: true,
+    hint: "Show the installed AI line with speed and side limits; drag it sideways to correct it (1)",
+    help: [["1", "turn Move line on or off; it shows the installed AI line"], ["Hover over the band", "show the route metre and point data"], PICK_HINT,
       ["Drag", "move the line sideways or adjust an existing move; larger offsets blend over a longer distance"], ["Shift", "switch between Free (default) and Road"],
       ["Right-click", "remove a correction"],
       ["Save", "update an outdated line in the background"], ["Recalculate AI line", "save edits and update the line if needed"]]},
-  {tool: "ai-redraw", group: "ai", id: "edit-ai-redraw", label: "Redraw line", key: "P", selection: "none", free: true,
-    hint: "Draw a replacement section of the AI line: click the line, click the ground, then click the line ahead (P)",
-    help: [["P", "turn Redraw line on or off; it shows the installed AI line"],
+  {tool: "ai-redraw", group: "ai", id: "edit-ai-redraw", label: "Redraw line", key: "2", selection: "none", free: true,
+    hint: "Draw a replacement section of the AI line: click the line, click the ground, then click the line ahead (2)",
+    help: [["2", "turn Redraw line on or off; it shows the installed AI line"],
       ["Click", "the line to start, the ground to shape the curve, the line ahead in driving order to finish"],
+      PICK_HINT, ["Shift + click", "start a redraw on a coloured hint"],
       ["Shift", "switch between Free (default) and Road"], ["Esc", "discard the current stroke; without one, end the tool"],
       ["Drag", "move a saved ground point"],
       ["Right-click while drawing", "take back the last point, or cancel at the start"],
@@ -83,14 +102,20 @@ export const TOOL_DEFS: ToolDef[] = [
       ["Right-click a marker", "remove a ground point or delete the stroke at either endpoint"],
       ["Click after opening", "add ground points, click a remaining marker to reconnect, or click the line ahead to finish"],
       ["Save", "update an outdated line in the background"], ["Recalculate AI line", "save edits and update the line if needed"]]},
-  {tool: "ai-margin", group: "ai", id: "edit-ai-margin", label: "Danger zone", key: "M", selection: "none",
-    hint: "Mark a stretch of the AI line and adjust its left or right passing margin (M)",
-    help: [["M", "turn Danger zone on or off"], ["Click twice", "mark either end first on a Route, or follow driving order on a Circuit"],
-      ["Click a stretch", "select it"], ["Drag A or B", "resize the selected stretch"],
+  {tool: "ai-margin", hintKind: "danger", group: "ai", id: "edit-ai-margin", label: "Danger zone", key: "3", selection: "none",
+    hint: "Mark a stretch of the AI line and adjust its left or right passing margin (3)",
+    help: [["3", "turn Danger zone on or off"], ["Click twice", "mark either end first on a Route, or follow driving order on a Circuit"],
+      PICK_HINT, START_HINT, ["Drag A or B", "resize the selected stretch"],
       ["Shift + wheel", "adjust left by 0.05 m"], ["Ctrl + wheel", "adjust right by 0.05 m"],
       ["Alt + wheel", "select and view the next or previous stretch in driving order"],
       ["Left / Right", "Off leaves this side unset. Later values win on each side."],
       ["X or Delete", "remove the picked zone"], ["Ctrl+Z", "undo a danger zone change"]]},
+  scalarTool("ai-corner", "corner", "Corner speed", "4",
+    "1.00 is neutral. Try 0.85 for a slower corner. Values above 1.00 encourage the AI to corner faster."),
+  scalarTool("ai-braking", "braking", "Braking", "5",
+    "1.00 is neutral. Mark the braking approach. Try 0.90 for earlier braking into a downhill hairpin, or 1.10 for later braking."),
+  scalarTool("ai-speed-limit", "speedLimit", "Speed limit", "6",
+    "Enter a positive speed in km/h. The AI slows within the zone. Start it before the point where cars should reach the target speed."),
   {tool: "elevation", group: "terrain", id: "edit-elevation", label: "Elevation", key: "H", selection: "single",
     hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)",
     help: [["Click", "raise by its height; hold and move for more"], ["Shift", "lower instead"], ["Ctrl + wheel", "radius"], ["Alt + wheel", "height of a click"],
@@ -119,6 +144,9 @@ export const TOOLS = TOOL_DEFS.filter(t => t.group !== null);
 
 /** The definition of tool. Pure. */
 export const toolDef = (tool: Tool) => TOOL_DEFS.find(t => t.tool === tool)!;
+
+/** The active tool and its shortcut as shown in its options and help. Pure. */
+export const toolTitle = (def: ToolDef) => def.key ? `${def.label} (${def.key})` : def.label;
 
 /** The tool whose key this is (case ignored), if any. Pure. */
 export const toolOfKey = (key: string) => TOOL_DEFS.find(t => t.key !== null && t.key.toLowerCase() === key.toLowerCase());

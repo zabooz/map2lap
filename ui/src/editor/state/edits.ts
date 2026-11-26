@@ -143,7 +143,12 @@ export interface AiMove {id: string; kind: "move"; range: number; routeOffset?: 
   anchor: AiAnchor}
 export interface AiAnchor {metre: number; level: number; origin: number[]; context: number[][]; route?: string;
   lateral?: number; along?: number; angle?: number; after?: number}
-export interface AiMargin {id: string; start: AiAnchor; end: AiAnchor; left: number | null; right: number | null}
+export type ScalarHint = "corner" | "braking" | "speedLimit";
+interface HintAnchors {id: string; start: AiAnchor; end: AiAnchor}
+type SideValues = {kind?: never; left: number | null; right: number | null; value?: never};
+type ScalarValue = {kind: ScalarHint; value: number; left?: never; right?: never};
+/** Untagged passing margins and scalar hints share the ordered recipe and their route anchors. */
+export type AiMargin = HintAnchors & (SideValues | ScalarValue);
 export interface AiRedraw {id: string; kind: "redraw"; free: boolean; anchor: AiAnchor; end: AiAnchor;
   points: number[][]; tail?: number[]}
 export type AiCorrection = AiMove | AiRedraw;
@@ -446,21 +451,24 @@ export class TrackEdits {
     this.change({...this.edits(), kerbs: this.now.kerbs.map(kerb => kerb.id === id ? {...kerb, ...patch} : kerb)});
   }
 
-  /** Add a marked stretch with its first manual side as one Undo step. */
-  addAiMargin(margin: AiMargin, wheelSide?: "left" | "right") {
-    this.change({...this.edits(), aiMargins: [...this.now.aiMargins, margin]}, wheelSide && `margin:${margin.id}:${wheelSide}`);
+  /** Add a marked hint with its values as one Undo step. */
+  addAiMargin(margin: AiMargin, wheelField?: "left" | "right" | "value") {
+    this.change({...this.edits(), aiMargins: [...this.now.aiMargins, margin]}, wheelField && `margin:${margin.id}:${wheelField}`);
   }
 
-  /** Change the anchors or side settings for id. Returning the last manual side to Auto removes its stretch. */
-  updateAiMargin(id: string, patch: Partial<Omit<AiMargin, "id">>, wheelSide?: "left" | "right") {
+  /** Change a hint’s anchors or settings. Switching both sides Off removes a passing margin. */
+  updateAiMargin(id: string, patch: Partial<Pick<AiMargin, "start" | "end" | "value" | "left" | "right">>, wheelField?: "left" | "right" | "value") {
     const current = this.now.aiMargins.find(m => m.id === id);
     if (!current) return;
-    const next = {...current, ...patch};
-    if (next.left === current.left && next.right === current.right &&
+    const anchors = {start: patch.start ?? current.start, end: patch.end ?? current.end};
+    const next: AiMargin = current.kind ? {...current, ...anchors, value:patch.value ?? current.value}
+      : {...current, ...anchors, left:patch.left === undefined ? current.left : patch.left,
+        right:patch.right === undefined ? current.right : patch.right};
+    if (next.value === current.value && next.left === current.left && next.right === current.right &&
         next.start === current.start && next.end === current.end) return;
     const aiMargins = next.left === null && next.right === null ? this.now.aiMargins.filter(m => m.id !== id)
       : this.now.aiMargins.map(m => m.id === id ? next : m);
-    this.change({...this.edits(), aiMargins}, wheelSide && `margin:${id}:${wheelSide}`);
+    this.change({...this.edits(), aiMargins}, wheelField && `margin:${id}:${wheelField}`);
   }
 
   /** Remove the stretch with id as one Undo step. */

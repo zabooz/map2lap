@@ -74,13 +74,18 @@ export function aiLineError(name: string, message: string) {
   toasts.post({id, tone:"error", title:"AI line calculation failed", message, onDismiss:() => toasts.remove(id)});
 }
 
+/** One running status for each phase leading up to the installed line. Pure. */
+export function aiLineProgress(id: string, phase: string): Posted {
+  const title = "Calculating AI line …";
+  return {id, tone:"info", title, message: phase === title ? undefined : phase,
+    dismissible:false, progress:{value:null, label:phase}};
+}
+
 export async function updateAiLine(name: string, retry: boolean, inputs?: string) {
   const state = {working: true, revision: aiUpdate(name).revision};
   const id = `edit-ai-line-${name}`, url = `/api/editor/${encodeURIComponent(name)}/ai-line`;
   const notify = () => listeners.forEach(listener => listener());
-  const progress = (phase: string) => toasts.post({id, tone:"info", title:"Calculating AI line …",
-    message: phase === "Calculating AI line …" ? undefined : phase,
-    dismissible:false, progress:{value:null, label:phase}});
+  const progress = (phase: string) => toasts.post(aiLineProgress(id, phase));
   updates.set(name, state);
   notify();
   progress("Checking AI line inputs …");

@@ -42,6 +42,70 @@ class SideMarginTest(unittest.TestCase):
     def render(self, *items):
         return aihints.render(self.lane, self.route.circuit, list(items), (self.route, self.metres), None)
 
+    def scalar(self, kind, value, start=100, end=200, id="scalar"):
+        return dict(id=id, start=self.anchor(start), end=self.anchor(end), kind=kind, value=value)
+
+    def test_scalar_schema_and_positive_speed_limit(self):
+        for kind, value in [("corner", 1.125), ("braking", 0), ("speedLimit", 72.5)]:
+            self.assertIsNone(aimargins.problem([self.scalar(kind, value)]))
+        for kind, value in [("speedLimit", 0), ("speedLimit", -1), ("braking", True),
+                            ("corner", float("inf")), ("other", 1)]:
+            self.assertTrue(aimargins.problem([self.scalar(kind, value)]))
+
+    def test_scalar_overlap_preview_ini_and_removal_across_seam(self):
+        self.square()
+        older = self.scalar("corner", .85, 360, 40)
+        newer = self.scalar("corner", 1., 380, 20, "override")
+        brake = self.scalar("braking", .9, 360, 20, "brake")
+        for corners, expected in [([older, newer], [(0,.05,1), (.05,.1,.85), (.9,.95,.85), (.95,1,1)]),
+                                  ([older], [(0,.1,.85), (.9,1,.85)])]:
+            result, preview = aihints.render_profile(self.lane, True, [brake, *corners],
+                                                     (self.route, self.metres), None)
+            ini = ConfigParser()
+            ini.read_string(result.data.decode())
+            for kind, prefix, sections in [("corner", "HINT", expected),
+                                           ("braking", "BRAKEHINT", [(0,.05,.9), (.9,1,.9)])]:
+                np.testing.assert_allclose(preview.scalars[kind], sections)
+                names = [k for k in ini if k.startswith(prefix + "_")]
+                self.assertEqual(names, [f"{prefix}_{i}" for i in range(len(sections))])
+                for name, section in zip(names, sections):
+                    np.testing.assert_allclose([ini[name].getfloat(k) for k in ("START","END","VALUE")], section)
+
+    def test_sync_preserves_foreign_sections_and_comments_after_deleting_last_scalar(self):
+        self.ready(self.metres)
+        ini = self.folder / aihints.FILE
+        foreign = b"; tuner notes\r\n[BRAKEHINT_0]\r\nSTART=0.89\r\nEND=1\r\nVALUE=0.8\r\n[OTHER]\r\nX=1 ; keep\r\n"
+        ini.write_bytes(foreign)
+        lane = self.lane.read_bytes()
+        self.recipe(self.folder, self.scalar("braking", .9), self.scalar("speedLimit", 62, id="limit"))
+        ailinestate.sync_hints(self.folder, False)
+        installed = ini.read_bytes()
+        self.assertIn(foreign, installed)
+        self.assertIn(b"[BRAKEHINT_1]", installed)
+        self.assertIn(b"[MAXSPEED_0]", installed)
+        self.assertEqual("current", ailinestate.hints_state(self.folder, False)["state"])
+        ini.write_bytes(installed.replace(b"START=", b"; keep this note\nSTART=", 2))
+        self.recipe(self.folder)
+        ailinestate.sync_hints(self.folder, False)
+        self.assertEqual(ini.read_bytes().count(b"; keep this note"), 2)
+        self.assertNotIn(b"[BRAKEHINT_1]", ini.read_bytes())
+        self.assertNotIn(b"[MAXSPEED_0]", ini.read_bytes())
+        self.assertEqual(lane, self.lane.read_bytes())
+
+    def test_foreign_danger_can_share_an_ini_with_legacy_and_current_editor_sections(self):
+        self.ready(self.metres)
+        foreign = b"[DANGER_2]\r\nSTART=.7\r\nEND=.8\r\nLEFT=.6\r\nRIGHT=.6\r\n; hand tuned\r\n"
+        legacy = b"[DANGER_0]\nSTART=0.100000000\nEND=0.300000000\nLEFT=0.50\nRIGHT=1.00\n"
+        ini = self.folder / aihints.FILE
+        ini.write_bytes(legacy + foreign)
+        self.recipe(self.folder, self.margin())
+        ailinestate.sync_hints(self.folder, False)
+        self.assertIn(foreign, ini.read_bytes())
+        self.assertNotIn(legacy, ini.read_bytes())
+        self.recipe(self.folder)
+        ailinestate.sync_hints(self.folder, False)
+        self.assertEqual(ini.read_bytes(), foreign)
+
     def assertSections(self, result, expected):
         ini = ConfigParser()
         ini.read_string(result.data.decode("ascii"))
@@ -329,9 +393,10 @@ class SideMarginTest(unittest.TestCase):
         self.ready(self.metres)
         previous = (self.folder / aihints.FILE).read_bytes()
         checksum = ailinestate.checksum(self.lane)
-        expected = self.render(self.margin()).data
+        zones = [self.margin(), self.scalar("braking", .9)]
+        expected = self.render(*zones).data
         staged = self.folder / "staged"
-        self.recipe(staged, self.margin())
+        self.recipe(staged, *zones)
         model = staged / "saved.kn5"
         model.touch()
         with patch.object(ailinestate, "input_key", return_value="source"):
@@ -380,7 +445,8 @@ class SideMarginTest(unittest.TestCase):
     def test_recalculate_only_syncs_stale_hints_and_checks_saved_inputs(self):
         from app import ailanejobs
         self.ready(self.metres)
-        self.recipe(self.folder, self.margin())
+        zones = [self.margin(), self.scalar("speedLimit", 72)]
+        self.recipe(self.folder, *zones)
         ini = self.folder / aihints.FILE
         previous = ini.read_bytes()
         self.assertEqual((200, {"status": "superseded"}), self.post_lane("recalculate", {"inputs": "older"}))
@@ -390,7 +456,7 @@ class SideMarginTest(unittest.TestCase):
                 ini.write_bytes(previous)
                 code, answer = self.post_lane("recalculate", body)
                 self.assertEqual((200, "ready"), (code, answer.get("status")))
-                self.assertEqual(self.render(self.margin()).data, ini.read_bytes())
+                self.assertEqual(self.render(*zones).data, ini.read_bytes())
                 calculate.assert_not_called()
 
     def test_recalculate_with_unplaced_margins_calculates_once(self):
@@ -415,7 +481,7 @@ class SideMarginTest(unittest.TestCase):
         from app import ailanejobs
         self.ready(self.metres)
         ini = self.folder / aihints.FILE
-        ini.write_bytes(b"[DANGER_0]\nSTART=0\nEND=1\nLEFT=0.5\nRIGHT=0.5\n")
+        ini.write_bytes(b"[DANGER_0]\nSTART=0.000000000\nEND=1.000000000\nLEFT=0.50\nRIGHT=0.50\n")
         with patch.object(ailinestate, "input_key", return_value="source"), patch.object(ailanejobs, "compute") as calculate:
             def launch():
                 self.assertEqual(b"", ini.read_bytes())
@@ -540,13 +606,13 @@ class SideMarginTest(unittest.TestCase):
         for state in ("recalculate", "manual"):
             if state == "manual":
                 self.write(self.route.path, 6.6)
-            for items in ([self.margin()], []):
+            for items in ([self.margin()], [self.scalar("braking", .9)], []):
                 code, preview = self.post_lane("margins", {"aiMargins": items})
                 self.assertEqual(200, code)
                 self.assertEqual(state if items else None, preview["unplaced"])
                 self.assertEqual({}, preview["margins"])
                 if items:
-                    self.assertEqual({"start": [100., 0.], "end": [200., 0.]}, preview["guideMarks"]["m1"])
+                    self.assertEqual({"start": [100., 0.], "end": [200., 0.]}, preview["guideMarks"][items[0]["id"]])
                 self.assertEqual(preview["sections"], [])
 
     def run_generator(self, name, *args):
@@ -560,6 +626,11 @@ class SideMarginTest(unittest.TestCase):
             path = Path(prepare_output(True, 1))
             path.touch()
             return path
+        def sample(model, inputs, circuit, lane, log):
+            path, origin = fastlane.read_route(model.parent)
+            route = aicorrections.Route(path, origin, circuit)
+            self.write(path, 6., lane=lane)
+            return {}, route.metres
         points = [(0, 0), (0, .002)]
         with (patch.object(sys, "argv", ["generator", "--name", name, "--cache-gb", "0", *args, "--", "0,0", "0,.002"]),
               patch.object(generator, "ROOT", str(self.folder)),
@@ -576,18 +647,19 @@ class SideMarginTest(unittest.TestCase):
               patch.object(generator.settings, "load", return_value={"debug_app": False}),
               patch.object(generator.make_track_folder, "make", return_value=target),
               patch.object(generator.obj_to_kn5, "convert", side_effect=convert),
-              patch.object(fastlane, "regenerate"), patch.object(generator.mapcache, "trim")):
+              patch.object(fastlane, "lane_inputs"), patch.object(ailinestate, "fingerprint", return_value="build"),
+              patch.object(fastlane, "calculate", side_effect=sample), patch.object(generator.mapcache, "trim")):
             pool.return_value.__enter__.return_value.submit.return_value = tile
             generator.main()
         return target
 
-    def test_copy_rebuild_carries_side_margins_alone(self):
+    def test_copy_rebuild_resolves_hint_recipe_on_the_new_lane(self):
         import server
         from app import mytracks
-        source = self.folder / "content/tracks/source"
-        (source / "data").mkdir(parents=True)
-        margins = [self.margin()]
-        mytracks.save(source, {"title": "Source", "points": [[0, 0], [0, .002]], "edits": {"aiMargins": margins}})
+        source = self.run_generator("source")
+        self.route = aicorrections.Route(*fastlane.read_route(source), False)
+        margins = [self.margin(), self.scalar("corner", .85)]
+        mytracks.save(source, {**mytracks.load(source), "edits": {"aiMargins": margins}})
         handler = object.__new__(server.Handler)
         handler.path = "/api/rebuild"
         handler._body = Mock(return_value={"name": "source", "copy": True})
@@ -599,6 +671,12 @@ class SideMarginTest(unittest.TestCase):
         self.assertEqual("source", start.call_args.kwargs.get("ai_source"))
         target = self.run_generator(start.call_args.args[0], "--ai-source", start.call_args.kwargs["ai_source"])
         self.assertEqual({"aiMargins": margins}, mytracks.load(target)["edits"])
+        ini = ConfigParser()
+        ini.read(target / aihints.FILE)
+        self.assertEqual(ini.sections(), ["DANGER_0", "HINT_0"])
+        self.assertAlmostEqual(ini["HINT_0"].getfloat("START"), 100 / self.route.length)
+        self.assertAlmostEqual(ini["HINT_0"].getfloat("END"), 200 / self.route.length)
+        self.assertEqual(ini["HINT_0"].getfloat("VALUE"), .85)
 
     def test_generator_defers_removing_installed_ini_while_ac_runs(self):
         hints = self.folder / "content/tracks/existing" / aihints.FILE

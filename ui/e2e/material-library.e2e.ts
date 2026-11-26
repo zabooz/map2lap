@@ -177,7 +177,7 @@ test("cancelled and invalid imports leave the library unchanged and typing canno
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await panel.getByLabel("Filter textures").focus();
-  await page.keyboard.press("m");
+  await page.keyboard.press("3");
   await expect(page.locator("#edit-select")).toHaveClass(/on/);
 });
 

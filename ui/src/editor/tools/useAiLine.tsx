@@ -11,7 +11,7 @@ import {MeshFetchError} from "../scene/requests";
 import type {TrackView} from "../scene/view";
 import type {Place} from "../types";
 import type {ToolController} from "./toolHost";
-import type {Tool} from "./toolDefs";
+import {toolDef, toolTitle} from "./toolDefs";
 import {thenView, ToolChoice, ToolOptions} from "./ToolOptions";
 import styles from "./AiLine.module.css";
 
@@ -46,9 +46,9 @@ type AiLineAnswer = Awaited<ReturnType<typeof fetchAiLine>> | {status: "error"; 
 
 /** The AI line tools: which one is on. */
 export type AiLineMode = "move" | "redraw" | "margin";
-const AI_TOOLS: Tool[] = ["ai-move", "ai-redraw", "ai-margin"];
 
-/** Move, Redraw and Danger zone share a guide prepared after the editable track finishes loading. Checks the
+
+/** AI line and hint tools share a guide prepared after the editable track finishes loading. Checks the
     installed revision when one of them is taken up from another tool (not between the two), after recalculation and after Save.
     Visibility does not affect a transfer. */
 export function useAiLine({name, view, mode, writes, unsaved, edits, moves, editable, routeTrack, loaded, onNote}: {
@@ -138,6 +138,13 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
   }, [canPrepare, url, revision]);
   const guide = prepared?.revision === revision ? prepared.guide : undefined;
   const preparing = canPrepare && prepared?.revision !== revision;
+  // Once a tool has shown the pending request, its toast follows the guide across tool changes.
+  const [announcedGuide, setAnnouncedGuide] = useState<string | null>(null);
+  if (enabled && preparing && announcedGuide !== revision) setAnnouncedGuide(revision);
+  useToasts(preparing && announcedGuide === revision ? [{
+    id:"edit-ai-guide", tone:"info", title:"Preparing the AI line for editing …", dismissible:false,
+    progress:{value:null, label:"Preparing the AI line"},
+  }] : []);
   const guideError = prepared?.revision === revision ? prepared.error : undefined;
   const canEdit = enabled && editable && !!status.canCalculate;
   const editMoves = canEdit && mode !== "margin";
@@ -150,17 +157,15 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
   }, [editMoves, guide, url, moves, lane, edits, view, onNote]);
   useEffect(() => { editing.current?.setMode(pen, free); }, [pen, free, editMoves, guide, url, moves, lane, edits, view, onNote]);
 
-  const lastStatus = useRef<{revision:string; mode:AiLineMode|null; preparing:boolean}>(null);
+  const lastStatus = useRef<{revision:string; preparing:boolean}>(null);
   const reportedError = useRef<string | null>(null);
   useEffect(() => {
     const previous = lastStatus.current;
-    lastStatus.current = {revision, mode, preparing};
+    lastStatus.current = {revision, preparing};
     if (!mode) return;
     if (guideError && reportedError.current !== revision) {
       reportedError.current = revision;
       onNote(guideError);
-    } else if (preparing && (!previous?.preparing || previous.mode !== mode || previous.revision !== revision)) {
-      onNote("Preparing the AI line for editing …");
     } else if (guide && previous?.preparing && previous.revision === revision) {
       onNote("AI line ready for editing");
     }
@@ -168,10 +173,10 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
   const controller: ToolController = {
     toggleMode: () => { if (canEdit) setFree(value => !value); },
     // (between Move line and Redraw line the line shown stays: the session's mode switches, an unfinished stroke is discarded)
-    activate: ({tool}) => { setError(""); if (!AI_TOOLS.includes(tool)) setAttempt(value => value + 1); },
+    activate: ({tool}) => { setError(""); if (toolDef(tool).group !== "ai") setAttempt(value => value + 1); },
     clear: () => setHovered(null),
     options: <>
-      <ToolOptions id="edit-ai-line-set" title={pen ? "Redraw line" : "Move line"} note={unsaved ? "Line from the last build or save" : undefined}
+      <ToolOptions id="edit-ai-line-set" title={toolTitle(toolDef(pen ? "ai-redraw" : "ai-move"))} note={unsaved ? "Line from the last build or save" : undefined}
         options={canEdit ? {
           shift: <span>
             <ToolChoice label="Road" on={!free} hint="Stay on the selected road" onClick={thenView(view, () => setFree(false))} />

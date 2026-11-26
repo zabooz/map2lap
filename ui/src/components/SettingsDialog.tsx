@@ -1,3 +1,4 @@
+import {TOOLS} from "../editor/tools/toolDefs";
 import {useEffect, useRef, useState, type ReactNode} from "react";
 import {get, post} from "../api";
 import {DEFAULT_CONTROLS, ELEVATION_SPEED_RANGE, MEMORY_RANGE, SPEED_RANGE, SPEEDS, type Controls} from "../editor/scene/controls";
@@ -215,7 +216,14 @@ const KEYS: {title: string; rows: [string, string][]}[] = [
     ["R", "Smooth road: mark a road region, add points for branches, then raise strength from 0%; changes apply automatically"],
     ["H", "Elevation: on and off"],
   ]},
-  {title: "AI", rows: [["L", "AI line: show the installed line, side limits and braking zones"]]},
+  {title: "AI", rows: [
+    ...TOOLS.filter(t => t.group === "ai" && t.key).map((t): [string,string] => [t.key!, t.label]),
+    ["Shift+Wheel", "Hint value in fine steps, or left reserve for Danger zone"],
+    ["Ctrl+Wheel", "Hint value in coarse steps, or right reserve for Danger zone"],
+    ["Click a coloured hint", "Open its tool and select the zone"],
+    ["Shift+Click", "Start a hint or redraw inside another hint"],
+    ["Alt+Wheel", "Visit the next or previous hint of the active type"],
+  ]},
   {title: "Tool options", rows: [
     ["Shift", "First tool option; Elevation: reverse direction"],
     ["Shift+Wheel", "Smooth road: strength; Road camera: route; Move/Copy: turn"],

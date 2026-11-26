@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import type {AiAnchor, AiMargin} from "../state/edits";
+import {HINT_COLOURS} from "../aiHints";
+import type {AiAnchor, AiMargin, ScalarHint} from "../state/edits";
 import type {Place} from "../types";
 import {routeAnchor, routeDistance, type MoveGuide} from "./aiGuide";
 import {bandLines, laneBand, type AiLineDraw} from "./aiLine";
@@ -10,6 +11,7 @@ export interface MarginLocation {start?: number; end?: number; error?: string}
 type Section = [number, number, number, number];
 export interface MarginPreview {
   sections: Section[];
+  scalars?: Partial<Record<ScalarHint, [number, number, number][]>>;
   margins: Record<string, MarginLocation>;
   unplaced: "manual" | "recalculate" | null;
   metres?: number[] | null;
@@ -18,7 +20,7 @@ export interface MarginPreview {
 type GuideMark = [metre: number, level: number];
 export interface MarginMark {anchor: AiAnchor; fraction: number}
 export interface MarginHit {index: number; t: number}
-export interface MarginRange extends MarginLocation {unapplied?: boolean; marking?: "start" | "stretch"; id: string; left: number | null; right: number | null}
+export interface MarginRange extends MarginLocation {active?: boolean; unapplied?: boolean; marking?: "start" | "stretch"; id: string; kind?: ScalarHint; left?: number | null; right?: number | null}
 export const intervals = (a: number, b: number) => a <= b ? [[a,b]] : [[a,1],[0,b]];
 
 /** Normalized cumulative 3D distance on the installed line, including a Circuit's closing chord. Pure. */
@@ -111,10 +113,12 @@ export function effectiveRange(sections: Section[], side: MarginSide, start: num
 /** The installed band geometry and its pickable margin stretches. The preview uses the INI's 3D fractions. */
 export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "removeAttribute">, scene: THREE.Scene, camera: THREE.PerspectiveCamera, guide: MoveGuide | undefined,
                             lane: AiLineDraw, preview: MarginPreview, margins: MarginRange[],
-                            pick: (mouse: THREE.Vector2) => number, add: (mark: MarginMark) => void, select: (id: string) => void) {
+                            pick: (mouse: THREE.Vector2) => number, add: (mark: MarginMark) => void) {
   const rows = lane.bandRows, closed = lane.isClosed;
   const marks = new THREE.Group(), stations = laneFractions(rows.map(row => row.at), closed);
   scene.add(marks);
+  const strips: {mesh: THREE.Mesh; range: MarginRange; start: number; end: number}[] = [];
+  const ray = new THREE.Raycaster();
   let selectedId: string | null = null;
   const edgesAt = (i: number, t: number): [Place, Place] => {
     const from = rows[i].edges, to = rows[(i+1)%rows.length].edges;
@@ -129,7 +133,7 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
     }
     return {i:lo, edges:edgesAt(lo, (s-stations[lo]) / (stations[hi]-stations[lo] || 1))};
   };
-  const clear = () => { for (const child of [...marks.children]) disposeStroke(child); };
+  const clear = () => { strips.length = 0; for (const child of [...marks.children]) disposeStroke(child); };
   const pieces = (range: MarginRange) => {
     const a = range.start ?? range.end, b = range.end ?? range.start;
     if (a == null || b == null) return [];
@@ -137,30 +141,32 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
   };
   const colourOf = (range: MarginRange) => {
     const selected = range.id === selectedId;
-    return range.error ? "#ff5454" : range.unapplied ? (selected ? "#dfa6ff" : "#ac86d8") : selected ? "#ffc843" : "#f4e2a6";
+    return range.error ? "#ff5454" : range.unapplied ? (selected ? "#dfa6ff" : "#ac86d8") : HINT_COLOURS[range.kind ?? "danger"];
   };
   const edgesBetween = (a:number, b:number) => {
     const first = crossSection(a), last = crossSection(b);
     return [first.edges, ...rows.slice(first.i+1,last.i+1).map(r => r.edges), last.edges];
   };
-  function fill(edges: [Place,Place][], colour:string, opacity:number) {
+  function fill(edges: [Place,Place][], range: MarginRange, start:number, end:number, opacity:number, order = 11) {
     const mesh = new THREE.Mesh(laneBand(edges, edges.map(() => [1,1,1]), false),
-      new THREE.MeshBasicMaterial({color:colour, transparent:true, opacity,
+      new THREE.MeshBasicMaterial({color:colourOf(range), transparent:true, opacity,
         side:THREE.DoubleSide, forceSinglePass:true, depthWrite:false, toneMapped:false}));
-    mesh.renderOrder = 11;
+    mesh.renderOrder = order;
     marks.add(mesh);
+    strips.push({mesh, range, start, end});
   }
   function drawEnds(range:MarginRange, a:number, b:number) {
     const first = crossSection(a).edges, last = crossSection(b).edges;
     const outline = [...first[0], ...first[1], ...last[0], ...last[1]];
     if (range.error && a < b) {
       const edges = edgesBetween(a,b);
-      fill(edges,colourOf(range),range.id === selectedId ? .38 : .22);
+      fill(edges,range,a,b,range.id === selectedId ? .38 : .22);
       for (let i=1; i<edges.length; i++) {
         for (const side of [0,1]) outline.push(...edges[i-1][side], ...edges[i][side]);
       }
     }
-    marks.add(bandLines(outline, colourOf(range), range.id === selectedId ? 4 : 3, 12));
+    const selected = range.id === selectedId;
+    marks.add(bandLines(outline, colourOf(range), selected ? 4 : 3, selected ? 13 : 12));
   }
   function drawStrips(ranges: MarginRange[]) {
     const spans = ranges.flatMap(range => pieces(range).map(([a,b]) => ({range,a,b})));
@@ -172,8 +178,20 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
       const covering = spans.filter(s => s.a <= a && b <= s.b && !s.range.error);
       if (!covering.length) continue;
       const edges = edgesBetween(a,b);
+      const left = covering.find(s => s.range.left != null)?.range;
+      const right = covering.find(s => s.range.right != null)?.range;
+      // Give coincident scalar hints distinct lanes across the band. Keep their
+      // colours inset on sides carrying a Danger reserve so its edge stays visible.
+      const winners = (["corner","braking","speedLimit"] as const)
+        .flatMap(kind => covering.find(s => s.range.kind === kind)?.range ?? []);
+      const start = left?.left ? .2 : 0, end = right?.right ? .8 : 1;
+      winners.forEach((range,index) => {
+        const from = mix(start,end,index/winners.length), to = mix(start,end,(index+1)/winners.length);
+        const strip = edges.map(([l,r]): [Place,Place] => [between(l,r,from), between(l,r,to)]);
+        fill(strip, range, a, b, range.id === selectedId ? .85 : range.active === false ? .48 : .65, 11.5);
+      });
       for (const side of ["left","right"] as const) {
-        const fixed = covering.find(s => s.range[side] !== null)?.range;
+        const fixed = side === "left" ? left : right;
         if (!fixed) continue;
         const width = fixed[side];
         if (!width) continue;
@@ -183,7 +201,7 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
           const across = Math.hypot(other[0]-edge[0],other[1]-edge[1],other[2]-edge[2]);
           return [edge, between(edge,other,across ? Math.min(width/across,.5) : 0)];
         });
-        fill(strip, colourOf(fixed), .95);
+        fill(strip, fixed, a, b, fixed.active === false ? .65 : .95);
       }
     }
   }
@@ -195,10 +213,26 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
     // A single surviving endpoint is a thin crossbar. Give it the same eight-pixel target as the centreline.
     const tolerance = step ? (stations[index+1]-stations[index])/step * 16 * depth *
       Math.tan(THREE.MathUtils.degToRad(camera.fov)/2) / Math.max(el.clientHeight,1) : 0;
-    const owners = margins.filter(r => pieces(r).some(([a,b]) => a === b
-      ? Math.abs(fraction-a) <= tolerance : a <= fraction && fraction <= b));
-    const owner = owners.filter(r => r.error).at(-1) ?? owners.at(-1);
+    const owners = margins.filter(r => pieces(r).some(([a,b]) =>
+      a === b || r.active === false ? Math.min(Math.abs(fraction-a),Math.abs(fraction-b)) <= tolerance
+        : a <= fraction && fraction <= b));
+    owners.reverse(); // Later entries own coincident marks.
+    const owner = owners.find(r => r.error) ?? owners.find(r => r.active !== false) ?? owners[0];
     return {fraction, owner};
+  }
+  // Test the coloured faces on the visible segment only. A lower deck can project onto the same pixel.
+  function paintedAt(mouse: THREE.Vector2, fraction:number) {
+    ray.setFromCamera(mouse,camera);
+    let painted: (typeof strips)[number] | undefined;
+    for (const strip of strips) {
+      if (fraction < strip.start || fraction > strip.end || (painted && strip.mesh.renderOrder < painted.mesh.renderOrder)) continue;
+      if (ray.intersectObject(strip.mesh,false).length) painted = strip;
+    }
+    return painted?.range;
+  }
+  function pickZone(mouse: THREE.Vector2, hit: MarginHit) {
+    const {owner, fraction} = locate(hit);
+    return paintedAt(mouse,fraction) ?? owner;
   }
   function redraw(changed?: MarginRange) {
     clear();
@@ -252,11 +286,19 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
       el.title = place?.owner?.unapplied && !place.owner.error ? "Not yet applied" : "";
       return place;
     },
-    click(mouse: THREE.Vector2 | null) {
-      const hit = mouse && lane.locate(mouse, camera, pick(mouse));
+    selectionAt(mouse: THREE.Vector2) {
+      const hit = lane.locate(mouse,camera,pick(mouse));
+      const zone = hit && pickZone(mouse,hit);
+      return zone && !zone.marking ? zone.id : undefined;
+    },
+    click(mouse: THREE.Vector2 | null, startHere = false) {
+      if (!mouse) return;
+      const hit = lane.locate(mouse, camera, pick(mouse));
       if (!hit) return;
-      const {owner} = locate(hit);
-      if (owner && !owner.marking && !margins.some(m => m.marking === "start")) return select(owner.id);
+      if (!startHere && !margins.some(m => m.marking === "start")) {
+        const owner = pickZone(mouse,hit);
+        if (owner && !owner.marking) return owner.id;
+      }
       const mark = markAt(hit);
       if (mark) add(mark);
     },
@@ -265,4 +307,4 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
 }
 
 export const marginRange = (m: AiMargin, location?: MarginLocation): MarginRange =>
-  ({id:m.id, left:m.left, right:m.right, ...location});
+  ({id:m.id, kind:m.kind, left:m.left, right:m.right, ...location});

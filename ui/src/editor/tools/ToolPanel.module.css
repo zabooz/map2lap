@@ -17,3 +17,5 @@
 .split { display: flex; }
 .split button:first-child { flex: 1; border-radius: 7px 0 0 7px; }
 .split button:last-child { border-radius: 0 7px 7px 0; border-left: 0; padding: 0 8px; }
+.buttonLabel { display: inline-flex; align-items: center; gap: 5px; }
+.hintColour { width: 4px; height: 1em; border-radius: 2px; flex-shrink: 0; }

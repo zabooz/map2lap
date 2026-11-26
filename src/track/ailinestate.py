@@ -193,15 +193,15 @@ def hints(folder, circuit, *, lane=None, metres=None) -> aihints.Hints:
 def margin_preview(folder, circuit, margins):
     """Preview draft margins on the installed lane using the same placement and merge as the INI."""
     result, profile = _expected(folder, circuit, margins=margins)
-    profile = profile or aihints.Profile([], {})
+    profile = profile or aihints.Profile([], {}, {})
     locations = dict(profile.locations)
     for key, error in result.rejected.items():
         locations[key] = {**locations.get(key, {}), "error": error}
-    return dict(sections=profile.sections, margins=locations, unplaced=result.unplaced)
+    return dict(sections=profile.sections, scalars=profile.scalars, margins=locations, unplaced=result.unplaced)
 
 
 def sync_hints(folder, circuit, *, report_deferred=False) -> aihints.Hints:
-    """Install hints from the saved recipe and lane, removing the INI for an unreadable lane."""
+    """Install hints from the saved recipe and lane, retiring editor sections for an unreadable lane."""
     result, profile = _expected(folder, circuit)
     if route_race.ac_running():
         if report_deferred:
@@ -212,11 +212,11 @@ def sync_hints(folder, circuit, *, report_deferred=False) -> aihints.Hints:
 
 
 def hints_state(folder, circuit) -> dict:
-    """Check the installed INI bytes against the recipe, independently of margin placement."""
+    """Check whether applying the recipe would change the installed INI."""
     expected = hints(folder, circuit)
     path = folder / aihints.FILE
     actual = path.read_bytes() if path.is_file() else b""
-    return dict(state="current" if actual == expected.data else "stale",
+    return dict(state="current" if actual == aihints.compose(actual, expected.data) else "stale",
                 unplaced=expected.unplaced, rejected=expected.rejected)
 
 
@@ -232,7 +232,7 @@ def _ready_data(folder, lane, skipped, circuit, metres):
 
 
 def record_ready(folder, inputs, skipped=None, *, circuit=False, metres=None):
-    """Record the generated lane, its route metres and passing hints in the build folder."""
+    """Record the generated lane, its route metres and hints in the build folder."""
     fields, data = _ready_data(folder, folder / fastlane.FILE, skipped, circuit, metres)
     if not route_race.ac_running():
         aihints.install(folder, data)
@@ -260,7 +260,7 @@ def publish(folder, inputs, candidate, skipped=None, *, circuit=False, metres=No
             os.replace(backup, lane)
         else:
             lane.unlink(missing_ok=True)
-        aihints.install(folder, previous_hints)
+        aihints.replace(folder, previous_hints)
         raise
 
 
@@ -329,6 +329,6 @@ def carry(source, model, circuit):
     # Begin with the installed INI, including its absence, so a deferred Save
     # carries exactly the bytes AC last saw even when the staging folder came from an older source.
     old = source / aihints.FILE
-    aihints.install(model.parent, old.read_bytes() if old.is_file() else None)
+    aihints.replace(model.parent, old.read_bytes() if old.is_file() else None)
     sync_hints(model.parent, circuit)
     return {**state, "inputs": key}

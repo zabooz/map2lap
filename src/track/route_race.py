@@ -65,7 +65,7 @@ def remove_race_layout(model):
     if not (folder / "data").is_symlink():
         ailinestate.sync_hints(folder, False)
     if not (race / "ai/fast_lane.ai").exists():
-        (race / aihints.FILE).unlink(missing_ok=True)
+        aihints.install(race, None)
     for path in (ui / "ui_track.json", folder / RACE_MODEL, *(race / data for data in LAYOUT_DATA)):
         path.unlink(missing_ok=True)
     for path in (ui, race / "ai", race / "data", race):

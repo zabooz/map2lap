@@ -222,10 +222,11 @@ recipe order wins on each side. Off leaves that side unset. An explicit 0 m canc
 
 `data/map2lap_ai.json` binds one route metre per final lane sample to the checksum of `fast_lane.ai`, including
 samples inserted by Redraw. The exporter maps zone anchors to fractions of the installed lane’s 3D length,
-including a Circuit’s closing chord. It splits sections at width changes and at start/finish.
-`data/ai_hints.ini` numbers the resulting sections from `DANGER_0`, with nine decimals for `START` and `END`
-and two for `LEFT` and `RIGHT`. Two zero widths produce no section. A readable lane with no exported
-sections has a zero-byte INI.
+including a Circuit’s closing chord. It splits sections at effective value changes and at start/finish.
+`data/ai_hints.ini` uses nine decimals for `START` and `END` and two for `LEFT` and `RIGHT`. Two zero
+reserves produce no DANGER section. Corner speed, Braking and Speed limit export `VALUE` in `HINT_n`,
+`BRAKEHINT_n` and `MAXSPEED_n`, respectively. The first two store factors and the third stores km/h.
+Each type has its own numbering and overlap rules. See [Marking AI hint zones](editor-tools.md#marking-ai-hint-zones).
 
 In side-by-side racing, AC subtracts `LEFT` and `RIGHT` from the corresponding side widths at the steering
 target. It clamps the lateral offset to those reduced limits only when their sum exceeds 4 m. At 4 m or less

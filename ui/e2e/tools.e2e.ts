@@ -64,7 +64,7 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   const guide = guideResponse(page);
   await openEditor(page);
   await keysOnView(page);
-  await page.keyboard.press("l");
+  await page.keyboard.press("1");
   const result = await (await guide).json();
   expect(result.error).toBeUndefined();
   const bar = page.locator("#edit-ai-line-set");
@@ -132,7 +132,7 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   await page.getByTestId("nav-editor").focus();
   await page.keyboard.press("Control");      // (Ctrl by itself switches nothing any more)
   await expect(page.locator("#edit-ai-move")).toHaveAttribute("aria-pressed","true");
-  await page.keyboard.press("p");            // (Redraw line keeps the line shown and its guide: nothing is read again)
+  await page.keyboard.press("2");            // (Redraw line keeps the line shown and its guide: nothing is read again)
   await expect(page.locator("#edit-ai-redraw")).toHaveAttribute("aria-pressed","true");
   await expect(bar).toContainText("Redraw line");
   await expect.poll(async () => (await page.screenshot({clip:patch})).equals(before)).toBe(true);
@@ -141,7 +141,7 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   expect(checks).toBe(0);
   await page.mouse.move(x,y);
   await expect(scene(page)).toHaveCSS("cursor","crosshair");
-  await page.keyboard.press("l");
+  await page.keyboard.press("1");
   await expect(page.locator("#edit-ai-move")).toHaveAttribute("aria-pressed","true");
   await page.mouse.move(x+15,y); await page.mouse.down(); await page.mouse.move(x+20,y); await page.mouse.up();
   await expect.poll(async () => (await moves())[0]?.routeOffset).not.toBe(afterSave[0].routeOffset);
@@ -156,7 +156,7 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   await backend.post("/__test/rebuild", {name:"alpha", title:"Alpha Test", ai_moves:true, trees:false});
   const response = guideResponse(page);
   await openEditor(page); await keysOnView(page);
-  await page.keyboard.press("p");
+  await page.keyboard.press("2");
   const guide = await (await response).json();
   const bar = page.locator("#edit-ai-line-set");
   await expect(bar.getByRole("button",{name:"Free",exact:true})).toHaveAttribute("aria-pressed","true");
@@ -172,7 +172,7 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   const click = (metre:number, off=0) => page.mouse.click(...position(metre,off));
   const moves=async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiCorrections;
   await click(105);
-  await page.keyboard.press("l"); await page.keyboard.press("p");     // (another tool discards the unfinished stroke)
+  await page.keyboard.press("1"); await page.keyboard.press("2");     // (another tool discards the unfinished stroke)
   await click(105); await click(91);
   await expect(page.locator("#edit-ai-preview")).toContainText("End precedes the start");
   await page.keyboard.press("Escape");
@@ -182,12 +182,12 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   await expect.poll(moves).toHaveLength(1);
   const [straight] = await moves();
   expect(straight.points).toEqual([]);
-  // Reopen P with the saved recipe. Its markers arrive with the measured preview.
-  await page.keyboard.press("p");
+  // Reopen Redraw line with the saved recipe. Its markers arrive with the measured preview.
+  await page.keyboard.press("2");
   await expect(bar).toHaveCount(0);
   const markers = page.waitForResponse(r => r.url().endsWith("/move-preview") &&
     r.request().postDataJSON()?.aiCorrections?.[0]?.id === straight.id);
-  await page.keyboard.press("p");
+  await page.keyboard.press("2");
   expect((await (await markers).json()).controls[straight.id]).toHaveLength(2);
   await click(62);
   await expect(page.locator("#edit-tool-toasts")).toContainText("Click the line between markers to edit this stroke.");
@@ -214,7 +214,7 @@ test("Redraw markers edit a saved stroke, reconnect a gap and undo once per gest
   await backend.post("/__test/rebuild", {name:"alpha",title:"Alpha Test",ai_moves:true,trees:false});
   expect((await (await page.request.post("/api/editor/alpha/ai-line/recalculate",{data:{}})).json()).status).toBe("ready");
   const response = guideResponse(page);
-  await openEditor(page); await keysOnView(page); await page.keyboard.press("p");
+  await openEditor(page); await keysOnView(page); await page.keyboard.press("2");
   const guide = await (await response).json();
   const bounds = (await scene(page).boundingBox())!, three = await import("three");
   const camera = new three.PerspectiveCamera(55,bounds.width/bounds.height,.5,10000);
@@ -245,10 +245,10 @@ test("Redraw markers edit a saved stroke, reconnect a gap and undo once per gest
   // Compare the same marker pixels with the pen lifted and active. The measured band stays in both tools.
   const [mx,my] = screen(first);
   const patch = {x:Math.round(mx)-5,y:Math.round(my)-5,width:10,height:10};
-  await page.keyboard.press("l");
+  await page.keyboard.press("1");
   await expect(page.locator("#edit-ai-move")).toHaveAttribute("aria-pressed","true");
   const bare = await page.screenshot({clip:patch});
-  await page.keyboard.press("p");
+  await page.keyboard.press("2");
   await expect.poll(async () => (await page.screenshot({clip:patch})).equals(bare)).toBe(false);
   const marked = await page.screenshot({clip:patch});
   await page.mouse.move(bounds.x+20,bounds.y+20);
@@ -334,7 +334,7 @@ test("Play saves a road change and Practice leaves its installed preview pending
   expect(requests).toBe(0);
 });
 
-test("L and P show the installed AI line", async ({page, backend}) => {
+test("1 and 2 show the installed AI line", async ({page, backend}) => {
   let statusReads = 0, binaryReads = 0;
   page.on("request", request => {
     const url = new URL(request.url());
@@ -344,20 +344,20 @@ test("L and P show the installed AI line", async ({page, backend}) => {
   });
   await openEditor(page);
   const c = await keysOnView(page);
-  await page.keyboard.press("l");
+  await page.keyboard.press("1");
   const ai = page.getByRole("heading", {name: "AI", exact: true}).locator("..");
   await expect(ai.getByRole("button", {name: "AI line", exact: true})).toHaveCount(0);
   await expect(ai.getByRole("button", {name: "Move line", exact: true})).toHaveAttribute("aria-pressed", "true");
   const bar = page.locator("#edit-ai-line-set");
   await expect(bar).toContainText("No AI line is installed");
-  await page.keyboard.press("p");
+  await page.keyboard.press("2");
   await expect(ai.getByRole("button", {name: "Redraw line", exact: true})).toHaveAttribute("aria-pressed", "true");
   await expect(bar).toContainText("No AI line is installed");
-  await page.keyboard.press("p");
+  await page.keyboard.press("2");
   await expect(bar).toHaveCount(0);
   await deleteTree(page);
   await backend.post("/__test/ai-line", {name: "alpha"});
-  await page.keyboard.press("l");
+  await page.keyboard.press("1");
   await expect(bar).toContainText("Side limits");
   await expect(bar).not.toContainText("Braking");
   await expect(bar).toContainText("Line from the last build or save");
@@ -375,9 +375,9 @@ test("L and P show the installed AI line", async ({page, backend}) => {
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
   const reads = statusReads;
   expect(binaryReads).toBe(1);
-  await page.keyboard.press("l");
+  await page.keyboard.press("1");
   await expect(bar).toHaveCount(0);
-  await page.keyboard.press("l");
+  await page.keyboard.press("1");
   await expect(bar).toContainText("Side limits");
   await expect(point).toContainText("Route metre");
   expect([statusReads, binaryReads]).toEqual([reads+1, 1]);
@@ -456,6 +456,11 @@ test("Help says how the Editor is worked and shows the keys of the tool that is 
   await expect(help.locator("dl")).toContainText("Alt + wheelsize");
   await page.keyboard.press("h");
   await expect(help.locator("dl")).toContainText("Ctrl + Alt + wheelsoft edge");
+  await page.getByRole("button", {name: "Braking", exact: true}).click();
+  await expect(help.getByText(/0\.90 for earlier braking/)).toBeVisible();
+  await page.getByRole("button", {name: "Speed limit", exact: true}).click();
+  await expect(help.getByText(/start it before the point/i)).toBeVisible();
+  await scene(page).focus();
   await page.keyboard.press("Escape");
   await expect(help.getByRole("heading")).toHaveText("Select (V)");
 });
@@ -719,7 +724,7 @@ test("a small window: the buttons scroll, what is to be said stays in sight; Ele
 test("AI line button reports a saved track's calculation error in the Editor", async ({page}) => {
   await openEditor(page);
   await keysOnView(page);
-  await page.keyboard.press("l");
+  await page.keyboard.press("1");
   const bar = page.locator("#edit-ai-line-set");
   const answer = page.waitForResponse("**/api/editor/alpha/ai-line/recalculate");
   await page.locator("#edit-bar").getByRole("button", {name: "Recalculate AI line"}).click();
@@ -740,14 +745,7 @@ async function marginTrack(page: Page, backend: Backend, redraw = false) {
   return url;
 }
 
-async function marginMarks(page: Page) {
-  const response = guideResponse(page);
-  await openEditor(page);
-  await keysOnView(page);
-  await page.keyboard.press("m");
-  const bar = page.locator("#edit-ai-margin-set");
-  await expect(bar).toBeVisible();
-  const guide = await (await response).json();
+async function bandRows(page: Page, rows: number[][]) {
   const bounds = (await scene(page).boundingBox())!;
   const three = await import("three");
   const camera = new three.PerspectiveCamera(55, bounds.width / bounds.height, .5, 10000);
@@ -755,7 +753,7 @@ async function marginMarks(page: Page) {
   camera.lookAt(128, 0, -40);
   camera.updateMatrixWorld();
   const screenRow = (metre: number, offsetX = 0) => {
-    const row = guide.rows.find((r: number[]) => r[3] >= metre);
+    const row = rows.find(r => r[3] >= metre)!;
     const p = new three.Vector3(row[0] + offsetX, row[1] + .34, row[2]).project(camera);
     const x = bounds.x + (p.x + 1) * bounds.width / 2, y = bounds.y + (1 - p.y) * bounds.height / 2;
     return {x, y, snapped:row[3] as number};
@@ -765,6 +763,18 @@ async function marginMarks(page: Page) {
     if (click) await page.mouse.click(x, y); else await page.mouse.move(x, y, {steps: 5});
     return snapped;
   };
+  return {onRow,screenRow};
+}
+
+async function marginMarks(page: Page) {
+  const response = guideResponse(page);
+  await openEditor(page);
+  await keysOnView(page);
+  await page.keyboard.press("3");
+  const bar = page.locator("#edit-ai-margin-set");
+  await expect(bar).toBeVisible();
+  const guide = await (await response).json();
+  const {onRow,screenRow} = await bandRows(page,guide.rows);
   await expect(bar).toContainText("Click A on the AI line");
   const clickRow = (metre: number) => onRow(metre);
   const moveRow = (metre: number) => onRow(metre, false);
@@ -788,12 +798,196 @@ async function passingHints(page: Page): Promise<Danger[]> {
   return ini.split(/\r?\n\s*\r?\n/).map((block, i) => {
     const [header, ...fields] = block.split(/\r?\n/);
     expect(header).toBe(`[DANGER_${i}]`);
-    return Object.fromEntries(fields.map(field => {
+    return Object.fromEntries(fields.filter(field => !field.startsWith(";")).map(field => {
       const [key, value] = field.split("=");
       return [key, Number(value)];
     })) as Danger;
   });
 }
+
+test("downhill hairpin saves overlapping braking, corner speed and a speed limit on the installed line", async ({page,backend}) => {
+  await backend.post("/__test/rebuild", {name:"alpha", title:"Downhill hairpin", trees:false, hairpin:true});
+  const url = "/api/editor/alpha/ai-line";
+  expect((await (await page.request.post(url + "/recalculate", {data:{}})).json()).status).toBe("ready");
+  const laneBytes = async () => (await page.request.get("/__test/fast-lane?name=alpha")).body();
+  const before = await laneBytes();
+  const guide = guideResponse(page);
+  await openEditor(page);
+  const {onRow,screenRow} = await bandRows(page, (await (await guide).json()).rows);
+  const activate = async (label: string, id: string) => {
+    await page.getByRole("button", {name:label, exact:true}).click();
+    const bar = page.locator("#edit-ai-" + id + "-set");
+    await expect(bar).toContainText("Click A on the AI line");
+    return bar.getByRole("spinbutton");
+  };
+  const zones = async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiMargins;
+  const braking = await activate("Braking","braking");
+  await onRow(80); await onRow(148);
+  await expect(braking).toHaveValue("1.00");
+  await braking.fill("0.90"); await braking.press("Enter");
+  await expect.poll(zones).toMatchObject([{kind:"braking",value:.9}]);
+  const corner = await activate("Corner speed","corner");
+  await page.keyboard.down("Shift"); await onRow(130); await page.keyboard.up("Shift"); await onRow(168);
+  await corner.fill("0.85"); await corner.press("Enter");
+  const limit = await activate("Speed limit","speed-limit");
+  await page.keyboard.down("Shift"); await onRow(95); await page.keyboard.up("Shift"); await onRow(160);
+  await limit.fill("0"); await limit.press("Enter");
+  expect(await zones()).toHaveLength(2);
+  await limit.fill("62.5"); await limit.press("Enter");
+  await expect.poll(zones).toHaveLength(3);
+  await saveTrack(page);
+  const installedHints = async () => (await page.request.get("/__test/ai-hints?name=alpha")).text();
+  await expect.poll(installedHints).toContain("[BRAKEHINT_0]");
+  const ini = await installedHints();
+  const range = (name: string, value: number) => {
+    const block = ini.split("[" + name + "_0]")[1]?.split("[")[0] ?? "";
+    const field = (key: string) => Number(block.match(new RegExp("^" + key + "=(.+)$","m"))?.[1]);
+    expect(field("VALUE")).toBe(value);
+    expect(field("END")).toBeGreaterThan(field("START"));
+    return [field("START"),field("END")];
+  };
+  const [start, end] = range("BRAKEHINT",.90), [apex, exit] = range("HINT",.85);
+  expect(apex).toBeGreaterThan(start); expect(apex).toBeLessThan(end); expect(exit).toBeGreaterThan(end);
+  range("MAXSPEED",62.5);
+  expect(await laneBytes()).toEqual(before);
+  await openEditor(page);
+  // Once the current draft is placed, switching type must pick immediately,
+  // even if the next preview request would be slow.
+  const ready = page.waitForResponse("**/ai-line/margins");
+  await activate("Speed limit","speed-limit");
+  await ready;
+  await page.route("**/ai-line/margins", route => route.abort());
+  for (const [label,id,value,metre] of [["Corner speed","corner",.85,164],["Braking","braking",.9,85],["Speed limit","speed-limit",62.5,115]] as const) {
+    const field = await activate(label,id);
+    if (id === "speed-limit") {
+      const {x,y} = screenRow(metre,1.5);
+      await page.mouse.click(x,y);
+    } else await onRow(metre);
+    await expect.poll(async () => Number(await field.inputValue())).toBe(value);
+  }
+});
+
+test("hint keys and wheel options adjust the selected type on a shared band", async ({page,backend}) => {
+  await marginTrack(page,backend);
+  const {clickRow, screenRow} = await marginMarks(page);
+  const {x,y} = screenRow(135);
+  const sample = () => page.screenshot({clip:{x:Math.floor(x)-2,y:Math.floor(y)-2,width:5,height:5}});
+  const passingOnly = await sample();
+  for (const [key,id,label] of [["1","move","Move line"],["2","redraw","Redraw line"],["3","margin","Danger zone"]]) {
+    const button = page.locator("#edit-ai-" + id);
+    await expect(button).toContainText(key);
+    await page.keyboard.press(key);
+    await expect(button).toHaveAttribute("aria-pressed","true");
+    const bar = page.locator(id === "margin" ? "#edit-ai-margin-set" : "#edit-ai-line-set");
+    await expect(bar).toContainText(`${label} (${key})`);
+    await expect(bar.locator("kbd")).toHaveText(id === "margin" ? ["Shift + wheel","Ctrl + wheel","Alt + wheel"] : ["Shift"]);
+  }
+  for (const [key,tool,name,fine,coarse] of [
+    ["4","corner","Corner speed","1.01","1.11"], ["5","braking","Braking","1.01","1.11"],
+    ["6","speed-limit","Speed limit","1","11"]
+  ] as const) {
+    const button = page.locator("#edit-ai-" + tool);
+    await expect(button).toContainText(key);
+    await page.keyboard.press(key);
+    await expect(button).toHaveAttribute("aria-pressed","true");
+    const bar = page.locator("#edit-ai-" + tool + "-set");
+    await expect(bar.locator("kbd")).toHaveText(["Shift + wheel","Ctrl + wheel","Alt + wheel"]);
+    await expect(bar).toContainText(`${name} (${key})`);
+    if (tool === "braking") {
+      // Corner speed remains drawn at the centre before Braking has any zone.
+      await expect.poll(async () => (await sample()).equals(passingOnly)).toBe(false);
+    }
+    await page.keyboard.down("Shift"); await clickRow(115); await page.keyboard.up("Shift"); await clickRow(160);
+    await wheelWith(page,["Shift"],-100); await expect(bar.getByRole("spinbutton")).toHaveValue(fine);
+    await wheelWith(page,["Control"],-100); await expect(bar.getByRole("spinbutton")).toHaveValue(coarse);
+  }
+  await page.keyboard.press("5");
+  await wheelWith(page,["Alt"],-100);
+  await expect(page.locator("#edit-ai-braking-set").getByRole("spinbutton")).toHaveValue("1.11");
+});
+
+test("clicking a coloured strip opens its tool from every AI tool, while line gestures still work", async ({page,backend}) => {
+  await marginTrack(page,backend);
+  const {clickRow,screenRow} = await marginMarks(page);
+  const point = (metre:number, offset = 0): [number,number] => {
+    const {x,y} = screenRow(metre,offset);
+    return [x,y];
+  };
+  await page.keyboard.press("5");
+  await clickRow(85); await clickRow(170);
+  const brake = page.locator("#edit-ai-braking-set").getByRole("spinbutton");
+  await brake.fill("0.90"); await brake.press("Enter");
+  // Sample inside the braking strip, away from the move guide and the Danger edge.
+  const [x,y] = point(145,-1.4);
+  const sample = () => page.screenshot({clip:{x:Math.round(x),y:Math.round(y),width:3,height:3}});
+  await page.keyboard.press("4");
+  await expect(page.locator("#edit-ai-corner-set")).toBeVisible();
+  const inactiveStrip = await sample();
+  for (const key of ["1","2","3","4","6"]) {
+    await page.keyboard.press(key);
+    if (key === "1" || key === "2") {
+      await expect(page.locator("#edit-ai-line-set")).toBeVisible();
+      await expect.poll(async () => (await sample()).equals(inactiveStrip)).toBe(true);
+    }
+    await page.mouse.click(...point(145));
+    await expect(page.locator("#edit-ai-braking")).toHaveAttribute("aria-pressed","true");
+    await expect(brake).toHaveValue("0.90");
+  }
+  await page.mouse.click(...point(145,2.8));
+  await expect(page.locator("#edit-ai-margin-set").getByRole("spinbutton",{name:"Right"})).toHaveValue("0.75");
+  const corrections = async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiCorrections;
+  await page.keyboard.press("1");
+  await page.mouse.move(...point(120)); await page.mouse.down();
+  await page.mouse.move(...point(120,1),{steps:6}); await page.mouse.up();
+  await expect.poll(corrections).toMatchObject([{kind:"move"}]);
+  await page.keyboard.press("Control+z");
+  await expect.poll(corrections).toHaveLength(0);
+  await page.keyboard.press("2");
+  await clickRow(65); await clickRow(145);
+  await expect.poll(corrections).toMatchObject([{kind:"redraw"}]);
+});
+
+test("scalar zones resize, undo, and reveal the earlier value when deleted", async ({page,backend}) => {
+  await marginTrack(page,backend);
+  const guide = guideResponse(page);
+  await openEditor(page);
+  const {onRow} = await bandRows(page,(await (await guide).json()).rows);
+  await page.getByRole("button",{name:"Braking",exact:true}).click();
+  const bar = page.locator("#edit-ai-braking-set"), field = bar.getByRole("spinbutton");
+  await expect(bar).toContainText("Click A");
+  await onRow(65);
+  await expect(bar).toContainText("Click B");
+  await page.getByRole("button",{name:"Speed limit",exact:true}).click();
+  await expect(page.locator("#edit-ai-speed-limit-set")).toContainText("Click A");
+  await onRow(65); await page.keyboard.press("Escape");
+  await page.getByRole("button",{name:"Braking",exact:true}).click();
+  await expect(bar).toContainText("Click A");
+  const first = await onRow(105); await onRow(185);
+  await field.fill("0.92"); await field.press("Enter");
+  await onRow(80); await onRow(145);
+  await field.fill("0.84"); await field.press("Enter");
+  const zones = async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiMargins;
+  await expect.poll(zones).toMatchObject([{value:.92},{value:.84}]);
+  await onRow(175); // Pick the older zone outside the overlap.
+  await expect(field).toHaveValue("0.92");
+  await onRow(first,false); await page.mouse.down();
+  const resized = await onRow(115,false); await page.mouse.up();
+  await expect.poll(async () => (await zones())[0].start.metre).toBeCloseTo(resized,2);
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await zones())[0].start.metre).toBeCloseTo(first,2);
+  await onRow(130); await expect(field).toHaveValue("0.84");
+  await expect(bar).toContainText("× 0.84");
+  await page.keyboard.press("Delete");
+  await onRow(130); await expect(field).toHaveValue("0.92");
+  await page.keyboard.press("Control+z"); await onRow(130); await expect(field).toHaveValue("0.84");
+  await page.keyboard.press("Control+y"); await onRow(130); await expect(field).toHaveValue("0.92");
+  await saveTrack(page);
+  const installedHints = async () => (await page.request.get("/__test/ai-hints?name=alpha")).text();
+  await expect.poll(installedHints).toContain("[BRAKEHINT_0]");
+  const ini = await installedHints();
+  expect(ini).toContain("[BRAKEHINT_0]"); expect(ini).toContain("VALUE=0.92");
+  expect(ini).not.toContain("BRAKEHINT_1"); expect(ini).not.toContain("0.84");
+});
 
 test.describe("Danger zone", () => {
   test("setting a side draws its strip and Off clears it before the margins reply", async ({page, backend}) => {
@@ -856,8 +1050,24 @@ test.describe("Danger zone", () => {
     await expect(bar).toContainText("Recalculate the AI line to place danger zones");
     let recalculations = 0;
     page.on("request", r => { if (r.url().endsWith(url + "/recalculate")) recalculations++; });
-    await page.getByRole("button", {name: "Recalculate AI line"}).click();
-    await page.locator("#save-dialog").getByRole("button", {name: "Overwrite"}).click();
+    const button = page.getByRole("button", {name: "Recalculate AI line"});
+    const dialog = page.locator("#save-dialog");
+    const calculating = page.getByLabel("Notifications").getByRole("status").filter({hasText:"Calculating AI line …"});
+    await button.click();
+    await expect(calculating).toBeVisible();
+    await dialog.getByRole("button",{name:"Cancel"}).click();
+    await expect(calculating).toHaveCount(0);
+    expect(recalculations).toBe(0);
+    await backend.post("/__test/hold-lane",{hold:true});
+    await button.click();
+    await expect(calculating).toBeVisible();
+    await dialog.getByRole("button", {name: "Overwrite"}).click();
+    await expect.poll(() => recalculations).toBe(1);
+    await page.clock.install();
+    await page.clock.fastForward(10000);
+    await expect(calculating).toBeVisible();
+    await expect(calculating.getByRole("button",{name:"Dismiss notification"})).toHaveCount(0);
+    await backend.post("/__test/hold-lane",{hold:false});
     await expect(page.getByText("AI line updated", {exact: true})).toBeVisible();
     expect(recalculations).toBe(1);
     const sections = await passingHints(page);
@@ -914,7 +1124,7 @@ test.describe("Danger zone", () => {
     expect(await passingHints(page)).toEqual([]);
     const {bar, clickRow, moveRow, screenRow} = await marginMarks(page);
     await page.keyboard.press("Escape");
-    await page.keyboard.press("m");
+    await page.keyboard.press("3");
     await moveRow(145);
     await expect(scene(page)).toHaveAttribute("title", /not yet applied/i);
     await clickRow(145);
@@ -1053,11 +1263,19 @@ test.describe("Danger zone", () => {
   test("reports a guide preparation error once as a tool toast", async ({page, backend}) => {
     await marginTrack(page, backend);
     const message = "No supported driving surface at route metre 70";
-    await page.route("**/ai-line/move-preview", route =>
-      route.fulfill({status: 400, json: {error: message}}));
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    await page.route("**/ai-line/move-preview", async route => {
+      await pending;
+      await route.fulfill({status: 400, json: {error: message}});
+    });
     await openEditor(page);
     await keysOnView(page);
-    for (const [key, id] of [["l", "line"], ["p", "line"], ["m", "margin"]]) {
+    await page.keyboard.press("1");
+    const progress = page.getByLabel("Notifications").getByText("Preparing the AI line for editing …",{exact:true});
+    try { await expect(progress).toBeVisible(); } finally { finish(); }
+    await expect(progress).toHaveCount(0);
+    for (const [key, id] of [["2", "line"], ["3", "margin"]]) {
       await page.keyboard.press(key);
       await expect(page.locator(`#edit-ai-${id}-set`)).not.toContainText(message);
       await expect(page.locator("#edit-tool-toasts").getByText(message,{exact:true})).toHaveCount(1);
@@ -1078,18 +1296,21 @@ test.describe("Danger zone", () => {
     await keysOnView(page);
     const preparing = "Preparing the AI line for editing …", ready = "AI line ready for editing";
     const notes = page.locator("#edit-tool-toasts");
-    let activations = 0;
-    for (const [key, id] of [["l", "line"], ["p", "line"], ["m", "margin"]]) {
+    const progress = page.getByLabel("Notifications").getByRole("status").filter({hasText:preparing});
+    await expect(progress).toHaveCount(0);
+    await page.clock.install();
+    for (const key of ["1","2","Escape","3"]) {
       await page.keyboard.press(key);
-      const bar = page.locator(`#edit-ai-${id}-set`);
-      await expect(bar).toBeVisible();
-      await expect(bar).not.toContainText(preparing);
-      await expect(notes.getByText(preparing,{exact:true})).toHaveCount(++activations);
+      await expect(progress).toBeVisible();
+      await expect(notes.getByText(preparing,{exact:true})).toHaveCount(0);
     }
+    await page.clock.fastForward(10000);
+    await expect(progress).toBeVisible();
+    await expect(progress.getByRole("button",{name:"Dismiss notification"})).toHaveCount(0);
     await backend.post("/__test/hold-guide", {hold: false});
     expect((await (await response).json()).rows.length).toBeGreaterThan(0);
-    await expect(page.locator("#edit-ai-margin-set")).not.toContainText("Preparing the AI line for editing …");
-    await page.keyboard.press("l");
+    await expect(progress).toHaveCount(0);
+    await page.keyboard.press("1");
     await expect(page.locator("#edit-ai-move")).toHaveAttribute("aria-pressed", "true");
     await expect(notes.getByText(ready,{exact:true})).toHaveCount(1);
     expect(requests).toHaveLength(1);
@@ -1100,7 +1321,7 @@ test.describe("Danger zone", () => {
     const response = guideResponse(page);
     await openEditor(page);
     expect((await (await response).json()).rows.length).toBeGreaterThan(0);
-    await keysOnView(page); await page.keyboard.press("p");
+    await keysOnView(page); await page.keyboard.press("2");
     await expect(page.locator("#edit-ai-line-set")).toContainText("Side limits");
     await expect(page.locator("#edit-tool-toasts").getByText("AI line ready for editing",{exact:true})).toHaveCount(0);
   });

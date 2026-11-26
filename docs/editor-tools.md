@@ -40,10 +40,10 @@ hook handles its own view marks but does not register another global click, pick
 
 ## AI line
 
-Move line (L), Redraw line (P) and Danger zone (M) show the installed `ai/fast_lane.ai` as a translucent speed band
+Move line (1), Redraw line (2) and the four AI hint tools show the installed `ai/fast_lane.ai` as a translucent speed band
 with side limits. Move line also shows the route metre and point data on hover. When an editable Route or Circuit
-finishes loading, the Editor prepares the guide in the background. All three tools share the same request and result
-when switching or returning to them. Opening an AI tool during preparation shows a tool toast. When preparation finishes with an AI tool active,
+finishes loading, the Editor prepares the guide in the background. All six tools share the same request and result
+when switching or returning to them. Opening an AI tool during preparation shows one progress notification at the top centre. It stays there across tool changes until preparation ends. When preparation finishes with an AI tool active,
 a second toast reports that the line is ready. Preparation errors also appear as a tool toast. Yellow is the lowest modelled speed and blue the highest. The legend spans the whole circuit
 or the stage from start gate to finish gate. Grid and runout colours clamp to this range. If an installed spline misses
 a timing gate, the legend spans the available samples. Save and Save as update the line in the background when its
@@ -51,8 +51,8 @@ fingerprint changes. Until the replacement is ready, the old band stays visible,
 If AC is open or a build is running, the update waits for the next Save, Recalculate or Race with opponents.
 Editor Play saves edits first. Only a Race with opponents needs a current line before launch.
 **Recalculate AI line** beside the tools saves pending edits first. It can retry a failed calculation or replace a manual
-line when the recipe has no danger zones.
-The button is disabled while calculating or when everything is current. Progress and results appear in Notifications.
+line when the recipe has no hint zones.
+The button is disabled while calculating or when everything is current. The top-centre notification follows the Recalculate click through pending edits, the save choice, writing the track and calculating the line. Cancelling the save choice clears it. The finished calculation reports its result there.
 In Move line, dragging the band moves it sideways; dragging inside an existing move adjusts it in one Undo step. New and adjusted moves taper on each side over at least
 15 m. Their peak added lateral slope is limited to 1 in 4 relative to the reference. The editor retains the stored range
 until the move is adjusted. A centre-line crossing on the same level rejects the correction with its route metre.
@@ -82,7 +82,7 @@ Build as copy carries the correction recipe and resolves it on the new geometry.
 A hand-replaced line is identified by its checksum and remains available for a test drive.
 
 `GET /api/editor/<track>/ai-line` returns JSON with the file status, revision, point count, circuit flag, calculation
-availability and input validity. Its `hints` field reports whether the installed INI is current, why danger zones are
+availability and input validity. Its `hints` field reports whether the installed INI is current, why hint zones are
 unplaced and which zones were rejected. Move and Redraw rejections come from the move preview's `skipped` field.
 Open lines also report the timed speed range in m/s when available. With
 `?r=<revision>` it returns cacheable `application/octet-stream` or HTTP 409 when the installed revision changed. The binary
@@ -90,12 +90,40 @@ contract is 23 consecutive columns of `count` little-endian values each, 92 byte
 is Float32 except `id` (Int32). In order they are `x, y, z, distance, id, speed, gas, brake, lat_g, radius, left, right,
 camber, direction, normal_x, normal_y, normal_z, segment_length, forward_x, forward_y, forward_z, tag, grade`.
 
-### Danger zone
+### Marking AI hint zones
 
-Press **M** on a Route or Circuit. Click inside a highlighted stretch to select it. Click outside the existing
-stretches to mark A, then click B on the band. B can be inside another stretch. On a Route either end can come first, including
-when dragging one end past the other. On a Circuit the stretch follows driving order from A to B across start/finish if needed.
-Drag either end of the selected stretch along the band. Releasing it records one Undo step.
+Choose **Danger zone**, **Corner speed**, **Braking** or **Speed limit** in the AI group. Click A and B on the
+installed band. On a Route either end can come first, including when dragging one end past the other. On a
+Circuit the stretch follows driving order from A to B, across start/finish if needed. All six AI tools show the four hint types, including Move line and Redraw line.
+The coloured mark on each sidebar button matches its band. Overlapping scalar hints use adjacent strips.
+Click a coloured strip to select its zone and switch to its tool. Where types overlap, click the colour you want.
+In a hint tool, click the clear band to start a stretch, or Shift + click to set A inside an existing zone.
+The next click sets B even on a coloured strip. Move line can drag the line through a hint. Redraw line can
+start on a hint with Shift + click and finish a stroke there with a plain click.
+
+Click a zone to select it or use Alt + wheel to visit zones of the active type in driving order. Drag either end
+of the selection along the band. Releasing it records one Undo step. X or Delete removes the selection. Undo
+and Redo restore or replay the edit. Escape and switching tools discard unfinished marks.
+
+| Tool | AC section | Setting |
+|---|---|---|
+| Danger zone (3, amber) | `DANGER_n` | Left and right passing reserves in metres |
+| Corner speed (4, mint) | `HINT_n` | 1.00 is neutral. Lower factors encourage slower cornering, higher factors faster cornering. |
+| Braking (5, coral) | `BRAKEHINT_n` | 1.00 is neutral. Try 0.90 for earlier braking or 1.10 for later braking. |
+| Speed limit (6, blue) | `MAXSPEED_n` | Enter a positive target speed in km/h. Cars can enter the zone faster and slow down within it. |
+
+For example, mark a braking factor of 0.90 on the approach to a downhill hairpin, then a corner speed factor
+of 0.85 through its apex. Both apply in their overlap. To have cars reach a specific speed by the apex,
+start the speed limit far enough upstream for cars to slow from their approach speed. Extend it through
+the stretch where they should hold that speed.
+
+Within one scalar type the newest zone wins on the
+shared stretch. Deleting it reveals the earlier value. The options field edits the selected zone. Hovering
+over the band shows the effective value for the active type at that point. Shift + wheel adjusts factors
+by 0.01 or limits by 1 km/h. Ctrl + wheel adjusts by 0.10 or 10 km/h. A positive wheel input can set the first limit.
+Enter or leaving the field commits a number.
+
+### Danger zone
 
 Both sides start **Off**. Shift + wheel adjusts the left reserve and Ctrl + wheel adjusts the right in 0.05 m
 steps up to 1 m. Consecutive wheel notches on the same stretch and side, less than a second apart, undo together.
@@ -104,23 +132,31 @@ Off leaves the side unset in this zone, so an older overlapping zone can still s
 cancels any older reserve on that side. Switching both sides Off removes the zone.
 
 On each overlapping metre, the most recently added stretch with a value for that side wins. The older stretch keeps
-its anchors and values. Removing the newer stretch restores the older values. Alt + wheel selects the next or
-previous stretch in driving order and moves the camera to it. X or Delete removes the selection. Ctrl+Z undoes
-an addition, adjustment or removal.
+its anchors and values. Removing the newer stretch restores the older values.
 
 A positive reserve draws a strip inward from the band edge, up to half the band width. The bar shows the effective
 value or range for each side. Hovering shows the reserve at that point, with **Off** for a side with zero reserve.
+
+### Hint placement and export
+
 A rejected stretch or surviving endpoint appears red. A tool toast reports each new or changed error. Selecting
 the stretch shows the reason in the tool bar. On an older line without sample route metres, the Editor projects the anchors from the guide onto the installed line and draws
 the stretch in violet as **Not yet applied**. These approximate positions are for display only. **Recalculate AI line**
 records the missing metres once so the zones can take effect. On a hand-replaced line, zones stay in the recipe
 until they can be placed.
 
-The recipe stores the corrections in `edits.aiMargins`. Save as and Build as carry its anchors forward. For a placed
-stretch, the preview and INI use the same merge on the installed lane. Save or the next Race with opponents
-replaces old automatic hints with the placed zones. The INI is empty if no zone reserves any width. A zone-only
-edit preserves the lane bytes. While AC is running, Save carries the previous INI. After AC closes, Save,
-Recalculate or the next Race with opponents refreshes stale hints from the saved recipe.
+All four tools use the same band hits, driving-level checks, route anchors, and legacy and manual line status.
+The draft and recipe store the zones in creation order in `edits.aiMargins`. Older entries with `left` and
+`right` remain Danger zones. Scalar entries store a `kind` and one `value`. Save as and Build as copy carry
+the anchors forward. Preview and export resolve them against the installed lane. START and END are fractions
+of its 3D length. An interval across start/finish splits at the seam. Each scalar section writes its VALUE.
+
+The writer marks its sections with a Map2Lap comment. It recognizes older DANGER output by the legacy
+writer’s field order and decimal precision. Other sections
+and comments survive saves. Numbering starts at zero per type and skips indices occupied by foreign hints.
+Removing the last zone removes its generated sections. A hint-only edit on a current line preserves the
+`fast_lane.ai` bytes. While AC is running, Save carries the previous INI. After AC closes, Save, Recalculate
+or the next Race with opponents refreshes stale hints from the saved recipe.
 
 ## Selection and Inspector
 

@@ -42,14 +42,12 @@ test("a surviving endpoint of a rejected margin can be hovered and picked on its
   const camera = new PerspectiveCamera(60,1,.1,100);
   camera.position.set(50,20,0); camera.lookAt(50,0,0); camera.updateMatrixWorld();
   const element = {title:"",clientHeight:600, removeAttribute() {}};
-  const selected: string[] = [];
   const edit = editMargins(element, scene, camera, undefined, lane, {sections:[], margins:{}, unplaced:null},
-    [{id:"bad", start:.5, left:.25, right:null, error:"Unresolved route anchor at route metre 80"}],
-    () => Infinity, () => {}, id => selected.push(id));
+    [{id:"bad", active:false, start:.5, left:.25, right:null, error:"Unresolved route anchor at route metre 80"}],
+    () => Infinity, () => {});
   expect(edit.hover({index:0,t:.501})?.owner?.id).toBe("bad");
   expect(element.title).toBe("");
-  edit.click(new Vector2(.005,0));
-  expect(selected).toEqual(["bad"]);
+  expect(edit.click(new Vector2(.005,0))).toBe("bad");
   edit.dispose();
   lane.set(null);
 });
@@ -71,7 +69,7 @@ test("a legacy anchor on the return trip projects onto the later passage of the 
 });
 
 test("margin strip meshes measure inward from the INI sides and show only the winning width", async () => {
-  const {Mesh, Group, Scene, PerspectiveCamera} = await import("three");
+  const {Mesh, Group, Scene, PerspectiveCamera, Vector2, Vector3} = await import("three");
   const {AiLineDraw} = await import("./aiLine");
   const {editMargins} = await import("./aiMargins");
   const {decodeAiLine} = await import("./aiLineData");
@@ -83,7 +81,7 @@ test("margin strip meshes measure inward from the INI sides and show only the wi
   const edit = editMargins({title:"",clientHeight:600,removeAttribute() {}}, scene, new PerspectiveCamera(),
     undefined, lane, {sections:[[0,.5,1,.25],[.5,1,1,.5]], margins:{},unplaced:null},
     [{id:"older",start:0,end:1,left:1,right:null},{id:"newer",start:.2,end:.4,left:.1,right:null}],
-    () => Infinity, () => {}, () => {});
+    () => Infinity, () => {});
   edit.setSelected("older");
   const group = scene.children.find(child => child instanceof Group)!;
   const stripsAt = (x:number) => group.children.flatMap(mesh => {
@@ -98,5 +96,30 @@ test("margin strip meshes measure inward from the INI sides and show only the wi
   expect(stripsAt(30)).toEqual([[-.4,-.3]]);
   expect(stripsAt(75)).toEqual([[-.4,.4]]);
   edit.dispose();
+  const camera = new PerspectiveCamera(60,1,.1,100);
+  camera.position.set(50,20,0); camera.lookAt(50,0,0); camera.updateMatrixWorld();
+  lane.show(true);
+  const overlay = editMargins({title:"",clientHeight:600,removeAttribute() {}}, scene, camera,
+    undefined, lane, {sections:[],margins:{},unplaced:null},
+    [{id:"passing",start:0,end:1,left:.1,right:null,active:false},
+     {id:"corner",start:0,end:1,kind:"corner",active:false},
+     {id:"brake",start:0,end:1,kind:"braking",active:true},
+     {id:"cap",start:0,end:1,kind:"speedLimit",active:false}], () => Infinity, () => {});
+  overlay.setSelected("brake");
+  expect(overlay.hover({index:0,t:.5})?.owner?.id).toBe("brake");
+  const overlays = scene.children.find(child => child instanceof Group)!.children.filter(mesh => mesh.type === "Mesh") as InstanceType<typeof Mesh>[];
+  expect(overlays).toHaveLength(4);
+  expect(new Set(overlays.map(mesh => (mesh.material as import("three").MeshBasicMaterial).color.getHex())).size).toBe(4);
+  const bands = overlays.map(mesh => {
+    const pos = mesh.geometry.attributes.position;
+    return [Math.min(pos.getZ(0),pos.getZ(1)), Math.max(pos.getZ(0),pos.getZ(1))];
+  }).sort((a,b) => a[0]-b[0]);
+  for (let i=1; i<bands.length; i++) expect(bands[i][0]).toBeGreaterThanOrEqual(bands[i-1][1]);
+  const picked = bands.map(([left,right]) => {
+    const p = new Vector3(50,lane.bandRows[0].at[1],(left+right)/2).project(camera);
+    return overlay.click(new Vector2(p.x,p.y));
+  });
+  expect(picked).toEqual(["passing","corner","brake","cap"]);
+  overlay.dispose();
   lane.set(null);
 });

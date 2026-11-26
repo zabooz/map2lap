@@ -1,3 +1,4 @@
+import {HINT_COLOURS} from "../aiHints";
 import type {ReactNode} from "react";
 import type {EditState, TrackEdits} from "../state/edits";
 import styles from "./ToolPanel.module.css";
@@ -46,10 +47,10 @@ export function ToolPanel({routeTrack, aiPanel, state, edits, view, tool, onTool
   const shownTool = editable || TOOLS.some(t => t.tool === tool && t.free) ? tool : "select";
   const buttons = (group: ToolGroup) => (
     <div className={styles.picker}>
-      {TOOLS.filter(t => t.group === group && (t.tool !== "ai-margin" || routeTrack)).map(t => (
+      {TOOLS.filter(t => t.group === group && (!t.hintKind || routeTrack)).map(t => (
         <button type="button" key={t.tool} id={t.id ?? undefined} className={shownTool === t.tool ? styles.on : ""} aria-pressed={shownTool === t.tool}
                 disabled={!editable && !t.free} title={t.hint} onClick={then(() => t.library ? onModels?.() : onTool(t.tool))}>
-          {t.label}<span className={styles.key} aria-hidden="true">{t.key}</span>
+          <span className={styles.buttonLabel}>{t.hintKind && <i aria-hidden="true" className={styles.hintColour} style={{backgroundColor:HINT_COLOURS[t.hintKind]}} />}{t.label}</span>{t.key && <span className={styles.key} aria-hidden="true">{t.key}</span>}
         </button>
       ))}
       {group === "ai" && aiPanel}

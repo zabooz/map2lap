@@ -74,6 +74,8 @@ export class Pencil {
     }, {capture:true,signal:this.stop.signal});
   }
 
+  get engaged() { return !!this.draft || !!this.drag || this.finishing; }
+
   setMode(pen: boolean, free: boolean) {
     if (this.pen === pen && this.free === free) return;
     if (this.draft || this.drag) this.reset();
@@ -244,7 +246,7 @@ export class Pencil {
       if (this.pen) this.beginOpening(s,s.samples.findIndex(index => index>sample)-1);
       else if (e.button===2) this.remove(s.item.id);
       else if (s.error) this.note(s.error);
-      else this.hint("Press P to edit this redraw.");
+      else this.hint("Press 2 to edit this redraw.");
       return true;
     }
     return false;

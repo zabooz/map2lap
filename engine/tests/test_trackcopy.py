@@ -135,6 +135,14 @@ class SideMarginSaveTest(Base):
         self.assertEqual([self.margin], trackedits.saved_edits(self.ac, "t")["aiMargins"])
         self.assertEqual(0, trackedits.changes(self.ac, "t"))
 
+    def test_save_as_keeps_scalar_hints_and_legacy_margins_on_the_copy(self):
+        hint = {k: self.margin[k] for k in ("start", "end")}
+        zones = [self.margin, dict(hint, id="speed", kind="speedLimit", value=62.5)]
+        self.draft(aiMargins=zones)
+        self.copy()
+        self.assertEqual(zones, trackedits.load(self.ac, "t_mod")["aiMargins"])
+        self.assertEqual(zones, aimargins.recipe(Path(self.own("t_mod")).parent))
+
     def test_save_as_restores_margin_recipe_and_history_on_the_copy(self):
         history = {"past": ["a"], "future": [], "entries": {"a": {"aiMargins": ["i"]}}, "items": {"i": self.margin}}
         self.draft(aiMargins=[self.margin], history=history)
@@ -196,7 +204,7 @@ class FilterTest(Base):
     def test_area_save_drops_inherited_ai_hints(self):
         mytracks.save(self.root, {**mytracks.load(self.root), "area": [1.,2.,3.,4.]})
         hints = Path("data/ai_hints.ini")
-        (Path(self.root) / hints).write_text("[DANGER_0]\n")
+        (Path(self.root) / hints).write_text("[DANGER_0]\nSTART=0.000000000\nEND=1.000000000\nLEFT=0.50\nRIGHT=0.50\n")
         self.copy()
         self.assertFalse((Path(self.own("t_mod")).parent / hints).exists())
 

@@ -28,8 +28,12 @@ test("Editor settings put build files and view first, with enough room for the g
   await expect(page.getByLabel("Keep build files")).toBeInViewport();
   await expect(page.getByLabel("Memory limit")).toBeInViewport();
   const keys = page.locator("#editor-keys");
-  for (const name of ["Camera", "Objects", "Terrain", "Tool options", "General"]) {
+  for (const name of ["Camera", "Objects", "Terrain", "AI", "Tool options", "General"]) {
     await expect(keys.getByRole("table", {name, exact: true})).toBeAttached();
+  }
+  const ai = keys.getByRole("table",{name:"AI",exact:true});
+  for (const row of ["1 Move line","2 Redraw line","3 Danger zone","4 Corner speed","5 Braking","6 Speed limit"]) {
+    await expect(ai.getByRole("row",{name:row,exact:true})).toBeAttached();
   }
   await dialog.screenshot({path: test.info().outputPath("settings-editor-desktop.png")});
   for (const row of ["K Camera tool: follow the route or ride automatically", "W A S D Move over the ground, at the same height",

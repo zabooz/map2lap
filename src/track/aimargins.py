@@ -1,11 +1,14 @@
-"""Danger zones stored as directed route anchors and placed on the installed AI line."""
+"""AI hint zones stored as directed route anchors and placed on the installed AI line."""
 import json
+import math
 from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
 
 from track import aicorrections
+
+SCALAR_SECTIONS = {"corner": "HINT", "braking": "BRAKEHINT", "speedLimit": "MAXSPEED"}
 
 
 class Span(NamedTuple):
@@ -14,10 +17,19 @@ class Span(NamedTuple):
     end: float
     left: float | None
     right: float | None
+    kind = "danger"
+
+
+class ScalarSpan(NamedTuple):
+    id: str
+    start: float
+    end: float
+    kind: str
+    value: float
 
 
 def recipe(folder: Path) -> list[dict]:
-    """Read the danger zones saved in the track folder's Editor recipe."""
+    """Read the ordered hint zones saved in the track folder's Editor recipe."""
     try:
         data = json.loads((folder / "data/map2lap.json").read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -47,8 +59,14 @@ def problem(items) -> str | None:
                 or aicorrections.anchor_problem(item.get("start"))
                 or aicorrections.anchor_problem(item.get("end"))):
             return "Invalid danger zone"
-        if (not all(k in item and _value(item[k]) for k in ("left", "right"))
-                or item["left"] is None and item["right"] is None):
+        if "kind" in item:
+            value = item.get("value")
+            if (not isinstance(item["kind"], str) or item["kind"] not in SCALAR_SECTIONS
+                    or type(value) not in (float, int) or not -math.inf < value < math.inf
+                    or item["kind"] == "speedLimit" and value <= 0):
+                return "Invalid AI hint value"
+        elif (not all(k in item and _value(item[k]) for k in ("left", "right"))
+              or item["left"] is None and item["right"] is None):
             return "Invalid danger zone value"
         ids.add(item["id"])
     return None
@@ -73,10 +91,11 @@ def _endpoint(anchor, route, metres, heights, circuit, level_gap):
     return metre
 
 
-def _extent(start, end, samples, circuit, length):
+def _extent(start, end, samples, circuit, length, kind):
     """Clip a route stretch to its lane coverage, or normalize the two marks on a circuit. Pure."""
     if start == end or circuit and (end - start) % length == 0:
-        raise ValueError(f"Empty danger zone at route metre {start:.1f}")
+        label = "danger zone" if kind == "danger" else "AI hint"
+        raise ValueError(f"Empty {label} at route metre {start:.1f}")
     if circuit:
         return start % length, end % length
     start, end = sorted((start, end))
@@ -115,16 +134,20 @@ def placements(items, route: aicorrections.Route, metres: np.ndarray, stations: 
         if key in rejected:
             continue
         try:
-            start, end = _extent(marks["start"], marks["end"], samples, circuit, route.length)
-            spans.append(Span(key, fraction(start), fraction(end),
-                              _setting(item["left"]), _setting(item["right"])))
+            kind = item.get("kind", "danger")
+            start, end = _extent(marks["start"], marks["end"], samples, circuit, route.length, kind)
+            a, b = fraction(start), fraction(end)
+            if kind == "danger":
+                spans.append(Span(key, a, b, _setting(item["left"]), _setting(item["right"])))
+            else:
+                spans.append(ScalarSpan(key, a, b, kind, item["value"]))
         except ValueError as exc:
             rejected[key] = str(exc)
     return spans, rejected, locations
 
 
 def place(items, route: aicorrections.Route, metres: np.ndarray, stations: np.ndarray,
-          heights: np.ndarray, circuit: bool, level_gap: float) -> tuple[list[Span], dict[str, str]]:
+          heights: np.ndarray, circuit: bool, level_gap: float) -> tuple[list[Span | ScalarSpan], dict[str, str]]:
     """Return placed spans and reasons for rejected items on the installed lane. Pure."""
     spans, rejected, _ = placements(items, route, metres, stations, heights, circuit, level_gap)
     return spans, rejected

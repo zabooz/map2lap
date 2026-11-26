@@ -1,7 +1,7 @@
 import {expect, test} from "bun:test";
 import {globalKey, TOOL_DEFS, TOOLS, toolDef, toolOfKey, type Tool} from "./toolDefs";
 
-const ALL: Tool[] = ["select", "delete", "camera", "move", "copy", "elevation", "smooth", "separate", "bank", "kerb", "stitch", "ai-move", "ai-redraw", "ai-margin", "model", "group"];
+const ALL: Tool[] = ["select", "delete", "camera", "move", "copy", "elevation", "smooth", "separate", "bank", "kerb", "stitch", "ai-move", "ai-redraw", "ai-margin", "ai-corner", "ai-braking", "ai-speed-limit", "model", "group"];
 
 test("each tool has one definition with its name, help and selection rule; keys are unique", () => {
   expect(TOOL_DEFS.map(t => t.tool).sort()).toEqual([...ALL].sort());
@@ -19,7 +19,16 @@ test("the panel lists the keyed tools by group; Groups comes from the Library an
   expect(toolDef("group").key).toBeNull();
   expect(toolDef("model").library).toBe(true);
   expect(TOOLS.filter(t => t.group === "road").map(t => t.tool)).toEqual(["smooth", "separate", "bank", "kerb", "stitch"]);
-  expect(TOOLS.filter(t => t.group === "ai").map(t => [t.tool, t.label, t.key])).toEqual([["ai-move", "Move line", "L"], ["ai-redraw", "Redraw line", "P"], ["ai-margin", "Danger zone", "M"]]);
+  expect(TOOLS.filter(t => t.group === "ai").map(t => [t.tool, t.label, t.key])).toEqual([["ai-move", "Move line", "1"], ["ai-redraw", "Redraw line", "2"], ["ai-margin", "Danger zone", "3"],
+    ["ai-corner", "Corner speed", "4"], ["ai-braking", "Braking", "5"], ["ai-speed-limit", "Speed limit", "6"]]);
+});
+
+test("AI hint shortcuts activate the named tool and explain all three wheel modifiers", () => {
+  for (const [key, tool] of [["3","ai-margin"],["4","ai-corner"],["5","ai-braking"],["6","ai-speed-limit"]] as const) {
+    const def = toolOfKey(key);
+    expect(def?.tool).toBe(tool);
+    expect(def?.help.map(([gesture]) => gesture)).toEqual(expect.arrayContaining(["Shift + wheel","Ctrl + wheel","Alt + wheel"]));
+  }
 });
 
 test("Select, Road camera and the AI line tools also work on a track that cannot be edited; Camera and Transform add with Ctrl; Delete deletes its pick; road tools take no left pick", () => {
@@ -27,15 +36,19 @@ test("Select, Road camera and the AI line tools also work on a track that cannot
   expect(TOOL_DEFS.filter(t => t.selection === "select").map(t => t.tool)).toEqual(["select"]);
   expect(TOOL_DEFS.filter(t => t.selection === "multi").map(t => t.tool).sort()).toEqual(["camera", "move"]);
   expect(TOOL_DEFS.filter(t => t.selection === "delete").map(t => t.tool)).toEqual(["delete"]);
-  expect(TOOL_DEFS.filter(t => t.selection === "none").map(t => t.tool).sort()).toEqual(["ai-margin", "ai-move", "ai-redraw", "bank", "kerb", "separate", "smooth", "stitch"]);
+  expect(TOOL_DEFS.filter(t => t.selection === "none").map(t => t.tool).sort()).toEqual(["ai-braking", "ai-corner", "ai-margin", "ai-move", "ai-redraw", "ai-speed-limit", "bank", "kerb", "separate", "smooth", "stitch"]);
+});
+
+test("AI tools have a single number shortcut and release their old letters", () => {
+  for (const [digit, letter, tool] of [["1","L","ai-move"],["2","P","ai-redraw"],["3","M","ai-margin"]] as const) {
+    expect(globalKey(press(digit),{picked:false})).toEqual({tool});
+    expect(globalKey(press(letter),{picked:false})).toBeNull();
+  }
 });
 
 test("a key names its tool without Ctrl; Groups is never keyed", () => {
   expect(toolOfKey("b")?.tool).toBe("kerb");
   expect(toolOfKey("B")?.tool).toBe("kerb");
-  expect(toolOfKey("L")?.tool).toBe("ai-move");
-  expect(toolOfKey("m")?.tool).toBe("ai-margin");
-  expect(toolOfKey("p")?.tool).toBe("ai-redraw");
   expect(toolOfKey("library")).toBeUndefined();
   expect(toolOfKey("q")).toBeUndefined();
 });

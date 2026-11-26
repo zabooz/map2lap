@@ -124,6 +124,7 @@ export class TrackView {
   private roadMarkers = new RoadMarkers(this.scene, this.camera, (x, z) => this.groundAt(x, z), () => { this.dirty = true; });
   private aiLineDraw = new AiLineDraw(this.scene);
   private aiLine: InstalledAiLine | null = null;
+  private hintAt?: (mouse: THREE.Vector2) => string | undefined;
   private onMarginHover: ((hit: MarginHit | null) => void) | null = null;
   private aiLineSample: number | null = null;
   private onAiLinePoint: ((hover: AiLineHover | null) => void) | null = null;
@@ -173,7 +174,7 @@ export class TrackView {
   private onToolWheel: (keys: WheelKeys, by: number) => void = () => {};
   private wheelTaken = false;           // Ctrl and Alt with the wheel are the tool's
   private marking: ((x: number, z: number) => void) | null = null;
-  private onClicked: (picked: Picked | null) => void = () => {};
+  private onClicked: (picked: Picked | null, shift: boolean) => void = () => {};
   private leftClicks = true;
   private cursorTool: Tool = "select";  // (the tool the pointer speaks for, and what it last pointed at)
   private pointed: Pointed | null = null;
@@ -665,7 +666,7 @@ export class TrackView {
   }
 
   /** onClicked gets what the left button clicked, null for nothing there: picked already, and what a marking goes by. */
-  setClicked(onClicked: (picked: Picked | null) => void) {
+  setClicked(onClicked: (picked: Picked | null, shift: boolean) => void) {
     this.onClicked = onClicked;
   }
 
@@ -1048,7 +1049,7 @@ export class TrackView {
         }
         const picked = this.pick(e, el), r = el.getBoundingClientRect();
         if (e.button === 2 && picked) this.onMenu({x: e.clientX - r.left, y: e.clientY - r.top, width: r.width, height: r.height});
-        if (e.button === LEFT_BUTTON) this.onClicked(picked);
+        if (e.button === LEFT_BUTTON) this.onClicked(picked, e.shiftKey);
       }
       from = null;
     });
@@ -1142,17 +1143,27 @@ export class TrackView {
         this.picker.setFromCamera(mouse, this.camera);
         const ray = this.picker.ray;
         return this.groundAlong(ray.origin, ray.direction)?.point ?? null;
-      }, spans => this.aiLineDraw.preview(spans, PREVIEW_LIFT), cursor => this.setToolCursor(cursor));
+      }, spans => this.aiLineDraw.preview(spans, PREVIEW_LIFT), cursor => this.setToolCursor(cursor), mouse =>
+        this.hintAt?.(mouse) ? () => { this.mouse = mouse; this.onClicked(null, false); } : undefined);
   }
 
-  /** Danger zones share the installed band's display edges and ray hits with the AI line inspector. */
-  editAiMargins(guide: MoveGuide | undefined, preview: MarginPreview, margins: MarginRange[],
-                add: (mark: MarginMark) => void, select: (id: string) => void,
+  /** AI hint zones share the installed band's display edges and ray hits with the AI line inspector. */
+  editAiMargins(guide: MoveGuide | undefined, preview: MarginPreview, margins: MarginRange[], marking: boolean, editable: boolean,
+                add: (mark: MarginMark) => void,
                 hover: (value: ReturnType<ReturnType<typeof editMargins>["hover"]>) => void,
                 resize: (id: string, key: "start" | "end", mark: MarginMark) => void) {
     if (!this.aiLine || !this.aiLineDraw.bandRows.length) return null;
     const session = editMargins(this.renderer.domElement, this.scene, this.camera, guide, this.aiLineDraw, preview, margins,
-      mouse => (this.pointing.hit(mouse)?.distance ?? Infinity) + .5, add, select);
+      mouse => (this.pointing.hit(mouse)?.distance ?? Infinity) + .5, add);
+    if (!marking) {
+      this.hintAt = editable ? mouse => session.selectionAt(mouse) : undefined;
+      return {
+        click: (shift = false) => !shift && this.mouse ? this.hintAt?.(this.mouse) : undefined,
+        setSelected: (id:string | null) => { session.setSelected(id); this.dirty = true; },
+        focus: () => {},
+        dispose: () => { this.hintAt = undefined; session.dispose(); this.dirty = true; },
+      };
+    }
     this.onMarginHover = hit => hover(session.hover(hit));
     this.hoverDue = true;
     const el = this.renderer.domElement, events = new AbortController();
@@ -1199,7 +1210,7 @@ export class TrackView {
     el.addEventListener("lostpointercapture", cancel, options);
     return {
       setSelected: (id: string | null) => { session.setSelected(id); this.dirty = true; },
-      click: () => session.click(this.mouse),
+      click: (shift = false) => session.click(this.mouse, shift),
       focus: (id: string) => {
         const target = session.focusPoint(id);
         if (target) this.navigation.showStretch(new THREE.Vector3(...target.at),

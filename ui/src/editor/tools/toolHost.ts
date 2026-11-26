@@ -11,7 +11,7 @@ import {globalKey, toolDef, type GlobalKey, type SelectionRule, type Tool} from 
     render's values (the host reads it through effect events), so a tool may return a new object each render. */
 export interface ToolController {
   /** A left click in the view (after the pick), null for sky: points on a road, a kerb, a stitch. */
-  click?(p: Picked | null): void;
+  click?(p: Picked | null, shift: boolean, switchTool: (next:Tool) => void): void;
   /** A notch of the wheel with Shift, Ctrl, Alt or Ctrl+Alt held: the view gives it while takesWheel or a brush is set. */
   wheel?(keys: WheelKeys, by: number): void;
   takesWheel?: boolean;
@@ -73,15 +73,21 @@ export function useToolHost({view, tool, setTool, editable, picked, deletable, c
 }) {
   const on = usable(tool, editable), active = on ? controllers[tool] : undefined, rule = selectionRule(tool, editable);
 
+  /** Take up next: the tool on is cleared, next activated if it can work now. */
+  const switchTool = (next: Tool) => {
+    handOver(usable(next, editable) ? controllers : {...controllers, [next]: undefined}, tool, next, picked);
+    setTool(next);
+  };
+
   const pickEvent = useEffectEvent((p: Picked | null) => {
     if (pickRoute(tool, editable, p) === "drop") return view.selection.unpick();
     onPick(p, rule);
   });
-  const clickEvent = useEffectEvent((p: Picked | null) => active?.click?.(p));
+  const clickEvent = useEffectEvent((p: Picked | null, shift: boolean) => active?.click?.(p, shift, switchTool));
   const wheelEvent = useEffectEvent((keys: WheelKeys, by: number) => active?.wheel?.(keys, by));
   useEffect(() => {
     view.selection.setPick(p => pickEvent(p));
-    view.setClicked(p => clickEvent(p));
+    view.setClicked((p, shift) => clickEvent(p, shift));
     view.setToolWheel((keys, by) => wheelEvent(keys, by));
     return () => { view.selection.setPick(() => {}); view.setClicked(() => {}); view.setToolWheel(() => {}); };
   }, [view]);
@@ -149,10 +155,5 @@ export function useToolHost({view, tool, setTool, editable, picked, deletable, c
     };
   }, [alt, shift, visible]);
 
-  /** Take up next: the tool on is cleared, next activated if it can work now. */
-  const switchTool = (next: Tool) => {
-    handOver(usable(next, editable) ? controllers : {...controllers, [next]: undefined}, tool, next, picked);
-    setTool(next);
-  };
   return {switchTool, options: active?.options ?? null};
 }
