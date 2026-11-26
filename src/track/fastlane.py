@@ -1720,7 +1720,7 @@ def regenerate(model, *, circuit, log=print):
         inputs = lane_inputs(model, circuit, log)
         fingerprint = ailinestate.fingerprint(inputs, circuit)
         skipped = calculate(model, inputs, circuit, model.parent / FILE, log)
-        ailinestate.record_ready(model.parent, fingerprint, skipped)
+        ailinestate.record_ready(model.parent, fingerprint, skipped, circuit=circuit)
     except ailinestate.ERRORS as error:
         reason = ailinestate.reason(error)
         ailinestate.clear(model.parent, fingerprint, reason)

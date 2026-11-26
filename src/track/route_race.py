@@ -4,6 +4,7 @@ import filecmp
 from pathlib import Path
 
 from app import system
+from track import aihints
 
 LAYOUT = "map2lap_race"
 PRACTICE_MODEL = "map2lap_practice_timing.kn5"
@@ -60,6 +61,10 @@ def remove_race_layout(model):
     if not _owns_config(model, RACE, RACE_MODEL):
         return False
     _carry_ai(folder, race)
+    if not (folder / "data").is_symlink():
+        aihints.sync(folder, False)
+    if not (race / "ai/fast_lane.ai").exists():
+        (race / aihints.FILE).unlink(missing_ok=True)
     for path in (ui / "ui_track.json", folder / RACE_MODEL, *(race / data for data in LAYOUT_DATA)):
         path.unlink(missing_ok=True)
     for path in (ui, race / "ai", race / "data", race):

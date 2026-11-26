@@ -26,7 +26,7 @@ from track import build_tiles     # (first: sets the asphalt mesh switches and t
 from app import buildoptions, circuitlap, debugapp, mapcache, mytracks, settings, system, trackcode, version
 from app.paths import ROOT
 from scenery import dryness, farview, gates
-from track import aicorrections, ailinestate, fastlane, make_obj, make_track_folder, obj_to_kn5, objectlist, parallel, route_race
+from track import aicorrections, aihints, ailinestate, fastlane, make_obj, make_track_folder, obj_to_kn5, objectlist, parallel, route_race
 
 blockworker = build_tiles.blockworker
 roadsmod = build_tiles.roadsmod
@@ -653,6 +653,7 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
         route_race.remove_generated_files(model)
         (Path(root) / fastlane.FILE).unlink(missing_ok=True)
         (Path(root) / ailinestate.FILE).unlink(missing_ok=True)
+        aihints.install(Path(root), None)
         for old in glob.glob(os.path.join(root, "*.kn5")):
             os.remove(old)
         log("Writing kn5 ...")              # (our own writer instead of Blender + ksEditor, see obj_to_kn5.py)

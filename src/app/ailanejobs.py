@@ -11,7 +11,7 @@ import threading
 
 from app import mytracks, named
 from app.paths import SRC
-from track import ailinestate, fastlane, objectlist, route_race
+from track import aihints, ailinestate, fastlane, objectlist, route_race
 
 
 class Track:
@@ -103,7 +103,7 @@ def _calculate(model, circuit, slot, revision, original, key):
                 if original["status"] not in ("ready", "manual"):
                     ailinestate.mark_outdated(model.parent, key, message)
                 return _failed(message)
-            ailinestate.publish(model.parent, key, target, answer.get("skipped"))
+            ailinestate.publish(model.parent, key, target, answer.get("skipped"), circuit=circuit)
             return ailinestate.status(model.parent, key)
 
 
@@ -187,6 +187,9 @@ def race(model, circuit, choice, launch):
             try:
                 if ailinestate.inspect(model, circuit) != state:
                     continue
+                # A manually accepted lane or a pre-hints build can reach Race without a new publication.
+                if (state["status"] == "manual" or not (model.parent / aihints.FILE).is_file()) and not route_race.ac_running():
+                    aihints.sync(model.parent, circuit)
             except ailinestate.ERRORS as error:
                 return 409, {"lane": "failed", "error": ailinestate.reason(error)}
             return launch()

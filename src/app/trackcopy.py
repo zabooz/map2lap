@@ -16,7 +16,7 @@ import numpy as np
 
 from app import (ailanejobs, cardensity, mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackkerbs, trackpaint, trackstitch, trackplace, tracksource, tracksurfaces,
                  tracktrees, trackvariation, trackview, trackwalls, weather, treespacing)
-from track import ailinestate, editorinfo, fastlane, groundmaterial, kn5, objectlist, route_race
+from track import aihints, ailinestate, editorinfo, fastlane, groundmaterial, kn5, objectlist, route_race
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
 ROOM_FACTOR = 1.1               # the disk must hold the kn5 once more, and a little: the rest of a track's folder is small
@@ -283,7 +283,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
                 going[i] = going.get(i, np.zeros_like(mask)) | mask
     try:
         skip = {name + ".kn5", name + '.uv2', objectlist.FILE, str(trackpaint.BUNDLE)}
-        skip.update((str(fastlane.FILE), str(ailinestate.FILE)))
+        skip.update((str(fastlane.FILE), str(ailinestate.FILE), str(aihints.FILE)))
         _copy_folder(folder, temporary, skip)
         new_kn5 = os.path.join(temporary, new + ".kn5")
         materials, images, change, added, native_config, drop_textures, native_files = trackdetail.saved(ac, name, edits["base"], textures.values(), scan, change, path, added)
@@ -341,7 +341,9 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         staged_old = os.path.join(temporary, name + ".kn5")
         route_race.update_copy(staged_old, new_kn5, source_scan["points"])
         lane_state = None
-        if kind != "area":
+        if kind == "area":
+            aihints.install(Path(temporary), None)
+        else:
             source_slot = ailanejobs.track(own)
             with source_slot.condition:
                 lane_state = ailinestate.carry(folder, new_kn5, kind == "circuit")

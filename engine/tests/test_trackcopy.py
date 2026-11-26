@@ -125,6 +125,13 @@ class FilterTest(Base):
         self.assertEqual(b"old AI", lane.read_bytes())
         self.assertEqual(b"old AI", Path(self.own("t_mod")).with_name("ai").joinpath("fast_lane.ai").read_bytes())
 
+    def test_area_save_drops_inherited_ai_hints(self):
+        mytracks.save(self.root, {**mytracks.load(self.root), "area": [1.,2.,3.,4.]})
+        hints = Path("data/ai_hints.ini")
+        (Path(self.root) / hints).write_text("[DANGER_0]\n")
+        self.copy()
+        self.assertFalse((Path(self.own("t_mod")).parent / hints).exists())
+
     def test_a_car_goes_front_and_back_and_nothing_else(self):
         self.edits(["t_0_0#1"])
         self.copy()

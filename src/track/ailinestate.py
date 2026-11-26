@@ -9,7 +9,7 @@ import tempfile
 
 import numpy as np
 
-from track import aicorrections, fastlane
+from track import aicorrections, aihints, fastlane
 
 FILE = Path("data/map2lap_ai.json")
 # When line code changes, bump this and update LaneCodeVersionTest in engine/tests/test_fastlane.py.
@@ -92,26 +92,32 @@ def checksum(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def record_ready(folder, inputs, skipped=None):
+def record_ready(folder, inputs, skipped=None, *, circuit=False):
+    aihints.install(folder, aihints.contents(folder / fastlane.FILE, circuit))
     _write(folder, inputs, "ready", lane=checksum(folder / fastlane.FILE), skipped=skipped or {})
 
 
-def publish(folder, inputs, candidate, skipped=None):
+def publish(folder, inputs, candidate, skipped=None, *, circuit=False):
     """Install a worker's complete candidate, restoring the original bytes on metadata failure."""
     lane = folder / fastlane.FILE
     lane.parent.mkdir(exist_ok=True)
     digest = checksum(candidate)
+    hints = aihints.contents(candidate, circuit)
+    hint_path = folder / aihints.FILE
+    previous_hints = hint_path.read_bytes() if hint_path.is_file() else None
     backup = candidate.with_suffix(".previous")
     if lane.exists():
         shutil.copy2(lane, backup)
     os.replace(candidate, lane)
     try:
+        aihints.install(folder, hints)
         _write(folder, inputs, "ready", lane=digest, skipped=skipped or {})
     except OSError:
         if backup.exists():
             os.replace(backup, lane)
         else:
             lane.unlink(missing_ok=True)
+        aihints.install(folder, previous_hints)
         raise
 
 
@@ -122,6 +128,8 @@ def clear(folder, inputs, message=None):
 
 def mark_outdated(folder, inputs, message=None):
     """Retain the last installed bytes for display while recording their race eligibility."""
+    if not (folder / fastlane.FILE).is_file():
+        aihints.install(folder, None)
     _write(folder, inputs, "failed" if message else "pending", message=message)
 
 
@@ -154,6 +162,7 @@ def carry(source, model, circuit):
     if (source / fastlane.FILE).is_file():
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / fastlane.FILE, target)
+    aihints.sync(model.parent, circuit)
     try:
         key = input_key(model, circuit)
         state = status(source, key)

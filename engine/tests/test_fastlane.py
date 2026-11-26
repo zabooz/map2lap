@@ -24,7 +24,7 @@ class LaneCodeVersionTest(unittest.TestCase):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (13, "e23d0685be9e7e1255b53c5cdf532a5fd50866a59e2d85eda9fbe9eb96c79bf5")
+        expected = (13, "3bcccc581d6d45241548e240d74dac5fe62f84d0dcfe96a0ce2ca06f834d10f4")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments or refactors proven to preserve the generated line, update only the digest.")
@@ -238,6 +238,18 @@ class AILineTest(unittest.TestCase):
         del meshes["1WALL_post"]
         meshes["1WALL_slab"] = strip(-8, .5, -4, 4, -.5, -.5)
         self.assertFalse(fastlane._fits_chord(fastlane._local_roads(meshes), *chord, 1.))
+
+    def test_new_build_and_editor_recalculation_replace_passing_hints(self):
+        from app import ailanejobs
+        from track import aihints
+        self.write_track([(-10, 10), (120, 10)], mapped_width=6.2)
+        self.generate()
+        hints = self.folder / aihints.FILE
+        self.assertIn("LEFT=0.50", hints.read_text())
+        self.write_track([(-10, 10), (120, 10)], mapped_width=8.)
+        self.assertEqual("ready", ailanejobs.ensure(self.model, False, force=True)["status"])
+        self.assertIn("LEFT=1.00", hints.read_text())
+        self.assertEqual(hints.read_bytes(), aihints.contents(self.lane, False))
 
     def test_ai_road_edge_controls_band_and_fingerprint(self):
         from unittest.mock import patch

@@ -210,6 +210,15 @@ the automatic line continues through their sections.
 Mapped road widths also limit broad collision strips. At intersections and local width bulges the sides interpolate
 along the route, bounded by the free cross section.
 
+Routes and Circuits write symmetric `DANGER_n` hints in `data/ai_hints.ini` from the installed line’s
+left and right widths. Each side gives up half the total width above 5.5 m (two 2 m cars, about 1.3 m
+between bodies and 0.2 m spare), rounded to 0.25 m and capped at 1 m. Rounding can take up to
+0.25 m from the nominal 5.5 m remaining across both sides. Short changes share the smaller
+hint across about 50 m. Zero has no entry. START/END are fractions of the 3D line including a Circuit’s
+closing chord. In side-by-side traffic AC subtracts the hints only if more than 4 m remain. Free driving
+keeps the full widths. The associated corner factor is `1 − 0.2 × max(LEFT, RIGHT)`, at least 0.8,
+and can also affect the return from a lateral offset.
+
 An A–B Route has an open line behind the last grid slot through the finish. If the road starts at the rear slot, the line
 starts there. Beyond the finish it follows the saved runout to the last continuous car-width section on its road
 level. If the route ends at the gate, only the supported part of the final approach direction (up to 10 m) is used.
