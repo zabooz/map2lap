@@ -58,11 +58,14 @@ in `ui/`, `bun test`, Playwright (Chrome).
   - `aimargins.recipe(folder: Path) -> list[dict]`: `edits.aiMargins` of `data/map2lap.json`, `[]` when missing.
   - `aimargins.problem(items) -> str | None`: list, unique non-empty `id`, `start`/`end` pass `anchor_problem`,
     `left`/`right` per Global Constraints. Messages: `"Invalid side margin"`, `"Invalid side margin value"`.
-  - `aimargins.place(items, route: aicorrections.Route, metres: np.ndarray, stations: np.ndarray, circuit: bool)
-    -> tuple[list[Span], dict[str, str]]`, `Span = NamedTuple(id: str, start: float, end: float, left: float | None,
+  - `aimargins.place(items, route: aicorrections.Route, metres: np.ndarray, stations: np.ndarray,
+    heights: np.ndarray, circuit: bool, level_gap: float) -> tuple[list[Span], dict[str, str]]`, `Span = NamedTuple(id: str, start: float, end: float, left: float | None,
     right: float | None)` with `start`/`end` as INI fractions (`start > end` only for a Circuit wrap, split later).
     `metres`: route metre per lane sample; `stations`: 3D cumulative lane distance per sample, length+1 entries on a
-    Circuit (closing chord), as `aihints.sections` computes them.
+    Circuit (closing chord), as `aihints.sections` computes them. `heights`: lane Y per sample. At both endpoints the
+    lane height at the sample nearest the resolved metre must lie within `level_gap` (`obj_to_kn5.LEVEL_GAP_M`, passed
+    in by the caller) of the anchor's resolved level, as `Route.moves` checks for Move; otherwise the margin is
+    rejected with `"Unresolved driving level at route metre …"`.
   - `aihints.merge(auto: list[tuple[float, float, float]], spans: list[Span]) -> list[tuple[float, float, float, float]]`
     Pure: `(start, end, left, right)`, split at every change and at 0, both-zero sections dropped.
   - `aihints.Hints = NamedTuple(data: bytes, rejected: dict[str, str], unplaced: str | None, spans: list[Span])`
@@ -94,6 +97,9 @@ in `ui/`, `bun test`, Playwright (Chrome).
     `rejected` with `"Overlaps side margin at route metre"`; a left and a right margin overlapping → both applied.
   - `test_unresolved_anchor_is_rejected_and_others_apply`: one anchor 20 m off the route → its id in `rejected` with
     `"Unresolved route anchor"`, the other margin exported.
+  - `test_anchor_on_the_deck_does_not_place_on_the_road_below`: two lanes with the same plan view, one at Y 0 and one
+    at Y 7; anchors with `level` 7 placed on the Y 0 lane → rejected with `"Unresolved driving level"`; on the Y 7 lane
+    → applied.
   - Review Focus 1–3 tests named above.
 - [ ] **Step 5: Run** `.venv/bin/python tools/check.py test_aimargins test_aihints` → all PASS.
 - [ ] **Step 6: Commit** `git add src/track/aimargins.py src/track/aicorrections.py src/track/aihints.py engine/tests/test_aimargins.py`
@@ -116,6 +122,8 @@ in `ui/`, `bun test`, Playwright (Chrome).
   - `ailinestate.publish(folder, inputs, candidate, skipped=None, *, circuit=False, metres=None)`: the INI is rendered
     from the **candidate** lane, the **candidate's** metres and the installed folder's recipe and route.
   - Record field `metres: list[float]` (rounded to 0.01) next to `lane`.
+  - `ailinestate.mark_outdated(folder, inputs, message=None, *, keep=None)`: `keep = (lane_checksum, metres)` is
+    written into the record when it matches the installed lane's checksum.
   - `ailinestate.lane_metres(folder, lane: Path) -> np.ndarray | None`: from the raw record (not `_record`, which
     rejects on changed `aiCorrections`) when `record["lane"] == checksum(lane)` and the count equals the lane samples.
   - `ailinestate.hints(folder, circuit, *, lane=None, metres=None) -> aihints.Hints`: `lane` defaults to the installed
@@ -139,6 +147,11 @@ in `ui/`, `bun test`, Playwright (Chrome).
   with the same old/new pair: the staged INI uses the record that `carry` copied into the staged folder. Reorder
   `carry`: copy lane, then the record (for `ready`/`manual`), then `sync_hints(model.parent, circuit)`; while
   `route_race.ac_running()` copy the source INI unchanged instead.
+- [ ] **Step 5b: Write the failing test** `test_save_carry_keeps_metres_of_the_copied_lane_when_pending`: source with
+  a ready line and metres; the staged model's geometry differs (status `pending`); `carry` into a **fresh** target
+  folder → `lane_metres(target, target/fast_lane.ai)` equals the source metres. `carry` takes the metres from the
+  source record whenever its `lane` checksum equals the copied lane's, whatever the status, and passes them to
+  `mark_outdated(..., keep=…)`.
 - [ ] **Step 6: Implement** `lane_metres`, `hints`, `sync_hints`, `hints_state`; `publish` renders from candidate
   plus metres; `mark_outdated` keeps `lane` and `metres` when the installed lane still matches them
   (Review Focus 4 test); replace every `aihints.sync`/`contents` caller. Delete `aihints.sync`/`contents` once unused.
@@ -163,6 +176,7 @@ in `ui/`, `bun test`, Playwright (Chrome).
 - Modify: `src/app/trackcopy.py` (~191 changed, ~196 built, ~333 recipe)
 - Modify: `src/app/trackview.py` (~73: a cold recipe carries `aiMargins` like `aiCorrections`)
 - Modify: `src/generator.py` (~566, ~681, ~729: carry `aiMargins` from `ai_source`)
+- Modify: `src/server.py` (~1294 `/api/rebuild`: set `ai_source` when the recipe has `aiCorrections` **or** `aiMargins`)
 - Test: `engine/tests/test_trackcopy.py`, `engine/tests/test_aimargins.py`
 
 **Interfaces:**
@@ -174,9 +188,12 @@ in `ui/`, `bun test`, Playwright (Chrome).
   with only `aiMargins` counts as a change; after Save, `aimargins.recipe(folder)` equals the draft.
 - [ ] **Step 2: Run, expect FAIL** ("Nothing to save").
 - [ ] **Step 3: Implement** the trackedits/trackhistory/trackcopy/trackview changes.
-- [ ] **Step 4: Write the failing test** `test_rebuild_carries_side_margins_alone` (test_aimargins, patching the
-  generator's recipe read): `ai_source` with only `aiMargins` → the new `map2lap.json` has them under `edits`.
-- [ ] **Step 5: Implement** the generator transport (a list `ai_margins` beside `ai_corrections`).
+- [ ] **Step 4: Write the failing test** `test_copy_rebuild_carries_side_margins_alone` (test_aimargins): start at
+  `/api/rebuild` with `{"name": …, "copy": true}` for a track whose recipe has only `aiMargins`, with `start_build`
+  patched to capture its arguments → `ai_source` is the source name. Then run the generator's recipe transport with
+  that `ai_source` → the new `map2lap.json` has the margins under `edits`.
+- [ ] **Step 5: Implement** the `/api/rebuild` condition and the generator transport (a list `ai_margins` beside
+  `ai_corrections`).
 - [ ] **Step 6: Run** `.venv/bin/python tools/check.py test_trackcopy test_aimargins test_editorbuild` → PASS.
 - [ ] **Step 7: Commit** `"Carry side margins through drafts, saves, history and rebuilds"`
 
@@ -185,7 +202,9 @@ in `ui/`, `bun test`, Playwright (Chrome).
 **Files:**
 - Modify: `src/server_editor.py` (`_ai_line` adds `hints`; new `_margin_preview`)
 - Modify: `src/server.py` (route `POST /api/editor/<t>/ai-line/margins`; recalculate handles hints)
-- Modify: `src/app/ailanejobs.py` (`ensure` forces a calculation for `unplaced == "recalculate"`; `race` syncs stale hints)
+- Modify: `src/app/ailanejobs.py` (`ensure(place_margins=…)`; `race` syncs stale hints)
+- Modify: `src/app/trackcopy.py` (the Save answer's `aiLine.hints`)
+- Modify: `ui/src/editor/state/useSave.ts` (+ its test, if present): one Recalculate click reaches the INI
 - Test: `engine/tests/test_aimargins.py`
 
 **Interfaces:**
@@ -195,9 +214,15 @@ in `ui/`, `bun test`, Playwright (Chrome).
   - `POST /api/editor/<t>/ai-line/margins` body `{aiMargins: [...]}` (the draft) → `{auto: [[start, end, hint]],
     sections: [[start, end, left, right]], margins: {id: {start: float, end: float, error?: str}}, unplaced}`;
     fractions of the installed lane. 400 with `{"error"}` on a schema problem.
-  - Recalculate (`saved_inputs is None`, everything saved): line ready and `unplaced == "recalculate"` → calculate
-    (as `retry` does for failed); line ready and `state == "stale"` → `sync_hints`, answer the line status; AC running
-    → `{"status": "deferred", "message": …}` as today.
+  - The Save answer's `aiLine` adds `hints: {state, unplaced}` (from the staged folder after `carry`).
+  - `ailanejobs.ensure(..., place_margins=False)`: only the recalculate route passes `place_margins=True`. With it, a
+    ready line whose `hints_state` says `unplaced == "recalculate"` is calculated once (the migration); a ready line
+    with `state == "stale"` gets `sync_hints`. Race start and Save never pass it, so they never migrate.
+  - Recalculate route: the rules above hold with and without `saved_inputs` (after Save the client sends the saved
+    `inputs`; a mismatch still answers `superseded`). AC running → `{"status": "deferred", "message": …}` as today.
+  - `useSave.write` (`ui/src/editor/state/useSave.ts`): for `action === "recalculate"` it also calls
+    `updateAiLine(name, true, inputs)` when the line is ready but `hints.state === "stale"` or
+    `hints.unplaced === "recalculate"`. The `save()` path for an already saved draft does the same.
   - `ailanejobs.race`: also `sync_hints` when `hints_state(...)["state"] == "stale"` and AC is not running. A
     `"manual"` unplaced margin never blocks or recalculates; the race uses the automatic hints.
 
@@ -208,7 +233,8 @@ in `ui/`, `bun test`, Playwright (Chrome).
   is the margin, left automatic, `checksum(fast_lane.ai)` unchanged.
 - [ ] **Step 2: Run, expect FAIL.**
 - [ ] **Step 3: Implement** the `race` and `ensure` changes, `_ai_line` `hints`, `_margin_preview`, the routes.
-- [ ] **Step 4: Add tests:** Review Focus 5; `test_recalculate_with_unplaced_margins_calculates_once`;
+- [ ] **Step 4: Add tests:** Review Focus 5; `test_recalculate_with_unplaced_margins_calculates_once` (with
+  `saved_inputs` set to the key Save returned, as the client sends it); `test_race_start_never_migrates_unplaced_margins`;
   `test_margin_preview_reports_sections_and_rejections`.
 - [ ] **Step 5: Run** `.venv/bin/python tools/check.py test_aimargins test_aihints test_fastlane` and `tools/check.py --fast` → PASS (or only `KNOWN`).
 - [ ] **Step 6: Commit** `"Report stale and unplaced side margins and sync them on Recalculate and Race"`
@@ -229,13 +255,15 @@ in `ui/`, `bun test`, Playwright (Chrome).
   band, the overridden side's edge highlighted, rejected ones red with reason as title; returns hover fraction.
 - Create: `ui/src/editor/tools/useAiMargins.tsx` (+ `.module.css`): fetches the preview (`ai-line/margins`) on draft
   change; controller with `click`, `removable`/`remove`, `clear`; bar `edit-ai-margin-set` with per side
-  `ToolChoice` Auto / number field (min 0, max 1, step 0.05) and the effective value ("0.50 auto" / "0.75 set");
+  `ToolChoice` Auto / number field (min 0, max 1, step 0.05) and the effective value: "0.75 m · set" for a number,
+  "0.50 m · Auto" when the automatic value is constant in the stretch, "0.25–0.50 m · Auto" when it changes there;
   hover shows effective LEFT/RIGHT; `unplaced` shows "Recalculate the AI line to place side margins" or
   "Not applied: the AI line was replaced by hand".
 - Modify: `ui/src/editor/tools/useAiLine.tsx`: `AiLineMode` gains `"margin"` (shows the line, no move session);
   the Recalculate button is also enabled for `hints.state === "stale"` or `hints.unplaced === "recalculate"`.
 - Modify: `ui/src/editor/EditTools.tsx`: mode for `"ai-margin"`, `useAiMargins` wired, controller registered.
-- Modify: `ui/e2e/server.py`: `GET /__test/ai-hints?name=` returns the track's `data/ai_hints.ini` text ("" if none).
+- Modify: `ui/e2e/server.py`: `GET /__test/ai-hints?name=` returns the track's `data/ai_hints.ini` text ("" if none);
+  `POST /__test/ai-line-legacy {name}` removes `metres` from the track's `data/map2lap_ai.json`.
 - Test: `ui/e2e/tools.e2e.ts` new `test("Side margin overrides one side and reaches ai_hints.ini")`.
 
 - [ ] **Step 1: Write the failing unit tests:** toolDefs (`toolOfKey("m")?.tool === "ai-margin"`, AI group order
@@ -243,9 +271,14 @@ in `ui/`, `bun test`, Playwright (Chrome).
   one Undo step each).
 - [ ] **Step 2: Run** `cd ui && bun test src/editor/tools/toolDefs.test.ts src/editor/state/edits.test.ts` → FAIL.
 - [ ] **Step 3: Implement** toolDefs, edits, `routeAnchor`; run → PASS.
+- [ ] **Step 4a: Write the failing browser test** `test("one Recalculate click places a first margin on an older line")`:
+  install a ready line whose record has no `metres` (test-server stand-in `/__test/ai-line-legacy` that drops the field),
+  open the Editor, press M, mark A and B, set Right 0.75 (draft unsaved), click Recalculate AI line **once**, overwrite
+  in the Save dialog → wait for "AI line updated"; `/__test/ai-hints?name=alpha` has `RIGHT=0.75` inside the stretch.
 - [ ] **Step 4: Write the failing browser test:** rebuild `alpha` with `ai_moves: true`, recalculate, open Editor,
   press M, click A and B on the band (project guide rows as the existing AI tests do), set Right 0.75, Left stays
-  Auto; the bar shows `0.75 set`; Ctrl+Z removes it, Ctrl+Y restores; X deletes and returns to Auto, Ctrl+Z restores;
+  Auto; the bar shows `0.75 m · set` and for Left a range ending in `· Auto` when the stretch spans two automatic
+  values; Ctrl+Z removes it, Ctrl+Y restores; X deletes and returns to Auto, Ctrl+Z restores;
   Recalculate AI line → `/__test/ai-hints?name=alpha` parsed: inside the stretch `RIGHT=0.75` and `LEFT` the
   automatic value, outside the automatic values on both sides; `/api/editor/alpha/ai-line` `validity` still
   `ready`.
