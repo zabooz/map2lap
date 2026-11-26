@@ -158,6 +158,89 @@ each selected car again before requesting its move. The prototype's 32-bit selec
 0–31. Future features supporting larger grids need a wider representation. A plugin that only consumes
 telemetry can omit the optional GUI and controls exports. The shipped plugin leaves player input with AC.
 
+## How race opponents choose their spacing
+
+The stock Windows x64 executable and matching Kunos symbols (GUID and age above) distinguish driving
+alongside a car, finding room to pass it and braking behind it. The shipped DLL registers the green
+clock and rollover features. Map2Lap's Race launcher supplies strength and aggression per opponent.
+
+| Stock executable RVA | Calculation |
+| --- | --- |
+| `0x26D63D` | Select the wider axle track and assign `Car::carHalfWidth`. |
+| `0x29D3E0` | `AIDriver::getEngagedDesiredOffset`, the lateral target alongside another car. |
+| `0x29F8D0` | `AIDriver::stepCarsAwareness2`, opponent positions, time to impact, passing and brake obstacles. |
+
+### Alongside and passing
+
+AC derives `Car::carHalfWidth` from half the wider of the two axle tracks plus 0.30 m. The width
+assignment calls `RaceEngineer::getFrontTrack` and `getRearTrack`. For the BMW M3 E30 DTM the
+suspension file gives 1.438 m front and 1.440 m rear, hence an AI half-width of 1.020 m.
+The car's collider mesh measures 1.718 m across and 4.364 m long.
+
+`AIDriver::getEngagedDesiredOffset` uses a one-sided reference separation of
+`3 × carHalfWidth × (1 + 0.03 × max(0, eng_speedL, eng_speedR))`. The two speed inputs come
+from signed relative motion across the car in m/s. A neighbour closing sideways increases the
+reference. At zero sideways closing speed, two parallel BMWs have a reference of 3.06 m between
+their origins, about 1.34 m between their collider envelopes. With engaged cars on both sides, a
+separate branch aims halfway between them. Available road width also bounds the steering target.
+
+`AIDriver::stepCarsAwareness2` separately uses `2.5 × carHalfWidth` to plan an overtake.
+One branch compares the room on either side and proposes an offset from the opponent's line of
+`1.5 × 2.5 × carHalfWidth` (3.825 m on this BMW). Another checks whether neighbouring cars
+already occupy that space. To accept this candidate, the available room on the chosen side must
+exceed `2.5 × carHalfWidth × (1 + 0.2 × nearby opponents ahead)`, with enough time for the
+lane change. With one opponent ahead that is 3.06 m for this BMW. A centred opponent on a
+symmetric 6 m corridor offers only 3 m per side. A change to the factor 3 alone would target
+the alongside manoeuvre.
+The stock code reads the passing car's width here, which matters with a mixed grid.
+[Track-side passing limits and danger zones](ac-rules.md)
+
+### Following and braking
+
+`AIOpponentData::dist_front` is the difference in forward spline position converted to metres.
+When the opponent is physically ahead and the follower is faster, the stock awareness code
+calculates `tti = max(0.01 m, dist_front − 6 m) / (own speed − opponent speed)` with speeds in m/s.
+For example, at 16 m separation and a 5 m/s closing speed this gives 2 s. At equal speed this
+branch uses a 100 s fallback. The code also tests a distance derived from
+`(8 + 0.07 × own speed in m/s) × (1 + 0.05 × nearby opponents ahead)`. The count uses a forward
+spline window of `20 + 0.2 × own speed in km/h` metres. Later branches can add a power-class
+adjustment and use the available passing space and time to impact to choose a response.
+Two paths populate an `AIBrakeObstacle` with the opponent's speed and `dist_front − 7 m` or
+`dist_front − 8 m`. These distances feed the brake planner. Actual bumper clearance depends on
+the manoeuvre, car geometry and relative speed.
+
+CSP 0.2.11 exposes `physics.setAICaution(carIndex, caution)` in a physics-enabled track script.
+Its documented range is 0–16, default 1, and the SDK calls it experimental. The value has no
+documented conversion to metres or seconds. The spline-offset setters move an individual car's
+target laterally along the track. A change to the stock pairwise clearance belongs in the
+alongside or passing calculation in the DLL. Both remain candidates for a native trial.
+[CSP SDK and installed track-script definitions](https://github.com/ac-custom-shaders-patch/acc-lua-sdk)
+
+### Drau spacing measurements
+
+Four offline races on the same Drau AI line used 18 BMW M3 E30 DTM opponents, strength 95%,
+aggression 50% and CSP 0.2.11 under Proton. A temporary track script called `setAICaution`
+once per opponent and logged the successful call. Each row gives the median distance between
+car origins in the qualifying telemetry samples for one race.
+
+| Run order | Caution | Alongside, lateral | Following, longitudinal | Distinct AI pairs with recorded contact |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 1.0 | 3.05 m | 18.65 m | 0 |
+| 2 | 0.5 | 3.07 m | 18.37 m | 2 |
+| 3 | 0.5 | 3.11 m | 25.74 m | 0 |
+| 4 | 1.0 | 3.10 m | 13.35 m | 0 |
+
+Sampling targeted 8 Hz. Analysis began five seconds after the first opponent reached 5 km/h.
+Both cars had to be racing at 40 km/h or more, within 8° of parallel and within 2 m vertically.
+Distances were projected onto the car's horizontal heading and side axes. Alongside pairs had at
+most 1 m longitudinal stagger and 5 m lateral separation. Following used the nearest eligible car
+ahead within 30 m and 0.75 m lateral separation, with a speed difference of at most 5 km/h.
+For parallel BMWs, subtract 4.36 m from longitudinal separation to estimate bumper clearance.
+The lateral medians are close to the stock reference; Drau also starts cars in columns 3 m apart.
+The two repetitions at each caution value show substantial variation in following distance.
+A conversion from caution to bumper gap would need a paced leader and repeated following
+on the same stretch at the same speeds.
+
 ## Measuring a change
 
 Run `tools/ai_race.py start <track> --opponents 18 --laps 3 --car bmw_m3_e30_dtm` on a test track.
