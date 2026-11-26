@@ -31,6 +31,210 @@ import surroundings  # noqa: E402
 import watch_build as wb  # noqa: E402
 
 
+class AIRaceTest(unittest.TestCase):
+    def test_native_outputs_include_ac_saved_player_setup_and_telemetry(self):
+        from pathlib import Path
+        import ai_race
+        with tempfile.TemporaryDirectory() as temp:
+            docs = Path(temp)
+            locale = docs / 'dblocales/fr.ini'
+            locale.parent.mkdir()
+            locale.touch()
+            paths = ai_race.output_paths(docs, 'circuit', 'bmw')
+            for name in ('setups/bmw/generic/last.sp', 'setups/bmw/generic/last.ini',
+                         'aim/telemetry_dump.act', 'cfg/video.ini', 'logs/py_log.txt',
+                         'dblocales/fr.ini', 'cfg/extension/state/lua/app/CspDebug.ini'):
+                self.assertIn(docs / name, paths)
+
+    def test_stop_retains_the_impact_that_preceded_the_last_few_kmh(self):
+        import ai_race
+        raw = (b'M2L_ALL,1,3,1:.22:36:0:--:0:0\nM2L_ALL,1.5,3,1:.226:8:0:--:1:2\n'
+               b'M2L_ALL,2,3,1:.226:2:0:--:1:3')
+        stop = ai_race.analyse(raw, b'', 1)['stops'][0]
+        self.assertEqual((stop['approach_peak']['t'], stop['approach_peak']['drop_kmh']), (1.5, 28))
+
+    def test_a_shutdown_receipt_distinguishes_a_fresh_sample_from_a_silent_probe(self):
+        import ai_race
+        self.assertAlmostEqual(ai_race.shutdown_gap(b'139.50,0.20', 139.50), .2)
+        self.assertAlmostEqual(ai_race.shutdown_gap(b'139.50,0.20', 79.50), 60.2)
+        self.assertAlmostEqual(ai_race.shutdown_gap(b'79.50,60.20', 79.50), 60.2)
+        self.assertIsNone(ai_race.shutdown_gap(b'', 79.50))
+
+    def test_archived_wall_evidence_survives_removal_of_a_temporary_track(self):
+        from pathlib import Path
+        import ai_race
+        with tempfile.TemporaryDirectory() as temp:
+            run = Path(temp)
+            model = run / 'test.kn5'
+            model.touch()
+            (run / 'telemetry.txt').write_bytes(b'M2L_ALL,1,3,1:.2:35:0:--:0:1\nM2L_ALL,1.5,3,1:.2:2:0:--:1:2')
+            def measure_vertices(path, rows):
+                for row in rows:
+                    row['wall_vertex_xz'] = {'mesh': '1WALL_car', 'm': 1.2}
+            with unittest.mock.patch.object(ai_race, 'wall_distances', measure_vertices):
+                result = ai_race.report(run, model=model)
+            model.unlink()
+            self.assertEqual(result['stops'], ai_race.report(run)['stops'])
+
+    def test_failed_launch_restores_track_config_race_and_global_app(self):
+        from contextlib import ExitStack
+        from pathlib import Path
+        import ai_race
+        with tempfile.TemporaryDirectory() as temp, ExitStack() as stack:
+            root = Path(temp)
+            out = root / 'out'
+            out.mkdir()
+            ac = root / 'game'
+            track = ac / 'content/tracks/test'
+            for folder in (track / 'ai', track / 'extension', ac / 'apps/lua', root / 'Assetto Corsa/cfg'):
+                folder.mkdir(parents=True)
+            race = root / 'Assetto Corsa/cfg/race.ini'
+            replay = race.with_name('replay.ini')
+            replay.write_bytes(b'[AUTOSAVE]\nENABLED=1\nRACE=2\n')
+            cfg = track / 'extension/ext_config.ini'
+            race.write_bytes(b'old race')
+            cfg.write_bytes(b'[SCRIPT_...]\r\nSCRIPT=retired_cars.lua\r\n')
+            (track / 'ai/fast_lane.ai').touch()
+            (track / 'test.kn5').touch()
+            for module, key, value in ((ai_race, 'OUT', out), (ai_race.settings, 'ac_path', lambda: str(ac)),
+                                       (ai_race, 'active', lambda: []), (ai_race.csp, 'inspect', lambda _: {'enabled': True}),
+                                       (ai_race.system, 'documents', lambda _: str(root)), (ai_race.system, 'proton', lambda _: True),
+                                       (ai_race.system, 'ensure_steam', lambda: True), (ai_race, 'race_bytes', lambda *args: b'new race')):
+                stack.enter_context(unittest.mock.patch.object(module, key, value))
+            def fail_launch(*args, **kwargs):
+                self.assertIn(b'RACE=-1', replay.read_bytes(), 'AC may rotate existing user replays on exit')
+                raise OSError('failed launch')
+            stack.enter_context(unittest.mock.patch.object(ai_race.system, 'start_ac', side_effect=fail_launch))
+            with self.assertRaisesRegex(OSError, 'failed launch'):
+                ai_race.begin(SimpleNamespace(track='test', opponents=18, car='test', timeout=300))
+            self.assertEqual(ai_race.current()['state'], 'restored')
+            self.assertEqual(race.read_bytes(), b'old race')
+            self.assertEqual(replay.read_bytes(), b'[AUTOSAVE]\nENABLED=1\nRACE=2\n')
+            self.assertEqual(cfg.read_bytes(), b'[SCRIPT_...]\r\nSCRIPT=retired_cars.lua\r\n')
+            self.assertEqual(list(cfg.parent.iterdir()), [cfg])
+            self.assertEqual(list((ac / 'apps/lua').iterdir()), [])
+
+    def test_recorded_pedals_heading_and_height_survive_the_report(self):
+        import ai_race
+        raw = b'M2L_ALL,1,3,1:.04:55:1:--:155:-89:442:.8:0:1:0\nM2L_END,1,1,session'
+        r = ai_race.analyse(raw, b'', 1)
+        self.assertEqual(r['last_cars'][0]['brake'], .8)
+        self.assertEqual(r['last_cars'][0]['y'], 442)
+        self.assertEqual(r['end_reason'], 'session')
+
+    def test_ac_output_backup_restores_both_replaced_and_new_files(self):
+        from pathlib import Path
+        import ai_race
+        with tempfile.TemporaryDirectory() as temp:
+            run = Path(temp)
+            docs = run / 'documents'
+            (docs / 'logs').mkdir(parents=True)
+            old = docs / 'logs/log.txt'
+            old.write_bytes(b'previous session')
+            original_mtime = old.stat().st_mtime_ns
+            state = dict(run=str(run), docs=str(docs), launched_ns=1)
+            state['output_manifest'] = str(ai_race.backup_outputs(run, docs))
+            old.write_bytes(b'CAR 1 RETIRED')
+            new = docs / 'logs/custom_shaders_patch.log'
+            new.write_bytes(b'trace')
+            ai_race.archive(state)
+            self.assertEqual(ai_race.restore_outputs(state), [])
+            self.assertEqual(old.read_bytes(), b'previous session')
+            self.assertEqual(old.stat().st_mtime_ns, original_mtime)
+            self.assertFalse(new.exists())
+            self.assertEqual((run / 'log.txt').read_bytes(), b'CAR 1 RETIRED')
+
+    def test_pid_reuse_or_a_different_launcher_cannot_own_the_game(self):
+        import ai_race
+        state = dict(pid=100, birth='a', token='nonce', parent=80)
+        with unittest.mock.patch.object(ai_race.system, 'WIN', False):
+            self.assertTrue(ai_race.owns(state, (100, 'a', 'nonce')))
+            self.assertFalse(ai_race.owns(state, (100, 'b', 'nonce')))
+            self.assertFalse(ai_race.owns(state, (100, 'a', 'other')))
+
+    def test_queue_duration_ends_before_the_teleport_and_fast_braking_is_separate(self):
+        import ai_race
+        records = [f'M2L_ALL,{t},3,1:.5:{speed}:0:{flags}:100:50'
+                   for t, speed, flags in [(1, 95, '--'), (1.5, 68, '--'), (2, 38, '--'),
+                                            (2.5, 2, '--'), (3, 0, '--'), (3.5, 0, 'RP')]]
+        result = ai_race.analyse('\n'.join(records).encode(), b'', 1)
+        self.assertEqual(len(result['stops']), 1)
+        self.assertEqual(result['stops'][0]['observed_s'], .5)
+        self.assertEqual(result['stops'][0]['drop_kmh'], 36)
+        self.assertEqual(len(result['speed_drops']), 3)
+
+    def test_missing_car_invalidates_terminal_frame(self):
+        import ai_race
+        result = ai_race.analyse(b'M2L_ALL,1,3,0:0:0:0:--:0:0,1:.2:5:0:--:1:2\nM2L_END,1,2', b'', 2)
+        self.assertEqual(result['coverage'], 'incomplete')
+
+    def test_a_car_can_resume_after_retirement(self):
+        import ai_race
+        raw = (b'M2L_ALL,1,3,1:.9:0:0:RP:0:0\nM2L_EVT,1.1,1,RP--,----,.2,1,0,3000,3000\n'
+               b'M2L_ALL,1.5,3,1:.2:40:0:--:10:20')
+        self.assertEqual(ai_race.analyse(raw, b'CAR 1 RETIRED', 1)['coverage'], 'end unverified')
+
+    def test_recovery_keeps_an_independent_edit_and_disarms_the_app(self):
+        from pathlib import Path
+        import ai_race
+        with tempfile.TemporaryDirectory() as temp:
+            run = Path(temp)
+            app = run / 'M2LAutoStart'
+            app.mkdir()
+            lua, config = app / 'app.lua', run / 'config.ini'
+            config.write_bytes(b'original')
+            manifest = ai_race.prepare(run / 'backup', {lua: b'test', config: b'instrumented'})
+            lua.write_bytes(b'test')
+            config.write_bytes(b'independent')
+            (run / 'armed').touch()
+            state = dict(run=str(run), state='prepared', manifest=str(manifest), app=str(app))
+            with unittest.mock.patch.object(ai_race, 'OUT', run), unittest.mock.patch.object(ai_race, 'active', return_value=[]):
+                with self.assertRaisesRegex(RuntimeError, 'changed'):
+                    ai_race.finish(state, False)
+                self.assertFalse(app.exists())
+                self.assertFalse((run / 'armed').exists())
+                self.assertEqual(config.read_bytes(), b'independent')
+                config.write_bytes(b'instrumented')
+                ai_race.finish(state, False)
+                self.assertEqual(config.read_bytes(), b'original')
+                self.assertEqual(state['state'], 'restored')
+
+    def test_collision_peer_and_last_road_position_before_pit_teleport(self):
+        import ai_race
+        csp = (b'\x80\x00M2L_ALL,1,3,0:0:0:0:--:0:0,1:.22:36:0:--:90:140\x00'
+               b'M2L_HIT,1.25,1,1,.05,.221,20\n'
+               b'M2L_ALL,1.5,3,1:.226:2:0:--:100:141\n'
+               b'M2L_EVT,1.8,1,---A,RP-A,.99,0,0,4,5\n'
+               b'M2L_ALL,2,3,1:.99:0:0:RP:4:5\nM2L_END,2,1\n')
+        result = ai_race.analyse(csp, b'CAR 1 RETIRED Session 3 : LC:0\\3', 1)
+        self.assertEqual(result['contacts'][0]['cars'], [0, 1])
+        self.assertEqual(result['stops'][0]['drop_kmh'], 34)
+        self.assertEqual(result['retirements'][0]['last_active']['x'], 100)
+        self.assertEqual(result['retirements'][0]['parked']['x'], 4)
+        self.assertEqual(result['coverage'], 'end observed')
+
+    def test_missing_tail_is_visible_even_after_clean_ac_exit(self):
+        import ai_race
+        result = ai_race.analyse(b'M2L_ALL,79,3,1:.5:45:0:--:1:2\n<Limit exceeded, truncating the rest>',
+                                 b'CAR 1 RETIRED Session 3 : LC:0\\3\nCLEAN EXIT', 1)
+        self.assertEqual(result['coverage'], 'incomplete')
+        self.assertEqual(result['ac_only_retired'], [1])
+        self.assertEqual(result['last_sample_s'], 79)
+
+    def test_later_lap_in_the_native_log_also_exposes_missing_telemetry(self):
+        import ai_race
+        result = ai_race.analyse(b'M2L_ALL,79,3,1:.5:45:0:--:1:2',
+                                 b'LAP VALID: 1 CUTS:0, COUNT: 2\nCLEAN EXIT', 1)
+        self.assertEqual(result['coverage'], 'incomplete')
+
+    def test_no_deceleration_across_missing_frames_or_pit_teleport(self):
+        import ai_race
+        result = ai_race.analyse(b'M2L_ALL,1,3,1:.2:90:0:--:0:0\nM2L_ALL,9,3,1:.3:0:0:--:7:0\n'
+                                 b'M2L_ALL,9.5,3,1:.3:25:0:--:8:0\nM2L_ALL,10,3,1:.99:0:0:RP:4:5', b'', 1)
+        self.assertFalse(result['stops'])
+        self.assertEqual(result['max_sample_gap_s'], 8)
+
+
 class AreaMapSpotTest(unittest.TestCase):
     def test_area_build_has_no_route_to_draw(self):
         with unittest.mock.patch.object(map_spot.measure, '_route', side_effect=FileNotFoundError):
