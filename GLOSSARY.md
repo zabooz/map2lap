@@ -411,9 +411,9 @@ Assetto Corsa's model file of a track; Map2Lap writes it with its own writer.
 **AI line**:
 AC's `ai/fast_lane.ai` gives opponents a driving path. Map2Lap samples it on the finished track's collision road.
 
-**Side margin**:
-The [Side margin](docs/editor-tools.md#side-margin) tool edits the AI passing hint on a marked stretch of the AI line.
-Each side can keep its automatic value or use a fixed margin in metres.
+**Danger zone**:
+A stretch of the AI line marked with the [Danger zone](docs/editor-tools.md#danger-zone) tool where an AI passing hint
+reserves space along either edge. Each side can be Off or set to a distance in metres.
 
 **Surface prefix**:
 The start of an object's name that decides its physics in AC: `1ROAD_`, `1GRAVEL_`, `1GRASS_`, `1KERB_`, `1WALL_`,

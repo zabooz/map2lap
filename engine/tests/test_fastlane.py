@@ -24,7 +24,7 @@ class LaneCodeVersionTest(unittest.TestCase):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (14, "710746dd7b062f0ff5ed31bf3a9f191b2310f59fa84f875c6cd783e76068597e")
+        expected = (14, "2902698d7cfc8be597a6d343ff994d0246be872c6f55516bc33e501a07ec9f25")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments or refactors proven to preserve the generated line, update only the digest.")
@@ -286,12 +286,11 @@ class AILineTest(unittest.TestCase):
         self.write_track([(-10, 10), (120, 10)], mapped_width=6.2)
         self.generate()
         hints = self.folder / aihints.FILE
-        self.assertIn("LEFT=0.50", hints.read_text())
+        self.assertEqual(b"", hints.read_bytes())
+        hints.write_bytes(b"old generated hints")
         self.write_track([(-10, 10), (120, 10)], mapped_width=8.)
         self.assertEqual("ready", ailanejobs.ensure(self.model, False, force=True)["status"])
-        self.assertIn("LEFT=1.00", hints.read_text())
-        self.assertEqual(hints.read_bytes(),
-                         b"[DANGER_0]\nSTART=0.000000000\nEND=1.000000000\nLEFT=1.00\nRIGHT=1.00\n\n")
+        self.assertEqual(b"", hints.read_bytes())
         self.assertEqual(len(json.loads((self.folder / ailinestate.FILE).read_bytes())["metres"]),
                          len(fastlane.read_lane(self.lane)[0]))
 
@@ -306,7 +305,7 @@ class AILineTest(unittest.TestCase):
         self.assertTrue(fastlane.regenerate(self.model, circuit=False, log=lambda line: None))
         self.assertEqual(self.lane.read_bytes(), lane)
         result = ailinestate.hints(self.folder, False)
-        self.assertEqual(result.rejected, {"broken": "Invalid side margin"})
+        self.assertEqual(result.rejected, {"broken": "Invalid danger zone"})
         self.assertEqual([span.id for span in result.spans], ["placed"])
         self.assertIn(b"RIGHT=1.00", (self.folder / aihints.FILE).read_bytes())
 

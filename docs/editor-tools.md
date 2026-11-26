@@ -40,7 +40,7 @@ hook handles its own view marks but does not register another global click, pick
 
 ## AI line
 
-Move line (L), Redraw line (P) and Side margin (M) show the installed `ai/fast_lane.ai` as a translucent speed band
+Move line (L), Redraw line (P) and Danger zone (M) show the installed `ai/fast_lane.ai` as a translucent speed band
 with side limits. Move line also shows the route metre and point data on hover. When an editable Route or Circuit
 finishes loading, the Editor prepares the guide in the background. All three tools share the same request and result
 when switching or returning to them. Opening an AI tool during preparation shows a tool toast. When preparation finishes with an AI tool active,
@@ -51,7 +51,7 @@ fingerprint changes. Until the replacement is ready, the old band stays visible,
 If AC is open or a build is running, the update waits for the next Save, Recalculate or Race with opponents.
 Editor Play saves edits first. Only a Race with opponents needs a current line before launch.
 **Recalculate AI line** beside the tools saves pending edits first. It can retry a failed calculation or replace a manual
-line when the recipe has no side margins.
+line when the recipe has no danger zones.
 The button is disabled while calculating or when everything is current. Progress and results appear in Notifications.
 In Move line, dragging the band moves it sideways; dragging inside an existing move adjusts it in one Undo step. New and adjusted moves taper on each side over at least
 15 m. Their peak added lateral slope is limited to 1 in 4 relative to the reference. The editor retains the stored range
@@ -89,34 +89,37 @@ contract is 23 consecutive columns of `count` little-endian values each, 92 byte
 is Float32 except `id` (Int32). In order they are `x, y, z, distance, id, speed, gas, brake, lat_g, radius, left, right,
 camber, direction, normal_x, normal_y, normal_z, segment_length, forward_x, forward_y, forward_z, tag, grade`.
 
-### Side margin
+### Danger zone
 
 Press **M** on a Route or Circuit. Click inside a highlighted stretch to select it. Click outside the existing
 stretches to mark A, then click B on the band. B can be inside another stretch. On a Route either end can come first, including
 when dragging one end past the other. On a Circuit the stretch follows driving order from A to B across start/finish if needed.
 Drag either end of the selected stretch along the band. Releasing it records one Undo step.
 
-Both sides start on **Auto**. Shift + wheel adjusts the left reserve and Ctrl + wheel adjusts the right in 0.05 m
+Both sides start **Off**. Shift + wheel adjusts the left reserve and Ctrl + wheel adjusts the right in 0.05 m
 steps up to 1 m. Consecutive wheel notches on the same stretch and side, less than a second apart, undo together.
-One step below 0 m returns that side to Auto. You can also type a value and press Enter or leave the field. An explicit 0 m releases the entire reserve on that side. Auto lets the previous correction or the
-automatic profile supply its value. Returning both sides to Auto removes the correction.
+One step below 0 m switches that side Off. You can also type a value and press Enter or leave the field.
+Off leaves the side unset in this zone, so an older overlapping zone can still supply a value. An explicit 0 m
+cancels any older reserve on that side. Switching both sides Off removes the zone.
 
 On each overlapping metre, the most recently added stretch with a value for that side wins. The older stretch keeps
 its anchors and values. Removing the newer stretch restores the older values. Alt + wheel selects the next or
 previous stretch in driving order and moves the camera to it. X or Delete removes the selection. Ctrl+Z undoes
 an addition, adjustment or removal.
 
-Strips extend inward from each band edge by the effective margin, up to half the band width. A fixed margin is bright and Auto
-is pale. The bar shows the effective value or range for each side, and hovering shows both hints at that point.
+A positive reserve draws a strip inward from the band edge, up to half the band width. The bar shows the effective
+value or range for each side. Hovering shows the reserve at that point, with **Off** for a side with zero reserve.
 A rejected stretch or surviving endpoint appears red. A tool toast reports each new or changed error. Selecting
 the stretch shows the reason in the tool bar. On an older line without sample route metres, the Editor projects the anchors from the guide onto the installed line and draws
 the stretch in violet as **Not yet applied**. These approximate positions are for display only. **Recalculate AI line**
-records the missing metres once so the margins can take effect. A hand-replaced lane retains its automatic hints.
+records the missing metres once so the zones can take effect. On a hand-replaced line, zones stay in the recipe
+until they can be placed.
 
 The recipe stores the corrections in `edits.aiMargins`. Save as and Build as carry its anchors forward. For a placed
-stretch, the preview and INI use the same merge on the installed lane. A margin-only edit preserves the lane bytes.
-While AC is running, Save carries the previous INI. After AC closes, Recalculate or the next Race with opponents
-refreshes stale hints from the saved recipe, including after reopening the Editor.
+stretch, the preview and INI use the same merge on the installed lane. Save or the next Race with opponents
+replaces old automatic hints with the placed zones. The INI is empty if no zone reserves any width. A zone-only
+edit preserves the lane bytes. While AC is running, Save carries the previous INI. After AC closes, Save,
+Recalculate or the next Race with opponents refreshes stale hints from the saved recipe.
 
 ## Selection and Inspector
 

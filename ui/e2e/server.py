@@ -336,7 +336,7 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
                          "spec": {"width": 16, "kind": "paved"},
                          "geometry": [[[128, -256], [128, -80], [128, 0], [128, 256]]]}] if hill else []
             if margin_profile and ty == -1:
-                # Two mapped street widths produce 0.25 and 0.50 m automatic reserves.
+                # The fixture crosses two different mapped street widths.
                 features = [dict(id=str(z), layer="roads", tags={"highway": "residential"},
                                  spec={"kind": "paved", "width": width}, geometry=[[[128, z], [128, end]]])
                             for z, end, width in ((0, -140, 5.7), (-140, -256, 6.2))]

@@ -9,7 +9,6 @@ export type MarginSide = "left" | "right";
 export interface MarginLocation {start?: number; end?: number; error?: string}
 type Section = [number, number, number, number];
 export interface MarginPreview {
-  auto: [number, number, number][];
   sections: Section[];
   margins: Record<string, MarginLocation>;
   unplaced: "manual" | "recalculate" | null;
@@ -163,22 +162,20 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
     }
     marks.add(bandLines(outline, colourOf(range), range.id === selectedId ? 4 : 3, 12));
   }
-  function drawStrips(ranges: MarginRange[], sections: Section[]) {
+  function drawStrips(ranges: MarginRange[]) {
     const spans = ranges.flatMap(range => pieces(range).map(([a,b]) => ({range,a,b})));
     for (const {range,a,b} of spans) drawEnds(range,a,b);
-    // Split at both recipe and automatic transitions, even between two installed samples.
-    const cuts = [...new Set([...spans.flatMap(({a,b}) => [a,b]), ...sections.flatMap(([a,b]) => [a,b])])].sort((a,b) => a-b);
+    const cuts = [...new Set(spans.flatMap(({a,b}) => [a,b]))].sort((a,b) => a-b);
     spans.reverse(); // Later recipe entries win each explicitly set side.
     for (let i=1; i<cuts.length; i++) {
       const a = cuts[i-1], b = cuts[i];
       const covering = spans.filter(s => s.a <= a && b <= s.b && !s.range.error);
-      const latest = covering[0]?.range;
-      if (!latest) continue;
-      const section = sections.find(([start,end]) => start <= a && b <= end);
+      if (!covering.length) continue;
       const edges = edgesBetween(a,b);
       for (const side of ["left","right"] as const) {
         const fixed = covering.find(s => s.range[side] !== null)?.range;
-        const width = fixed?.[side] ?? section?.[side === "left" ? 2 : 3] ?? 0;
+        if (!fixed) continue;
+        const width = fixed[side];
         if (!width) continue;
         const outside = side === "left" ? 0 : 1;
         const strip = edges.map((pair): [Place,Place] => {
@@ -186,7 +183,7 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
           const across = Math.hypot(other[0]-edge[0],other[1]-edge[1],other[2]-edge[2]);
           return [edge, between(edge,other,across ? Math.min(width/across,.5) : 0)];
         });
-        fill(strip, colourOf(fixed ?? latest), fixed ? .95 : .38);
+        fill(strip, colourOf(fixed), .95);
       }
     }
   }
@@ -206,8 +203,7 @@ export function editMargins(el: Pick<HTMLElement, "title" | "clientHeight" | "re
   function redraw(changed?: MarginRange) {
     clear();
     const ranges = changed ? margins.map(r => r.id === changed.id ? changed : r) : margins;
-    const sections: Section[] = changed ? preview.auto.map(([a,b,w]) => [a,b,w,w]) : preview.sections;
-    drawStrips(ranges, sections);
+    drawStrips(ranges);
   }
   function markAt(hit: MarginHit): MarginMark | undefined {
     if (!guide?.rows.length) return;

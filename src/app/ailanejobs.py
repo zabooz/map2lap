@@ -115,7 +115,7 @@ def _installed_state(folder, circuit, state, retry, place_margins):
         hints = ailinestate.hints_state(folder, circuit)
         if status == "ready" and hints["unplaced"] == "recalculate":
             return None
-        # Margins on a hand-recorded lane can only refresh its automatic hints.
+        # A hand-recorded lane has no route correspondence for placing danger zones.
         if status == "ready" or hints["unplaced"] == "manual":
             if hints["state"] == "stale":
                 ailinestate.sync_hints(folder, circuit, report_deferred=True)

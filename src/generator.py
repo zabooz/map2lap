@@ -712,7 +712,7 @@ def main():
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--area", type=float, nargs=4, metavar=("S", "W", "N", "E"), help="area instead of a route")
     mode.add_argument("--circuit", action="store_true", help="close the lap from the last pin back to the first")
-    ap.add_argument("--ai-source", help="reuse the saved AI line corrections and side margins from this track")
+    ap.add_argument("--ai-source", help="reuse the saved AI line corrections and danger zones from this track")
     ap.add_argument("--circuit-source", help="reuse this installed Circuit's full saved line for Rebuild")
     ap.add_argument("--clean", action="store_true", help="delete the temporary data afterwards")
     ap.add_argument("--result", action="store_true", help="a line RESULT <json> at the end (for server.py)")

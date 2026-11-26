@@ -1,4 +1,4 @@
-"""Hand-set side margins on the installed racing line, checked through AC's INI."""
+"""Hand-set danger zones on the installed racing line, checked through AC's INI."""
 from concurrent.futures import Future
 from configparser import ConfigParser
 import json
@@ -57,17 +57,15 @@ class SideMarginTest(unittest.TestCase):
         self.assertTrue(data)
         self.assertEqual(({}, None, "m1"), (rejected, unplaced, spans[0].id))
 
-    def test_right_margin_over_two_automatic_widths_keeps_left_automatic(self):
-        hints = self.render(self.margin())
-        self.assertSections(hints, [[0, 1/3, .5, .5], [1/3, .5, .5, 1.],
-                                    [.5, 2/3, .75, 1.], [2/3, 1, .75, .75]])
+    def test_only_the_marked_side_and_stretch_are_exported(self):
+        self.assertSections(self.render(self.margin()), [[1/3, 2/3, 0., 1.]])
 
-    def test_explicit_zero_differs_from_auto(self):
-        self.write(self.route.path, 6.6)
+    def test_explicit_zero_clears_an_older_hint_but_off_preserves_it(self):
+        older = self.margin(0, 300, left=.5, right=1., id="older")
         margin = self.margin(left=0., right=None)
-        self.assertSections(self.render(margin), [[0, 1/3, .5, .5], [1/3, 2/3, 0., .5],
-                                                   [2/3, 1, .5, .5]])
-        self.assertEqual(aimargins.problem([dict(margin, left=None)]), "Invalid side margin value")
+        self.assertSections(self.render(older, margin), [[0, 1/3, .5, 1.], [1/3, 2/3, 0., 1.],
+                                                       [2/3, 1, .5, 1.]])
+        self.assertEqual(aimargins.problem([dict(margin, left=None)]), "Invalid danger zone value")
 
     def test_tolerance_rounds_to_zero_before_dropping_empty_sections(self):
         self.write(self.route.path, 5.)
@@ -77,12 +75,10 @@ class SideMarginTest(unittest.TestCase):
         self.assertSections(result, [])
         self.assertEqual(result.spans[0].left, 0.)
 
-    def test_without_margins_the_ini_is_the_automatic_bytes(self):
-        automatic = (b"[DANGER_0]\nSTART=0.000000000\nEND=0.500000000\nLEFT=0.50\nRIGHT=0.50\n\n"
-                     b"[DANGER_1]\nSTART=0.500000000\nEND=1.000000000\nLEFT=0.75\nRIGHT=0.75\n\n")
-        self.assertEqual(self.render().data, automatic)
+    def test_absent_or_unplaceable_zones_give_empty_bytes(self):
+        self.assertEqual(self.render().data, b"")
         hints = aihints.render(self.lane, False, [self.margin()], None, "manual")
-        self.assertEqual((hints.data, hints.unplaced), (automatic, "manual"))
+        self.assertEqual((hints.data, hints.unplaced), (b"", "manual"))
 
     def square(self, first=0):
         path = np.array([[0., 0.], [100., 0.], [100., 100.], [0., 100.]])
@@ -95,7 +91,7 @@ class SideMarginTest(unittest.TestCase):
         result = self.render(self.margin(380., 20., right=.75))
         self.assertSections(result, [[0., .05, 0, .75], [.95, 1., 0, .75]])
 
-    def test_later_side_overrides_only_inside_its_stretch_and_auto_keeps_the_earlier_value(self):
+    def test_later_side_overrides_only_inside_its_stretch_and_off_keeps_the_earlier_value(self):
         self.write(self.route.path, 5.)
         first = self.margin(30, 120, left=.25, right=1.)
         later = self.margin(60, 90, left=None, right=.75, id="later")
@@ -130,7 +126,7 @@ class SideMarginTest(unittest.TestCase):
     def test_empty_stretch_is_rejected(self):
         self.write(self.route.path, 5.)
         result = self.render(self.margin(100, 100))
-        self.assertIn("Empty side margin", result.rejected["m1"])
+        self.assertIn("Empty danger zone", result.rejected["m1"])
         self.assertSections(result, [])
 
     def test_circuit_lane_with_wrapping_route_metres(self):
@@ -152,8 +148,7 @@ class SideMarginTest(unittest.TestCase):
         reverse = self.render(self.margin(109, 94, left=1., right=None))
         self.assertEqual(reverse.rejected, {})
         self.assertEqual(reverse.data, self.render(self.margin(94, 109, left=1., right=None)).data)
-        self.assertSections(reverse, [[0, 94/300, .5, .5], [94/300, 109/300, 1, .5],
-                                      [109/300, .5, .5, .5], [.5, 1, .75, .75]])
+        self.assertSections(reverse, [[94/300, 109/300, 1, 0]])
 
     def test_margin_schema(self):
         margin = self.margin()
@@ -161,11 +156,11 @@ class SideMarginTest(unittest.TestCase):
         for items in [None, {}, [None], [dict(margin, id="")], [margin, margin],
                       [dict(margin, start={})], [dict(margin, end=None)]]:
             with self.subTest(items=items):
-                self.assertEqual(aimargins.problem(items), "Invalid side margin")
+                self.assertEqual(aimargins.problem(items), "Invalid danger zone")
         for value in [True, -0.05, 1.05, .051, "0.5", float("nan")]:
             with self.subTest(value=value):
                 self.assertEqual(aimargins.problem([dict(margin, right=value)]),
-                                 "Invalid side margin value")
+                                 "Invalid danger zone value")
 
     def test_recipe_reads_saved_margins(self):
         self.assertEqual(aimargins.recipe(self.folder), [])
@@ -193,9 +188,9 @@ class SideMarginTest(unittest.TestCase):
         ailinestate.publish(self.folder, "recalculated", candidate, metres=self.metres + 40.004)
         ini = ConfigParser()
         ini.read(self.folder / aihints.FILE)
-        self.assertAlmostEqual(ini["DANGER_1"].getfloat("START"), .2)
-        self.assertEqual(ini["DANGER_1"].getfloat("LEFT"), .25)
-        self.assertEqual(ini["DANGER_1"].getfloat("RIGHT"), 1.)
+        self.assertAlmostEqual(ini["DANGER_0"].getfloat("START"), .2)
+        self.assertEqual(ini["DANGER_0"].getfloat("LEFT"), 0.)
+        self.assertEqual(ini["DANGER_0"].getfloat("RIGHT"), 1.)
         np.testing.assert_array_equal(ailinestate.lane_metres(self.folder, self.lane), self.metres + 40)
         self.assertEqual(ailinestate.hints_state(self.folder, False)["state"], "current")
 
@@ -217,8 +212,8 @@ class SideMarginTest(unittest.TestCase):
         self.assertEqual(state["status"], "ready")
         ini = ConfigParser()
         ini.read(staged / aihints.FILE)
-        self.assertAlmostEqual(ini["DANGER_1"].getfloat("START"), .2)
-        self.assertEqual(ini["DANGER_1"].getfloat("RIGHT"), 1.)
+        self.assertAlmostEqual(ini["DANGER_0"].getfloat("START"), .2)
+        self.assertEqual(ini["DANGER_0"].getfloat("RIGHT"), 1.)
 
     def test_save_carry_keeps_metres_of_the_copied_lane_when_pending(self):
         self.ready(self.metres)
@@ -276,7 +271,7 @@ class SideMarginTest(unittest.TestCase):
         for path, expected in before:
             self.assertEqual(path.read_bytes(), expected)
 
-    def test_missing_saved_route_rejects_margins_and_keeps_the_lane_and_automatic_hints(self):
+    def test_missing_saved_route_rejects_margins_and_preserves_the_lane(self):
         self.ready(self.metres)
         self.recipe(self.folder, self.margin())
         (self.folder / fastlane.ROUTE).unlink()
@@ -287,7 +282,7 @@ class SideMarginTest(unittest.TestCase):
         self.assertEqual(self.lane.read_bytes(), installed)
         self.assertEqual(ailinestate.hints_state(self.folder, False)["state"], "current")
 
-    def test_unreadable_route_geometry_keeps_automatic_hints(self):
+    def test_unreadable_route_geometry_leaves_the_ini_empty(self):
         self.ready(self.metres)
         self.recipe(self.folder, self.margin())
         for route in ("anchor 0 0\n", "unknown\n0 0\n300 0\n",
@@ -321,7 +316,7 @@ class SideMarginTest(unittest.TestCase):
             self.assertEqual(result.unplaced, "recalculate")
             self.assertEqual(result.data, self.render().data)
 
-    def test_hand_replaced_lane_is_unplaced_manual_and_keeps_automatic_hints(self):
+    def test_hand_replaced_lane_is_unplaced_manual_and_leaves_the_ini_empty(self):
         self.ready(self.metres)
         self.recipe(self.folder, self.margin())
         self.write(self.route.path, 6.6)
@@ -332,7 +327,7 @@ class SideMarginTest(unittest.TestCase):
     def test_acceptance_right_margin_saved_while_ac_runs_reaches_the_next_race(self):
         from app import ailanejobs
         self.ready(self.metres)
-        automatic = (self.folder / aihints.FILE).read_bytes()
+        previous = (self.folder / aihints.FILE).read_bytes()
         checksum = ailinestate.checksum(self.lane)
         expected = self.render(self.margin()).data
         staged = self.folder / "staged"
@@ -345,7 +340,7 @@ class SideMarginTest(unittest.TestCase):
             installed = self.folder / "installed"
             staged.rename(installed)
             ini = installed / aihints.FILE
-            self.assertEqual(automatic, ini.read_bytes())
+            self.assertEqual(previous, ini.read_bytes())
             self.assertEqual("stale", ailinestate.hints_state(installed, False)["state"])
             def launch():
                 self.assertEqual(expected, ini.read_bytes())
@@ -387,12 +382,12 @@ class SideMarginTest(unittest.TestCase):
         self.ready(self.metres)
         self.recipe(self.folder, self.margin())
         ini = self.folder / aihints.FILE
-        automatic = ini.read_bytes()
+        previous = ini.read_bytes()
         self.assertEqual((200, {"status": "superseded"}), self.post_lane("recalculate", {"inputs": "older"}))
-        self.assertEqual(automatic, ini.read_bytes())
+        self.assertEqual(previous, ini.read_bytes())
         for body in ({}, {"inputs": "source"}):
             with self.subTest(body=body), patch.object(ailanejobs, "compute") as calculate:
-                ini.write_bytes(automatic)
+                ini.write_bytes(previous)
                 code, answer = self.post_lane("recalculate", body)
                 self.assertEqual((200, "ready"), (code, answer.get("status")))
                 self.assertEqual(self.render(self.margin()).data, ini.read_bytes())
@@ -416,6 +411,18 @@ class SideMarginTest(unittest.TestCase):
                 calculate.assert_called_once()
                 self.assertEqual(self.render(self.margin()).data, (self.folder / aihints.FILE).read_bytes())
 
+    def test_race_clears_legacy_hints_without_rebuilding_the_lane(self):
+        from app import ailanejobs
+        self.ready(self.metres)
+        ini = self.folder / aihints.FILE
+        ini.write_bytes(b"[DANGER_0]\nSTART=0\nEND=1\nLEFT=0.5\nRIGHT=0.5\n")
+        with patch.object(ailinestate, "input_key", return_value="source"), patch.object(ailanejobs, "compute") as calculate:
+            def launch():
+                self.assertEqual(b"", ini.read_bytes())
+                return 200, {}
+            self.assertEqual((200, {}), ailanejobs.race(self.folder / "track.kn5", False, {}, launch))
+            calculate.assert_not_called()
+
     def test_race_start_never_migrates_unplaced_margins(self):
         from app import ailanejobs
         self.ready(None)
@@ -427,7 +434,7 @@ class SideMarginTest(unittest.TestCase):
             self.assertEqual(self.render().data, ini.read_bytes())
             calculate.assert_not_called()
 
-    def test_accepted_manual_race_syncs_the_automatic_ini_without_calculating(self):
+    def test_accepted_manual_race_clears_the_old_ini_without_calculating(self):
         from app import ailanejobs
         self.ready(self.metres)
         self.recipe(self.folder, self.margin())
@@ -461,12 +468,12 @@ class SideMarginTest(unittest.TestCase):
         self.ready(self.metres)
         self.recipe(self.folder, self.margin())
         ini = self.folder / aihints.FILE
-        automatic = ini.read_bytes()
+        previous = ini.read_bytes()
         # AC can start between the initial check and the final filesystem write.
         with patch.object(route_race, "ac_running", side_effect=[False, True, True, True]):
             code, result = self.post_lane("recalculate", {})
         self.assertEqual((200, "deferred"), (code, result.get("status")))
-        self.assertEqual(automatic, ini.read_bytes())
+        self.assertEqual(previous, ini.read_bytes())
         self.ready(None)
         self.recipe(self.folder, self.margin())
         reply = {"inputs": "source", "metres": self.metres.tolist()}
@@ -478,7 +485,7 @@ class SideMarginTest(unittest.TestCase):
               patch.object(ailanejobs, "compute", side_effect=worker)):
             code, result = self.post_lane("recalculate", {})
         self.assertEqual((200, "deferred"), (code, result.get("status")))
-        self.assertEqual(automatic, ini.read_bytes())
+        self.assertEqual(previous, ini.read_bytes())
         self.assertIsNone(ailinestate.lane_metres(self.folder, self.lane))
 
     def test_margin_preview_reports_sections_and_rejections(self):
@@ -490,9 +497,8 @@ class SideMarginTest(unittest.TestCase):
         both = dict(unresolved, id="both", end=unresolved["start"])
         code, preview = self.post_lane("margins", {"aiMargins": [self.margin(), later, unresolved, both]})
         self.assertEqual(200, code)
-        np.testing.assert_allclose(preview["auto"], [[0, .5, .5], [.5, 1, .75]])
-        np.testing.assert_allclose(preview["sections"], [[0,.2,.5,.5], [.2,110/300,.5,1.], [110/300,.5,.5,.25],
-                                                        [.5,.6,.75,.25], [.6,1,.75,.75]])
+        self.assertNotIn("auto", preview)
+        np.testing.assert_allclose(preview["sections"], [[.2, 110/300, 0., 1.], [110/300, .6, 0., .25]])
         self.assertEqual({"start": .2, "end": 160/300}, preview["margins"]["m1"])
         np.testing.assert_allclose([preview["margins"]["overlap"][k] for k in ("start", "end")], [110/300, .6])
         self.assertNotIn("error", preview["margins"]["overlap"])
@@ -504,7 +510,7 @@ class SideMarginTest(unittest.TestCase):
         for invalid in ({}, {"aiMargins": [self.margin(right=.76)]}, []):
             code, error = self.post_lane("margins", invalid)
             self.assertEqual(400, code)
-            self.assertIn("Invalid side margin", error["error"])
+            self.assertIn("Invalid danger zone", error["error"])
 
     def test_margin_preview_refuses_a_lane_other_than_the_displayed_revision(self):
         from server_editor import _lane_revision
@@ -541,7 +547,7 @@ class SideMarginTest(unittest.TestCase):
                 self.assertEqual({}, preview["margins"])
                 if items:
                     self.assertEqual({"start": [100., 0.], "end": [200., 0.]}, preview["guideMarks"]["m1"])
-                np.testing.assert_allclose(preview["sections"], [(a, b, hint, hint) for a, b, hint in preview["auto"]])
+                self.assertEqual(preview["sections"], [])
 
     def run_generator(self, name, *args):
         """Run the build CLI and its folder/recipe writers with a stand-in tile and KN5 in this test's AC."""

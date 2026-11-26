@@ -2,7 +2,7 @@ import {expect, test} from "bun:test";
 import {laneFractions, guideMark, effectiveRange} from "./aiMargins";
 import type {MoveGuide, Row} from "./aiGuide";
 
-test("side margin fractions use 3D lane distance including the circuit closing chord", () => {
+test("danger zone fractions use 3D lane distance including the circuit closing chord", () => {
   expect(laneFractions([[0,0,0], [0,3,4], [0,3,0]], true)).toEqual([0,5/12,9/12,1]);
 });
 
@@ -22,7 +22,7 @@ test("a legacy lane over a lower guide uses the physical height under the pointe
   expect(mark.level).toBe(7);
 });
 
-test("effective Auto includes gaps with zero hint, across a circuit seam too", () => {
+test("effective zone width includes gaps with zero hint, across a circuit seam too", () => {
   expect(effectiveRange([[0,.2,.5,.75], [.5,1,.25,.75]], "left", .8, .3)).toBe("0.00–0.50");
   expect(effectiveRange([[0,1,.5,.75]], "right", .1, .8)).toBe("0.75");
 });
@@ -43,7 +43,7 @@ test("a surviving endpoint of a rejected margin can be hovered and picked on its
   camera.position.set(50,20,0); camera.lookAt(50,0,0); camera.updateMatrixWorld();
   const element = {title:"",clientHeight:600, removeAttribute() {}};
   const selected: string[] = [];
-  const edit = editMargins(element, scene, camera, undefined, lane, {auto:[], sections:[], margins:{}, unplaced:null},
+  const edit = editMargins(element, scene, camera, undefined, lane, {sections:[], margins:{}, unplaced:null},
     [{id:"bad", start:.5, left:.25, right:null, error:"Unresolved route anchor at route metre 80"}],
     () => Infinity, () => {}, id => selected.push(id));
   expect(edit.hover({index:0,t:.501})?.owner?.id).toBe("bad");
@@ -81,7 +81,7 @@ test("margin strip meshes measure inward from the INI sides and show only the wi
   for (const [column,v] of [[10,.4],[11,1.2],[15,1],[18,1]]) words.set([v,v],column*2);
   lane.set(decodeAiLine({count:2,revision:"lane",closed:false,message:null,status:"ready"},words.buffer));
   const edit = editMargins({title:"",clientHeight:600,removeAttribute() {}}, scene, new PerspectiveCamera(),
-    undefined, lane, {auto:[], sections:[[0,.5,1,.25],[.5,1,1,.5]], margins:{},unplaced:null},
+    undefined, lane, {sections:[[0,.5,1,.25],[.5,1,1,.5]], margins:{},unplaced:null},
     [{id:"older",start:0,end:1,left:1,right:null},{id:"newer",start:.2,end:.4,left:.1,right:null}],
     () => Infinity, () => {}, () => {});
   edit.setSelected("older");
@@ -91,13 +91,12 @@ test("margin strip meshes measure inward from the INI sides and show only the wi
       const {position} = mesh.geometry.attributes;
       if (position.getX(0) >= x || position.getX(position.count-1) <= x) return [];
       const z = [position.getZ(0),position.getZ(1)].sort((a,b) => a-b);
-      return [{z:z.map(v => +v.toFixed(2)), opacity:mesh.material.opacity as number}];
-    }).sort((a,b) => a.z[0]-b.z[0]);
-  // LEFT's 1 m is capped at half the 1.6 m band. RIGHT Auto follows the server section.
-  expect(stripsAt(10).map(s => s.z)).toEqual([[-.4,.4],[.95,1.2]]);
-  expect(stripsAt(10)[0].opacity).toBeGreaterThan(stripsAt(10)[1].opacity);
-  expect(stripsAt(30).map(s => s.z)).toEqual([[-.4,-.3],[.95,1.2]]);
-  expect(stripsAt(75).map(s => s.z)).toEqual([[-.4,.4],[.7,1.2]]);
+      return [z.map(v => +v.toFixed(2))];
+    }).sort((a,b) => a[0]-b[0]);
+  // The 1 m strip stops at half the band. Off has no strip, even with a stale server section.
+  expect(stripsAt(10)).toEqual([[-.4,.4]]);
+  expect(stripsAt(30)).toEqual([[-.4,-.3]]);
+  expect(stripsAt(75)).toEqual([[-.4,.4]]);
   edit.dispose();
   lane.set(null);
 });

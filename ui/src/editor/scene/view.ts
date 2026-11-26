@@ -1145,7 +1145,7 @@ export class TrackView {
       }, spans => this.aiLineDraw.preview(spans, PREVIEW_LIFT), cursor => this.setToolCursor(cursor));
   }
 
-  /** Side margins share the installed band's display edges and ray hits with the AI line inspector. */
+  /** Danger zones share the installed band's display edges and ray hits with the AI line inspector. */
   editAiMargins(guide: MoveGuide | undefined, preview: MarginPreview, margins: MarginRange[],
                 add: (mark: MarginMark) => void, select: (id: string) => void,
                 hover: (value: ReturnType<ReturnType<typeof editMargins>["hover"]>) => void,

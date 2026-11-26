@@ -48,7 +48,7 @@ type AiLineAnswer = Awaited<ReturnType<typeof fetchAiLine>> | {status: "error"; 
 export type AiLineMode = "move" | "redraw" | "margin";
 const AI_TOOLS: Tool[] = ["ai-move", "ai-redraw", "ai-margin"];
 
-/** Move, Redraw and Side margin share a guide prepared after the editable track finishes loading. Checks the
+/** Move, Redraw and Danger zone share a guide prepared after the editable track finishes loading. Checks the
     installed revision when one of them is taken up from another tool (not between the two), after recalculation and after Save.
     Visibility does not affect a transfer. */
 export function useAiLine({name, view, mode, writes, unsaved, edits, moves, editable, routeTrack, loaded, onNote}: {

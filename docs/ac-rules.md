@@ -215,22 +215,21 @@ the automatic line continues through their sections.
 Mapped road widths also limit broad collision strips. At intersections and local width bulges the sides interpolate
 along the route, bounded by the free cross section.
 
-Routes and Circuits derive symmetric automatic passing hints from the installed line’s left and right widths. Each side
-gives up half the total width above 5.5 m (two 2 m cars, about 1.3 m
-between bodies and 0.2 m spare), rounded to 0.25 m and capped at 1 m. Rounding can take up to
-0.25 m from the nominal 5.5 m remaining across both sides. Short changes share the smaller
-hint across about 50 m.
+On Routes and Circuits, only danger zones marked in the Editor supply `DANGER_n` hints. Each zone sets
+`LEFT`, `RIGHT` or both in 0.05 m steps from 0 to 1 m. Where zones overlap, the last explicit value in
+recipe order wins on each side. Off leaves that side unset. An explicit 0 m cancels an earlier value.
 
-A Side margin overrides `LEFT`, `RIGHT` or both between two route anchors, in 0.05 m steps from 0 to 1 m.
-For each side, the last explicit setting in recipe order applies wherever stretches overlap. Auto preserves the underlying hint.
 `data/map2lap_ai.json` binds one route metre per final lane sample to the checksum of `fast_lane.ai`, including
-samples inserted by Redraw. The exporter maps the anchors to fractions of the installed lane’s 3D length,
-including a Circuit’s closing chord. It cuts sections wherever either side changes and splits at start/finish.
+samples inserted by Redraw. The exporter maps zone anchors to fractions of the installed lane’s 3D length,
+including a Circuit’s closing chord. It splits sections at width changes and at start/finish.
 `data/ai_hints.ini` numbers the resulting sections from `DANGER_0`, with nine decimals for `START` and `END`
-and two for `LEFT` and `RIGHT`. A section with two zeroes is omitted. A section with `LEFT=0.00` and
-`RIGHT=0.75` is written. In side-by-side traffic AC subtracts the hints only if more than 4 m remain. Free driving
-keeps the full widths. The associated corner factor is `1 − 0.2 × max(LEFT, RIGHT)`, at least 0.8,
-and can also affect the return from a lateral offset.
+and two for `LEFT` and `RIGHT`. Two zero widths produce no section. A readable lane with no exported
+sections has a zero-byte INI.
+
+In side-by-side racing, AC subtracts `LEFT` and `RIGHT` from the corresponding side widths at the steering
+target. It clamps the lateral offset to those reduced limits only when their sum exceeds 4 m. At 4 m or less
+it skips this clamp. The associated corner factor is `1 − 0.2 × max(LEFT, RIGHT)` and can also affect
+the return from a lateral offset. A car driving alone has the full side widths available.
 
 An A–B Route has an open line behind the last grid slot through the finish. If the road starts at the rear slot, the line
 starts there. Beyond the finish it follows the saved runout to the last continuous car-width section on its road

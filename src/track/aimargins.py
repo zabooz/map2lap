@@ -1,4 +1,4 @@
-"""Side margins stored as directed route anchors and placed on the installed AI line."""
+"""Danger zones stored as directed route anchors and placed on the installed AI line."""
 import json
 from pathlib import Path
 from typing import NamedTuple
@@ -17,7 +17,7 @@ class Span(NamedTuple):
 
 
 def recipe(folder: Path) -> list[dict]:
-    """Read the side margins saved in the track folder's Editor recipe."""
+    """Read the danger zones saved in the track folder's Editor recipe."""
     try:
         data = json.loads((folder / "data/map2lap.json").read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -31,7 +31,7 @@ def _setting(value):
 
 
 def _value(value):
-    """Check the Editor's five-centimetre settings within the automatic hint range. Pure."""
+    """Check the Editor's five-centimetre settings from zero to one metre. Pure."""
     return (value is None or type(value) in (int, float) and 0 <= value <= 1
             and abs(value - _setting(value)) <= 1e-6)
 
@@ -39,17 +39,17 @@ def _value(value):
 def problem(items) -> str | None:
     """Return the schema error for a draft margin list. Pure."""
     if not isinstance(items, list):
-        return "Invalid side margin"
+        return "Invalid danger zone"
     ids = set()
     for item in items:
         if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
                 or not item["id"] or item["id"] in ids
                 or aicorrections.anchor_problem(item.get("start"))
                 or aicorrections.anchor_problem(item.get("end"))):
-            return "Invalid side margin"
+            return "Invalid danger zone"
         if (not all(k in item and _value(item[k]) for k in ("left", "right"))
                 or item["left"] is None and item["right"] is None):
-            return "Invalid side margin value"
+            return "Invalid danger zone value"
         ids.add(item["id"])
     return None
 
@@ -76,7 +76,7 @@ def _endpoint(anchor, route, metres, heights, circuit, level_gap):
 def _extent(start, end, samples, circuit, length):
     """Clip a route stretch to its lane coverage, or normalize the two marks on a circuit. Pure."""
     if start == end or circuit and (end - start) % length == 0:
-        raise ValueError(f"Empty side margin at route metre {start:.1f}")
+        raise ValueError(f"Empty danger zone at route metre {start:.1f}")
     if circuit:
         return start % length, end % length
     start, end = sorted((start, end))

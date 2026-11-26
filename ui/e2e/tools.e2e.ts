@@ -795,38 +795,38 @@ async function passingHints(page: Page): Promise<Danger[]> {
   });
 }
 
-test.describe("Side margin", () => {
-  test("fixed and Auto strips resize before the margins reply", async ({page, backend}) => {
+test.describe("Danger zone", () => {
+  test("setting a side draws its strip and Off clears it before the margins reply", async ({page, backend}) => {
     await marginTrack(page, backend);
-    const {bar} = await marginMarks(page);
-    await expect(bar).toContainText("0.75 m · set");
+    const {bar, screenRow} = await marginMarks(page);
+    await expect(bar).toContainText("0.75 m");
     const left = bar.getByRole("spinbutton",{name:"Left"});
     await left.fill("0.25"); await left.press("Enter");
-    await expect(bar).toContainText("0.25 m · set");
-    await keysOnView(page);
-    await wheelWith(page, ["Alt"], -100); // Centre the camera on the stretch.
-    const middle = await centre(scene(page));
-    const strip = () => page.screenshot({clip:{x:Math.floor(middle.x)-75,y:Math.floor(middle.y)-12,width:150,height:24}});
-    const before = await strip();
+    await expect(bar).toContainText("0.25 m");
+    // At metre 145 the band extends 3.1 m to each side. Sample just inside each edge.
+    const sample = (offset: number) => {
+      const {x,y} = screenRow(145, offset);
+      return page.screenshot({clip:{x:Math.floor(x)-2,y:Math.floor(y)-2,width:5,height:5}});
+    };
+    const before = await sample(-2.65);
     let release!: () => void;
     const pending = new Promise<void>(resolve => { release = resolve; });
     await page.route("**/ai-line/margins", async route => { await pending; await route.continue(); });
     try {
       await left.fill("0.75"); await left.press("Enter");
-      await expect.poll(async () => (await strip()).equals(before)).toBe(false);
-      const fixed = await strip();
-      await bar.getByRole("group",{name:"Right"}).getByRole("button",{name:"Auto"}).click();
-      await expect.poll(async () => (await strip()).equals(fixed)).toBe(false);
-      const automatic = await strip();
+      await expect.poll(async () => (await sample(-2.65)).equals(before)).toBe(false);
+      const fixed = await sample(2.8);
+      await bar.getByRole("group",{name:"Right"}).getByRole("button",{name:"Off"}).click();
+      await expect.poll(async () => (await sample(2.8)).equals(fixed)).toBe(false);
+      const off = await sample(2.8);
       await keysOnView(page);
-      await wheelWith(page, ["Control"], -100); // Auto to explicit 0 m.
-      await expect.poll(async () => (await strip()).equals(automatic)).toBe(false);
-      await bar.getByRole("group",{name:"Right"}).getByRole("button",{name:"Auto"}).click();
+      await wheelWith(page, ["Control"], -100); // Off to explicit 0 m.
+      await expect(bar.getByRole("spinbutton",{name:"Right"})).toHaveValue("0");
+      expect((await sample(2.8)).equals(off)).toBe(true);
+      await bar.getByRole("group",{name:"Right"}).getByRole("button",{name:"Off"}).click();
     } finally { release(); }
-    await expect(bar).toContainText("0.25–0.50 m · Auto");
-    const screenshot = test.info().outputPath("side-margin-left-075-right-auto.png");
-    await page.screenshot({path:screenshot});
-    await test.info().attach("Left 0.75 m and Right Auto", {path:screenshot,contentType:"image/png"});
+    await expect(bar.getByRole("group",{name:"Right"}).getByRole("button",{name:"Off"})).toHaveAttribute("aria-pressed","true");
+    await test.info().attach("Danger zone · Left 0.75 m · Right Off", {body:await page.screenshot(), contentType:"image/png"});
   });
 
   test("a newly rejected stretch emits one tool toast and hovering keeps one explanation", async ({page, backend}) => {
@@ -835,12 +835,12 @@ test.describe("Side margin", () => {
     await clickRow(80); await clickRow(80);
     const right = bar.getByRole("spinbutton",{name:"Right"});
     await right.fill("0.50"); await right.press("Enter");
-    const message = /Empty side margin at route metre/;
+    const message = /Empty danger zone at route metre/;
     const toast = page.locator("#edit-tool-toasts p").filter({hasText:message});
     await expect(toast).toHaveCount(1);
     await moveRow(80);
     await expect(bar).toContainText("Left ");
-    expect((await bar.innerText()).match(/Empty side margin/g)).toHaveLength(1);
+    expect((await bar.innerText()).match(/Empty danger zone/g)).toHaveLength(1);
     await expect(scene(page)).not.toHaveAttribute("title",message);
     await expect(toast).toHaveCount(0);
     await right.fill("0.55"); await right.press("Enter");
@@ -853,7 +853,7 @@ test.describe("Side margin", () => {
     const url = await marginTrack(page, backend);
     await backend.post("/__test/ai-line-legacy", {name: "alpha"});
     const {bar} = await marginMarks(page);
-    await expect(bar).toContainText("Recalculate the AI line to place side margins");
+    await expect(bar).toContainText("Recalculate the AI line to place danger zones");
     let recalculations = 0;
     page.on("request", r => { if (r.url().endsWith(url + "/recalculate")) recalculations++; });
     await page.getByRole("button", {name: "Recalculate AI line"}).click();
@@ -861,16 +861,16 @@ test.describe("Side margin", () => {
     await expect(page.getByText("AI line updated", {exact: true})).toBeVisible();
     expect(recalculations).toBe(1);
     const sections = await passingHints(page);
-    expect(sections.map(s => [s.LEFT, s.RIGHT])).toEqual([[.25, .25], [.25, .75], [.50, .75], [.50, .50]]);
+    expect(sections.map(s => [s.LEFT, s.RIGHT])).toEqual([[0, .75]]);
     expect((await (await page.request.get(url)).json()).hints).toMatchObject({state: "current", unplaced: null});
   });
 
-  test("Side margin overrides one side and reaches ai_hints.ini", async ({page, backend}) => {
+  test("Danger zone overrides one side and reaches ai_hints.ini", async ({page, backend}) => {
     const url = await marginTrack(page, backend, true);
     const installed = await (await page.request.get(url)).json();
     const bytes = async () => (await page.request.get(url + "?r=" + (await (await page.request.get(url)).json()).revision)).body();
     const before = await bytes();
-    const auto = await passingHints(page);
+    expect(await passingHints(page)).toEqual([]);
     const {bar, start, end, rows} = await marginMarks(page);
     expect(installed.count).toBeGreaterThan(rows);
     const margins = async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).aiMargins;
@@ -878,26 +878,23 @@ test.describe("Side margin", () => {
     const [margin] = await margins();
     expect(margin.start.metre).toBeCloseTo(start, 2);
     expect(margin.end.metre).toBeCloseTo(end, 2);
-    await expect(bar).toContainText("0.75 m · set");
-    await expect(bar).toContainText("0.25–0.50 m · Auto");
+    await expect(bar).toContainText("0.75 m");
+    await expect(bar.getByRole("group",{name:"Left"}).getByRole("button",{name:"Off"})).toHaveAttribute("aria-pressed","true");
     await page.keyboard.press("Control+z");
     await expect.poll(margins).toEqual([]);
     await page.keyboard.press("Control+y");
     await expect.poll(margins).toEqual([margin]);
     await page.keyboard.press("x");
     await expect.poll(margins).toEqual([]);
-    await expect(bar).not.toContainText("0.75 m · set");
+    await expect(bar).not.toContainText("0.75 m");
     await page.keyboard.press("Control+z");
     await expect.poll(margins).toEqual([margin]);
     await page.getByRole("button", {name: "Recalculate AI line"}).click();
-    await expect.poll(async () => (await passingHints(page)).length).toBe(4);
+    await expect.poll(async () => (await passingHints(page)).length).toBe(1);
     const sections = await passingHints(page);
     await test.info().attach("ai_hints.ini", {body: await (await page.request.get("/__test/ai-hints?name=alpha")).body(),
       contentType: "text/plain"});
-    expect(sections.map(s => [s.LEFT, s.RIGHT])).toEqual([[.25, .25], [.25, .75], [.50, .75], [.50, .50]]);
-    expect(sections.map(s => s.START)).toEqual([0, sections[0].END, auto[1].START, sections[2].END]);
-    expect(sections[1].END).toBe(auto[0].END);
-    expect(sections[3].END).toBe(1);
+    expect(sections.map(s => [s.LEFT, s.RIGHT])).toEqual([[0, .75]]);
     // From route metre 105 onward the fixture is straight, so its remaining 3D distance equals the route distance.
     const count = installed.count;
     const x = (i: number) => before.readFloatLE(i * 4);
@@ -905,8 +902,8 @@ test.describe("Side margin", () => {
     const z = (i: number) => before.readFloatLE((2 * count + i) * 4);
     let length = 0;
     for (let i = 1; i < count; i++) length += Math.hypot(x(i)-x(i-1), y(i)-y(i-1), z(i)-z(i-1));
-    expect(sections[0].END).toBeCloseTo(1 - (-z(count - 1) - start) / length, 5);
-    expect(sections[2].END).toBeCloseTo(1 - (-z(count - 1) - end) / length, 5);
+    expect(sections[0].START).toBeCloseTo(1 - (-z(count - 1) - start) / length, 5);
+    expect(sections[0].END).toBeCloseTo(1 - (-z(count - 1) - end) / length, 5);
     expect(await bytes()).toEqual(before);
     expect(await (await page.request.get(url)).json()).toMatchObject({validity: "ready", hints: {state: "current"}});
   });
@@ -914,7 +911,7 @@ test.describe("Side margin", () => {
   test("an unapplied stretch is visible and pickable on a legacy line", async ({page, backend}) => {
     await marginTrack(page, backend);
     await backend.post("/__test/ai-line-legacy", {name:"alpha"});
-    const automatic = await passingHints(page);
+    expect(await passingHints(page)).toEqual([]);
     const {bar, clickRow, moveRow, screenRow} = await marginMarks(page);
     await page.keyboard.press("Escape");
     await page.keyboard.press("m");
@@ -923,7 +920,7 @@ test.describe("Side margin", () => {
     await clickRow(145);
     await expect(bar.getByRole("spinbutton", {name:"Right"})).toHaveValue("0.75");
     await expect(bar).toContainText(/not yet applied/i);
-    expect(await passingHints(page)).toEqual(automatic);
+    expect(await passingHints(page)).toEqual([]);
     await page.mouse.move(AWAY.x, AWAY.y);
     // This northbound section has a 3.1 m right half-width and a 0.75 m reserve.
     const {x,y} = screenRow(145, 2.8);
@@ -947,10 +944,10 @@ test.describe("Side margin", () => {
     const right = bar.getByRole("spinbutton",{name:"Right"});
     await clickRow(70); await clickRow(85);
     await right.fill("0.40"); await right.press("Enter");
-    await expect(bar).toContainText("0.40 m · set");
+    await expect(bar).toContainText("0.40 m");
     await clickRow(200); await clickRow(80);
     await right.fill("0.60"); await right.press("Enter");
-    await expect(bar).toContainText("0.60 m · set");
+    await expect(bar).toContainText("0.60 m");
     await keysOnView(page);
     await wheelWith(page, ["Alt"], -100);
     await expect(right).toHaveValue("0.75"); // In driving order the starts are 70, 80, 106 m.
@@ -1003,25 +1000,25 @@ test.describe("Side margin", () => {
     // The selected stretch is now under the camera's central ray.
     const middle = await centre(scene(page));
     await page.mouse.move(middle.x, middle.y);
-    await expect(bar).toContainText("Left 0.50 m · Right 1.00 m");
+    await expect(bar).toContainText("Left Off · Right 1.00 m");
     await wheelWith(page, ["Alt"], 100);
     await expect(right).toHaveValue("1");
     await page.getByRole("button", {name:"Recalculate AI line"}).click();
     await page.locator("#save-dialog").getByRole("button", {name:"Overwrite"}).click();
-    const expected = [[.25,.25],[.25,1],[.50,1],[.50,.75],[.50,.50]];
+    const expected = [[0,1],[0,.75]];
     await expect.poll(async () => (await passingHints(page)).map(s => [s.LEFT,s.RIGHT])).toEqual(expected);
     await test.info().attach("overlap-ai_hints.ini", {body: await (await page.request.get("/__test/ai-hints?name=alpha")).body(), contentType:"text/plain"});
   });
 
   test("reopening a track saved while AC was open enables a hint-only Recalculate", async ({page, backend}) => {
     const url = await marginTrack(page, backend);
-    const automatic = await passingHints(page);
+    expect(await passingHints(page)).toEqual([]);
     await marginMarks(page);
     await backend.post("/__test/ac-running", {running: true});
     await saveTrack(page);
     const meta = async () => (await page.request.get(url)).json();
     await expect.poll(meta).toMatchObject({validity: "ready", hints: {state: "stale"}});
-    expect(await passingHints(page)).toEqual(automatic);
+    expect(await passingHints(page)).toEqual([]);
     await backend.post("/__test/ac-running", {running: false});
     await openEditor(page);
     const recalculate = page.getByRole("button", {name: "Recalculate AI line"});
@@ -1029,14 +1026,14 @@ test.describe("Side margin", () => {
     await recalculate.click();
     await expect(recalculate).toBeDisabled();
     await expect.poll(meta).toMatchObject({validity: "ready", hints: {state: "current"}});
-    expect((await passingHints(page)).map(s => s.RIGHT)).toEqual([.25, .75, .75, .50]);
+    expect((await passingHints(page)).map(s => s.RIGHT)).toEqual([.75]);
   });
 
   test("a replacement from another editor refreshes the displayed lane before using new preview fractions", async ({page, backend}) => {
     const url = await marginTrack(page, backend);
     const installed = await (await page.request.get(url)).json();
     const {bar} = await marginMarks(page);
-    await expect(bar).toContainText("0.25–0.50 m · Auto");
+    await expect(bar.getByRole("group",{name:"Right"})).toContainText("0.75 m");
     await backend.post("/__test/ai-line", {name: "alpha"});
     const replacement = await (await page.request.get(url)).json();
     const replies: number[] = [], reads: string[] = [];

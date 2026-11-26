@@ -13,13 +13,13 @@ type AiLine = ReturnType<typeof useAiLine>;
 type Marked = {laneKey: string; id: string; a: MarginMark; b?: MarginMark};
 const pendingMargin = ({id,a,b}: Marked): AiMargin => ({id, start:a.anchor, end:(b ?? a).anchor, left:null, right:null});
 
-function SideField({side, value, effective, applied, enabled, change, view}: {
-  side: MarginSide; value: number | null; effective?: string; applied: boolean; enabled: boolean; change: (value: number | null) => void; view: TrackView;
+function SideField({side, value, effective, enabled, change, view}: {
+  side: MarginSide; value: number | null; effective?: string; enabled: boolean; change: (value: number | null) => void; view: TrackView;
 }) {
   const label = side === "left" ? "Left" : "Right";
   return <fieldset disabled={!enabled} className={styles.side} aria-label={label}>
     <span>{label}</span>
-    <ToolChoice label="Auto" hint={`Use the automatic ${side} margin`} on={value === null}
+    <ToolChoice label="Off" hint={`Leave the ${side} side unset for this zone`} on={value === null}
       onClick={thenView(view, () => change(null))} />
     <input key={String(value)} aria-label={label} type="number" min="0" max="1" step="0.05" placeholder="m"
       defaultValue={value ?? ""} onBlur={event => {
@@ -27,7 +27,7 @@ function SideField({side, value, effective, applied, enabled, change, view}: {
         if (field.validity.valid) change(field.value === "" ? null : field.valueAsNumber);
         else field.value = value?.toString() ?? "";
       }} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); view.focus(); } }} />
-    {effective && <span className={styles.value}>{effective} m · {applied ? value === null ? "Auto" : "set" : "current"}</span>}
+    {effective && <span className={styles.value}>{effective} m</span>}
   </fieldset>;
 }
 
@@ -60,8 +60,8 @@ export function useAiMargins(name: string, view: TrackView, edits: TrackEdits, m
         reloadInstalled();
         return;
       }
-      if (!answer.sections || !answer.margins || !answer.auto) {
-        setReply({margins, refresh, revision, error: answer.error || "Side margins could not be loaded."});
+      if (!answer.sections || !answer.margins) {
+        setReply({margins, refresh, revision, error: answer.error || "Danger zones could not be loaded."});
         return;
       }
       const errors = new Map<string,string>();
@@ -131,19 +131,15 @@ export function useAiMargins(name: string, view: TrackView, edits: TrackEdits, m
     if (old && (old.metre !== mark.anchor.metre || old.level !== mark.anchor.level))
       edits.updateAiMargin(id, {[key]:mark.anchor});
   });
-  // A stale merged section can still contain a value just changed back to Auto.
-  // Until the reply arrives, apply the live recipe to the lane's automatic baseline.
-  const drawingPreview = useMemo((): MarginPreview | undefined => preview && !current
-    ? {...preview, sections:preview.auto.map(([a,b,w]) => [a,b,w,w])} : preview, [preview,current]);
   const session = useRef<ReturnType<TrackView["editAiMargins"]>>(null);
   useEffect(() => {
-    if (!enabled || !lane || !drawingPreview) return;
-    const drawing = view.editAiMargins(guide, drawingPreview, ranges, mark => addEvent(mark), id => selectEvent(id), setHover,
+    if (!enabled || !lane || !preview) return;
+    const drawing = view.editAiMargins(guide, preview, ranges, mark => addEvent(mark), id => selectEvent(id), setHover,
       (id,key,mark) => resizeEvent(id,key,mark));
     session.current = drawing;
     return () => { drawing?.dispose(); session.current = null; };
-  }, [enabled, lane, drawingPreview, guide, ranges, view]);
-  useEffect(() => { session.current?.setSelected(selected); }, [selected, enabled, lane, drawingPreview, guide, ranges, view]);
+  }, [enabled, lane, preview, guide, ranges, view]);
+  useEffect(() => { session.current?.setSelected(selected); }, [selected, enabled, lane, preview, guide, ranges, view]);
 
   const existing = margins.find(m => m.id === selected);
   const target = existing ?? (marked?.b ? pendingMargin(marked) : null);
@@ -172,7 +168,7 @@ export function useAiMargins(name: string, view: TrackView, edits: TrackEdits, m
     (shownHover.fraction < b || (b === 1 && shownHover.fraction === 1)));
   const message = current?.error || ai.lineMessage || (!lane && "Loading the installed AI line …");
   const note = preview?.unplaced === "manual" ? "Not applied: the AI line was replaced by hand"
-    : preview?.unplaced === "recalculate" || (marked && preview?.metres === null) ? "Not yet applied · Recalculate the AI line to place side margins" : undefined;
+    : preview?.unplaced === "recalculate" || (marked && preview?.metres === null) ? "Not yet applied · Recalculate the AI line to place danger zones" : undefined;
   return {
     click: () => session.current?.click(), activate: ai.controller.activate,
     takesWheel: !!target || margins.length > 0,
@@ -200,13 +196,13 @@ export function useAiMargins(name: string, view: TrackView, edits: TrackEdits, m
       return true;
     },
     clear: () => { choose(null); setHover(null); ai.controller.clear?.(); },
-    options: <ToolOptions id="edit-ai-margin-set" title="Side margin" note={location?.error || note} actions={<>
+    options: <ToolOptions id="edit-ai-margin-set" title="Danger zone" note={location?.error || note} actions={<>
       {message ? <span role="status">{message}</span> : !target && guide && preview && <span>{marked ? "Click B on the AI line" : "Click A on the AI line"}</span>}
       {target && <span>{Math.round(target.start.metre)}–{Math.round(target.end.metre)} m</span>}
       {(["left","right"] as const).map(side => <SideField key={side} side={side} value={target?.[side] ?? null} enabled={!!target}
-        effective={effective(side)} applied={!location?.error && !preview?.unplaced} view={view} change={value => change(side, value)} />)}
+        effective={effective(side)} view={view} change={value => change(side, value)} />)}
       {shownHover && <span className={styles.hover}>
-        Left {(section?.[2] ?? 0).toFixed(2)} m · Right {(section?.[3] ?? 0).toFixed(2)} m
+        Left {section?.[2] ? `${section[2].toFixed(2)} m` : "Off"} · Right {section?.[3] ? `${section[3].toFixed(2)} m` : "Off"}
       </span>}
     </>} />,
   };

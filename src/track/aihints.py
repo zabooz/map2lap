@@ -10,29 +10,6 @@ from track import aicorrections, aimargins
 from track.aimargins import Span
 
 FILE = Path("data/ai_hints.ini")
-KEEP_M = 5.5  # Two 2 m cars, the E30s' ~1.3 m native body gap and ~0.2 m spare. Wider cars need more.
-MAX_M = 1.0  # AC also scales corner push by 1 - 0.2 * the larger hint. Keep that factor at least 0.8.
-STEP_M = .25  # A quarter metre at either side changes the pair's available space by half a metre.
-MIN_RUN_M = 50.  # About two seconds at 90 km/h for an overtaking car to settle between changes.
-
-
-def _runs(ends, levels):
-    """Group width steps along an unwrapped spline, protecting narrow spots when sharing short runs. Pure."""
-    length = ends[-1]
-    start = 0.
-    result = []
-    while start < length:
-        first = np.searchsorted(ends, start, side="right")
-        end = min(length, max(ends[first], start + MIN_RUN_M))
-        if 0 < length - end < MIN_RUN_M:
-            # Give the last pinch its own car manoeuvre length without reducing an entire long straight.
-            end = length - MIN_RUN_M if length - start >= 2*MIN_RUN_M else length
-        last = np.searchsorted(ends, end)
-        level = int(min(levels[first:last+1]))
-        if not result or result[-1][1] != level:
-            result.append((start, level))
-        start = end
-    return result
 
 
 def _stations(points, circuit):
@@ -43,45 +20,11 @@ def _stations(points, circuit):
     return np.r_[0., np.cumsum(np.linalg.norm(np.diff(xyz, axis=0), axis=1))]
 
 
-def sections(points, detail, circuit):
-    """Normalized START/END and symmetric metre hints from the serialized XYZ and side widths. Pure."""
-    stations = _stations(points, circuit)
-    widths = detail["left"].astype(float) + detail["right"]
-    if circuit:
-        widths = np.r_[widths, widths[0]]
-    length = stations[-1]
-    if not np.isfinite(length) or length <= 0 or not np.isfinite(widths).all():
-        return []
-    steps = np.floor(np.clip((widths - KEEP_M) / 2, 0., MAX_M) / STEP_M + .5).astype(int)
-    changed = np.flatnonzero(np.diff(steps))
-    cuts = (stations[changed] + stations[changed+1]) / 2
-    origin = 0.
-    if circuit and len(cuts):
-        # Unwrap at a width change so the two halves of one run at start/finish count together.
-        origin = cuts[0]
-        ends = np.r_[cuts[1:] - origin, length]
-        levels = steps[changed+1]
-    else:
-        ends = np.r_[cuts, length]
-        levels = np.r_[steps[0], steps[changed+1]]
-    changes = _runs(ends, levels)
-    if origin:
-        changes = sorted(((start + origin) % length, level) for start, level in changes)
-        if changes[0][0] > 0:
-            changes.insert(0, (0., changes[-1][1]))
-        changes = [item for i, item in enumerate(changes) if i == 0 or item[1] != changes[i-1][1]]
-    return [(start/length, end/length, level*STEP_M)
-            for (start, level), (end, _) in zip(changes, changes[1:] + [(length, 0)]) if level]
-
-
-def merge(auto: list[tuple[float, float, float]], spans: list[Span]) -> list[tuple[float, float, float, float]]:
-    """Overlay each explicitly set side in recipe order on the automatic widths. Pure."""
-    cuts = sorted({0., 1., *(a for a, _, _ in auto), *(b for _, b, _ in auto),
-                   *(s.start for s in spans), *(s.end for s in spans)})
+def merge(spans: list[Span]) -> list[tuple[float, float, float, float]]:
+    """Merge placed danger zones, with the last explicit value winning on each side. Pure."""
+    cuts = sorted({0., 1., *(s.start for s in spans), *(s.end for s in spans)})
     indices = {cut: i for i, cut in enumerate(cuts)}
     widths = np.zeros((len(cuts)-1, 2))
-    for a, b, hint in auto:
-        widths[indices[a]:indices[b]] = hint
     for span in spans:
         for a, b in aimargins.intervals(span.start, span.end, 1.):
             stretch = widths[indices[a]:indices[b]]
@@ -103,7 +46,6 @@ def merge(auto: list[tuple[float, float, float]], spans: list[Span]) -> list[tup
 
 
 class Profile(NamedTuple):
-    auto: list[tuple[float, float, float]]
     sections: list[tuple[float, float, float, float]]
     locations: dict[str, dict[str, float]]
 
@@ -117,7 +59,7 @@ class Hints(NamedTuple):
 
 def render(lane: Path, circuit: bool, margins: list, placement: tuple[aicorrections.Route, np.ndarray] | None,
            unplaced: str | None) -> Hints:
-    """Render the installed lane with the recipe's placeable side margins and report rejected anchors."""
+    """Render the installed lane with the recipe's placeable danger zones and report rejected anchors."""
     hints, _ = render_profile(lane, circuit, margins, placement, unplaced)
     return hints
 
@@ -126,14 +68,13 @@ def render_profile(lane: Path, circuit: bool, margins: list, placement: tuple[ai
                    unplaced: str | None) -> tuple[Hints, Profile]:
     """Calculate the INI and its Editor preview from a single placement and merge."""
     from track import fastlane, obj_to_kn5
-    points, detail, _ = fastlane.read_lane(lane)
-    auto = sections(points, detail, circuit)
+    points, _, _ = fastlane.read_lane(lane)
     spans, rejected, locations = [], {}, {}
     if margins and placement is not None:
         route, metres = placement
         spans, rejected, locations = aimargins.placements(margins, route, metres, _stations(points, circuit),
                                                          points["pos"][:, 1], circuit, obj_to_kn5.LEVEL_GAP_M)
-    profile = Profile(auto, merge(auto, spans), locations)
+    profile = Profile(merge(spans), locations)
     data = "".join(f"[DANGER_{i}]\nSTART={a:.9f}\nEND={b:.9f}\nLEFT={left:.2f}\nRIGHT={right:.2f}\n\n"
                    for i, (a, b, left, right) in enumerate(profile.sections)).encode("ascii")
     return Hints(data, rejected, unplaced if margins and placement is None else None, spans), profile

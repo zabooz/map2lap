@@ -124,14 +124,14 @@ def _saved_margins(folder):
     """Keep usable saved entries when an older or hand-edited recipe also has a bad margin."""
     items = aimargins.recipe(folder)
     if not isinstance(items, list):
-        return [], {"aiMargins": "Invalid side margin"}
+        return [], {"aiMargins": "Invalid danger zone"}
     margins, rejected, seen = [], {}, set()
     for i, item in enumerate(items):
         key = item.get("id") if isinstance(item, dict) else None
         key = key if isinstance(key, str) and key else f"Margin {i + 1}"
         error = aimargins.problem([item])
         if error or key in seen:
-            rejected[key] = error or "Invalid side margin"
+            rejected[key] = error or "Invalid danger zone"
         else:
             seen.add(key)
             margins.append(item)
@@ -156,13 +156,12 @@ def _render(folder, lane, circuit, margins, rejected, metres, unplaced):
     if margins and metres is not None:
         route = _route(folder, circuit)
         if route is None:
-            # The surviving spline still supplies its own automatic passing widths.
-            automatic, profile = aihints.render_profile(lane, circuit, [], None, None)
             for margin in margins:
                 metre = margin["start"]["metre"]
                 rejected[margin["id"]] = f"Unresolved route anchor at route metre {metre:.1f}: saved route unavailable"
-            return automatic._replace(rejected=rejected), profile
-        placement = route, metres
+            margins = []
+        else:
+            placement = route, metres
     result, profile = aihints.render_profile(lane, circuit, margins, placement, unplaced)
     return result._replace(rejected=rejected | result.rejected), profile
 
@@ -194,11 +193,11 @@ def hints(folder, circuit, *, lane=None, metres=None) -> aihints.Hints:
 def margin_preview(folder, circuit, margins):
     """Preview draft margins on the installed lane using the same placement and merge as the INI."""
     result, profile = _expected(folder, circuit, margins=margins)
-    profile = profile or aihints.Profile([], [], {})
+    profile = profile or aihints.Profile([], {})
     locations = dict(profile.locations)
     for key, error in result.rejected.items():
         locations[key] = {**locations.get(key, {}), "error": error}
-    return dict(auto=profile.auto, sections=profile.sections, margins=locations, unplaced=result.unplaced)
+    return dict(sections=profile.sections, margins=locations, unplaced=result.unplaced)
 
 
 def sync_hints(folder, circuit, *, report_deferred=False) -> aihints.Hints:

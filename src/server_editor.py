@@ -282,7 +282,7 @@ def _check_margin_revision(lane, revision):
 
 
 def _margin_preview(model, body):
-    """Return the draft's side margins as fractions of the installed AI line."""
+    """Return the draft's danger zones as fractions of the installed AI line."""
     margins = body.get("aiMargins") if isinstance(body, dict) else None
     if error := aimargins.problem(margins):
         raise ValueError(error)

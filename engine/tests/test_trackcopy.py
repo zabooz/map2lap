@@ -161,7 +161,7 @@ class SideMarginSaveTest(Base):
 
     def test_invalid_margin_rejected_in_draft_and_unreadable_from_disk(self):
         bad = [{**self.margin, "right": .76}]
-        with self.assertRaisesRegex(trackedits.Invalid, "Invalid side margin value"):
+        with self.assertRaisesRegex(trackedits.Invalid, "Invalid danger zone value"):
             self.draft(aiMargins=bad)
         self.draft(aiMargins=[])
         path = Path(trackedits.path_of("t"))

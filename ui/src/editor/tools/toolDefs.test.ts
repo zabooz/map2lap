@@ -19,7 +19,7 @@ test("the panel lists the keyed tools by group; Groups comes from the Library an
   expect(toolDef("group").key).toBeNull();
   expect(toolDef("model").library).toBe(true);
   expect(TOOLS.filter(t => t.group === "road").map(t => t.tool)).toEqual(["smooth", "separate", "bank", "kerb", "stitch"]);
-  expect(TOOLS.filter(t => t.group === "ai").map(t => [t.tool, t.label, t.key])).toEqual([["ai-move", "Move line", "L"], ["ai-redraw", "Redraw line", "P"], ["ai-margin", "Side margin", "M"]]);
+  expect(TOOLS.filter(t => t.group === "ai").map(t => [t.tool, t.label, t.key])).toEqual([["ai-move", "Move line", "L"], ["ai-redraw", "Redraw line", "P"], ["ai-margin", "Danger zone", "M"]]);
 });
 
 test("Select, Road camera and the AI line tools also work on a track that cannot be edited; Camera and Transform add with Ctrl; Delete deletes its pick; road tools take no left pick", () => {

@@ -53,7 +53,7 @@ class AiLineTransportTest(unittest.TestCase):
         code, status = args
         self.assertEqual(200, code)
         self.assertEqual({"status", "message", "closed", "revision", "count", "canCalculate", "validity", "hints"}, status.keys())
-        self.assertEqual({"state": "stale", "unplaced": None, "rejected": {}}, status["hints"])
+        self.assertEqual({"state": "current", "unplaced": None, "rejected": {}}, status["hints"])
         self.assertTrue(status["canCalculate"])
         self.assertEqual("pending", status["validity"])
         self.assertEqual(("ready", True, 2), (status["status"], status["closed"], status["count"]))
