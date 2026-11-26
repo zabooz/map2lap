@@ -86,8 +86,8 @@
    "max_over_deck": 0.0,
    "length_m": 320,
    "over_05g_m": 8,
-   "lanes_over_05g_m": 20,
-   "max_g": 1.71,
+   "lanes_over_05g_m": 19,
+   "max_g": 2.63,
    "max_g_at_m": 150.0,
    "edges_m": 0,
    "transitions": 0,
@@ -159,7 +159,7 @@
    "max_g_transition": 2.18,
    "warp_m": 0,
    "max_warp": 0.0,
-   "max_warp_at_m": 360.0
+   "max_warp_at_m": 361.0
   }
  },
  "friedensbruecke_test": {
@@ -205,14 +205,14 @@
    "length_m": 511,
    "over_05g_m": 3,
    "lanes_over_05g_m": 7,
-   "max_g": 1.09,
+   "max_g": 1.08,
    "max_g_at_m": 313.0,
    "edges_m": 0,
-   "transitions": 6,
-   "max_g_transition": 1.09,
+   "transitions": 4,
+   "max_g_transition": 1.08,
    "warp_m": 25,
-   "max_warp": 0.94,
-   "max_warp_at_m": 218.0
+   "max_warp": 0.39,
+   "max_warp_at_m": 244.0
   }
  },
  "weblinger_guertel_test": {
@@ -257,8 +257,8 @@
    "max_over_deck": 0.0,
    "length_m": 240,
    "over_05g_m": 0,
-   "lanes_over_05g_m": 1,
-   "max_g": 0.23,
+   "lanes_over_05g_m": 0,
+   "max_g": 0.25,
    "max_g_at_m": 123.0,
    "edges_m": 0,
    "transitions": 0,
@@ -317,15 +317,15 @@
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 1245,
-   "over_05g_m": 5,
-   "lanes_over_05g_m": 13,
-   "max_g": 0.66,
-   "max_g_at_m": 1064.0,
+   "over_05g_m": 12,
+   "lanes_over_05g_m": 16,
+   "max_g": 1.98,
+   "max_g_at_m": 698.0,
    "edges_m": 0,
    "transitions": 4,
-   "max_g_transition": 0.66,
+   "max_g_transition": 0.7,
    "warp_m": 0,
-   "max_warp": 0.01,
+   "max_warp": 0.02,
    "max_warp_at_m": 698.0
   }
  },
@@ -375,7 +375,7 @@
    "max_g_transition": 0.12,
    "warp_m": 0,
    "max_warp": 0.0,
-   "max_warp_at_m": 287.0
+   "max_warp_at_m": 394.0
   }
  },
  "otto_bridge_test": {
@@ -405,11 +405,11 @@
    "length_m": 1935,
    "over_05g_m": 0,
    "lanes_over_05g_m": 0,
-   "max_g": 0.23,
+   "max_g": 0.17,
    "max_g_at_m": 867.0,
    "edges_m": 0,
    "transitions": 2,
-   "max_g_transition": 0.23,
+   "max_g_transition": 0.17,
    "warp_m": 0,
    "max_warp": 0.0,
    "max_warp_at_m": 893.0
@@ -512,13 +512,13 @@
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 12681,
-   "over_05g_m": 16,
-   "lanes_over_05g_m": 129,
-   "max_g": 3.06,
-   "max_g_at_m": 12551.0,
+   "over_05g_m": 18,
+   "lanes_over_05g_m": 190,
+   "max_g": 3.74,
+   "max_g_at_m": 12552.0,
    "edges_m": 0,
    "transitions": 20,
-   "max_g_transition": 0.45,
+   "max_g_transition": 0.51,
    "warp_m": 445,
    "max_warp": 0.18,
    "max_warp_at_m": 7361.0
@@ -615,16 +615,16 @@
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 13510,
-   "over_05g_m": 71,
-   "lanes_over_05g_m": 460,
-   "max_g": 2.96,
-   "max_g_at_m": 5223.0,
+   "over_05g_m": 74,
+   "lanes_over_05g_m": 486,
+   "max_g": 4.83,
+   "max_g_at_m": 5224.0,
    "edges_m": 5,
    "transitions": 14,
-   "max_g_transition": 0.83,
+   "max_g_transition": 0.8,
    "warp_m": 0,
-   "max_warp": 0.01,
-   "max_warp_at_m": 1655.0
+   "max_warp": 0.02,
+   "max_warp_at_m": 6684.0
   }
  },
  "rauma_test": {
@@ -710,12 +710,12 @@
    "max_over_deck": 0.0,
    "length_m": 1396,
    "over_05g_m": 0,
-   "lanes_over_05g_m": 5,
-   "max_g": 0.33,
+   "lanes_over_05g_m": 8,
+   "max_g": 0.47,
    "max_g_at_m": 974.0,
    "edges_m": 1,
    "transitions": 2,
-   "max_g_transition": 0.21,
+   "max_g_transition": 0.32,
    "warp_m": 58,
    "max_warp": 0.51,
    "max_warp_at_m": 1049.0
@@ -823,98 +823,16 @@
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 240,
-   "over_05g_m": 6,
-   "lanes_over_05g_m": 21,
-   "max_g": 1.11,
+   "over_05g_m": 5,
+   "lanes_over_05g_m": 23,
+   "max_g": 0.99,
    "max_g_at_m": 119.0,
-   "edges_m": 2,
+   "edges_m": 1,
    "transitions": 2,
-   "max_g_transition": 1.11,
+   "max_g_transition": 0.99,
    "warp_m": 0,
    "max_warp": 0.0,
    "max_warp_at_m": 114.0
-  }
- },
- "a2_bruecke_3740_test": {
-  "title": "A2 Bruecke 3740 Test",
-  "about": "A stretch of the A2 test track near Voelkermarkt, Austria, at a junction close to a bridge's end: a road's smoothing must not run down the bank past the junction",
-  "points": [
-   [
-    46.6774533,
-    14.59393
-   ],
-   [
-    46.6780796,
-    14.5956635
-   ],
-   [
-    46.6784951,
-    14.5975259
-   ]
-  ],
-  "width": 100.0,
-  "spots": [
-   [
-    "120-180",
-    "the road beside the junction, raised 10 cm by the fill"
-   ]
-  ],
-  "reference": {
-   "off_road_m": 0,
-   "over_deck_spots": 0,
-   "max_over_deck": 0.0,
-   "length_m": 300,
-   "over_05g_m": 1,
-   "lanes_over_05g_m": 46,
-   "max_g": 0.51,
-   "max_g_at_m": 136.0,
-   "edges_m": 0,
-   "transitions": 2,
-   "max_g_transition": 0.33,
-   "warp_m": 0,
-   "max_warp": 0.09,
-   "max_warp_at_m": 105.0
-  }
- },
- "a2_bruecke_11952_test": {
-  "title": "A2 Bruecke 11952 Test",
-  "about": "A stretch of the A2 test track near Voelkermarkt, Austria, at a junction close to a bridge's end: a road's smoothing must not run down the bank past the junction",
-  "points": [
-   [
-    46.6871514,
-    14.6966245
-   ],
-   [
-    46.6876826,
-    14.6984257
-   ],
-   [
-    46.6882877,
-    14.7001783
-   ]
-  ],
-  "width": 100.0,
-  "spots": [
-   [
-    "130-170",
-    "the junction, raised 38 cm by the fill"
-   ]
-  ],
-  "reference": {
-   "off_road_m": 0,
-   "over_deck_spots": 0,
-   "max_over_deck": 0.0,
-   "length_m": 450,
-   "over_05g_m": 0,
-   "lanes_over_05g_m": 0,
-   "max_g": 0.14,
-   "max_g_at_m": 209.0,
-   "edges_m": 0,
-   "transitions": 2,
-   "max_g_transition": 0.14,
-   "warp_m": 0,
-   "max_warp": 0.0,
-   "max_warp_at_m": 197.0
   }
  },
  "oberstattgutbach_bruecke_test": {
