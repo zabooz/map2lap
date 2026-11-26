@@ -5,14 +5,17 @@ result with its own kn5 writer: no Blender, no ksEditor.
 
 ```
 server.py (generator page) ─► generator.py (its own process per build)
-   route (OSRM) → corridor_tiles → blockworker._roads_tile per tile (build_tiles.py: state, default mode)
+   Route or Circuit → corridor_tiles, Area bounds → area_tiles
+   → blockworker._roads_tile per tile (build_tiles.py: state, default mode)
    → make_obj.py: terrain (ground.py + water.py, groundcover.py) and tile meshes (+ trees.py, rocks.py, propsmesh.py)
      → one part OBJ per tile (obj/parts/t_<tx>_<ty>.obj), materials in obj/track.mtl
    → gates.py: start and finish gantries of point-to-point routes (obj/parts/gates.obj)
    → farview.py: distant view up to 40 km around the corridor (obj/parts/far.obj, kn5 only)
    → make_track_folder.py: surfaces.ini, ext_config.ini (+ water animation), map.png with the route, ui
    → obj_to_kn5.py: part OBJs → mesh nodes → .kn5 straight into the track folder
-   → data/map2lap.json (settings for "Rebuild"), tidy the map data cache (mapcache.py), delete the work folder
+   → data/map2lap.json (settings for "Rebuild")
+   → on Routes and Circuits: generate the AI line on the finished collision road and look for off-road DNF parking
+   → tidy the map data cache (mapcache.py), delete the work folder
      out/tracks/<name> unless "Keep build files" is on (the page's default)
 ```
 
@@ -24,6 +27,10 @@ A build from the command line keeps its work folder:
 ```
 
 Single steps run as modules from `src\`, e.g. `..\.venv\Scripts\python.exe -m track.kn5 <file.kn5>`.
+
+For a new Circuit, pass `--circuit` with the pins in driving order. OSRM supplies road geometry and node
+annotations. `app/circuitlap.py` checks that the return leg joins the start, reports the nearest pin for a U-turn
+and marks twice-driven stretches so the converter can place timing on an unambiguous crossing.
 
 ## Generator page and Editor
 
@@ -59,8 +66,9 @@ necessary for subsequent edits and transfer.
 
 ## Parallel (`track/parallel.py`)
 
-Tiles, scenery, minimap and kn5 meshes run per tile in a `ProcessPoolExecutor` (cores − 1 processes or the share set in
-Settings, on Windows at most 61, at most free RAM / 2 GB). Processes rather than threads because BeamNG.Earth's state
+Tiles, scenery, minimap and kn5 meshes run per tile in a `ProcessPoolExecutor`. The generator page defaults to 75% of
+logical cores. The CLI defaults to 100%. Both reserve one core when possible and cap the pool by available work,
+free RAM (2 GB per worker when known) and the Windows limit of 61. Processes rather than threads because BeamNG.Earth's state
 (`blockworker._s`) is global: every process builds it in its initializer.
 
 - The workers share their plans: the first to plan a map cell writes it, the others read it (`plancache.one_run`, see Build caches below). Two builds of the same code that differ: `tools/build_trace.py`, round after round: `tools/stability.py`.
@@ -71,6 +79,7 @@ Settings, on Windows at most 61, at most free RAM / 2 GB). Processes rather than
   nothing it makes.
 - Windows locks a cache file for a moment while another process replaces it: `parallel.retry_locked`.
 - Processes are not recycled (`max_tasks_per_child` hangs under Python 3.12, CPython gh-115634).
+- Each pool worker watches its parent's process sentinel and exits if that process dies, even while waiting for work.
 - On Windows they run as `Map2Lap Worker.exe`, a build as `Map2Lap Build.exe`, the generator page as `Map2Lap Server.exe`:
   named copies of python.exe (`app/named.py`), in `python/` or, with a venv, `out/python/`.
 
@@ -97,13 +106,14 @@ buried low-voltage lines, street lamp spacing.
 ### Terrain and scenery build options
 
 `app/buildoptions.py` validates the per-track choices: terrain spacing (2 m by default, optionally 1 m), parked cars
-(on by default), minimum tree spacing and ground texture quality (SD by default). New tracks on the generator page start at 2 m; its slider runs from
+(on by default), minimum tree spacing and ground texture quality (SD by default). The new-track form starts tree spacing at 2 m. Its slider runs from
 Original (0 m) to 20 m in 0.5 m steps. The data reader still accepts saved spacings up to 100 m; missing values in old
 tracks and codes mean Original. The generator page captures the choices
 when starting each build and passes an isolated child environment. They are saved in the anchor and track settings;
 Rebuild, Build as copy and track codes retain them. Route rebuilds and copies also accept a changed corridor width,
 falling back to the track's saved width when none is supplied. Circuit rebuilds and copies reuse the installed lap
-from `data/map2lap_route.txt` and place the timing lines and grid on the rebuilt road. Choices beyond the legacy defaults use `M2L2-`
+from `data/map2lap_route.txt` and place the timing lines and grid on the rebuilt road. If the saved line is missing,
+the generator routes the pins again. A malformed saved line stops the rebuild. Choices beyond the legacy defaults use `M2L2-`
 codes so older applications refuse them rather than silently ignoring them; HD uses `M2L3-`. SD with 2 m terrain, cars on and Original trees retains `M2L1-`.
 
 `BNE_GROUND_QUALITY=hd` samples all terrain colour layers at 4096 px per tile instead of SD's 2048 px:

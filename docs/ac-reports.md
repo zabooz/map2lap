@@ -7,7 +7,7 @@ coordinates, G values and the build's versions. It keeps the last 15 s of the dr
 key or wheel button) or "Mark" saves a spot with those 15 s and the next 5 s, plus a screenshot; "Start recording" records
 the whole drive.
 
-Every session writes `Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`:
+Marking a spot or recording a drive creates a session folder under `Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`.
 
 | File | What |
 |---|---|
@@ -25,8 +25,14 @@ Every session writes `Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`:
    `measure.py --profile` / `--surface` commands for that stretch. The profile tells deck from ground; `--surface` which
    physics lies under the line (the asphalt seen on the ground is only the terrain's texture: its object's prefix decides
    the grip).
-2. `tools\from_debug.py <folder>` builds that track here with the route exactly as it was built (no OSRM) and says where
-   this Map2Lap or its map data differ from the sender's (`--upto obj`: only the OBJ parts, for the measuring tools).
+2. `tools\from_debug.py <folder>` reuses the recorded line when the session has both `map2lap_route.txt` and
+   `route_end`. It also passes saved Circuit timing to the generator. With either route input missing, it routes
+   the pins again with OSRM. An Area uses its recorded bounds. The tool reports track-version and map-data
+   differences. Use `--upto obj` to stop at the OBJ parts for measurement.
+   For a reproduction, match terrain spacing, parked cars, tree spacing and ground quality from the session's
+   `map2lap.json` using the [build environment](architecture.md#terrain-and-scenery-build-options). The tool
+   rebuilds the generated geometry. On an A–B Route the saved line ends after any runout and starts at the first
+   pin, so it omits the incoming road used for grid placement. Editor edits also require their original assets and recipe.
 3. Find the spot. The route metre is the same count in `measure.py` (`--from/--to`) and `check_drive.py`. AC coordinates:
    x east, z = −north, y up; the anchor is in the track's `data/map2lap_route.txt`.
 4. See what was built there. A command-line build, and one from the page with "Keep build files" (on by default under
@@ -45,6 +51,7 @@ stretch fast, and `--holes` on `measure.py` sorts the gaps in the ground by whet
 
 ## Sharing a track
 
-A track code (`M2L1-…`, `app/trackcode.py`) holds a track's inputs: pins and corridor or area, title, track version. It
-holds no route: OSRM routes the pins again. A build stores its map data's versions (`generator.data_versions`) in
-`data/map2lap.json` beside the code.
+A track code holds the title, track version, pins and corridor width or Area bounds, and terrain and scenery options.
+Circuit codes mark the pins as a closed lap. Importing a code routes the pins on the current map.
+`app/trackcode.py` writes `M2L1-` for default options, `M2L2-` for non-default grid, parked-car or tree-spacing choices,
+and `M2L3-` for HD ground. The installed track also records its map-data versions in `data/map2lap.json`.

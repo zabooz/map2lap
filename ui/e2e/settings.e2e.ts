@@ -99,7 +99,7 @@ test("build files: kept by default, the switch is saved, Delete empties them, a 
   await openSettings(page, "Editor");
   const box = page.getByLabel("Keep build files");
   await expect(box).toBeChecked();
-  await expect(page.getByRole("dialog")).toContainText("The editing tools, coming step by step, will need");
+  await expect(page.getByRole("dialog")).toContainText("the build log and intermediate files");
   await box.uncheck();
   await expect.poll(async () => (await saved(page)).clean).toBe(true);
   await box.check();

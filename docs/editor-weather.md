@@ -32,7 +32,7 @@ the stars are `NightSky`. It is the Editor's own: AC's midnight is black outside
 ## Weather
 
 Properties groups Time of day and Season under Time and date; Conditions contains weather, temperatures, wind and fog;
-Vegetation contains Trees. Season offers Spring, Summer, Autumn and Winter, defaulting to
+Scenery contains Trees and Cars. Season offers Spring, Summer, Autumn and Winter, defaulting to
 Summer. Spring and Summer use the original green foliage. Autumn warms deciduous foliage; Winter hides its leaf cards
 and adds snow to upper surfaces in the Editor. Broadleaf, birch and larch retain their original meshes with permanent
 branches added inside the crowns; baobab uses its existing branches. Evergreen and tropical foliage stays in place.
@@ -67,7 +67,8 @@ and no wind. `weatherPreview.ts` gives a small GPU particle field, approximate l
 AC uses CSP's actual sky, clouds, light and wind. Every Play button opens a session dialog for car, time and conditions;
 the Editor fills it from its preview controls and starts saving any track edits when Play is first pressed. Start driving
 waits for that Save to finish. The other Play buttons start with dry, clear conditions and the previous AC session time.
-Changes in the dialog apply to that drive only.
+Track grip starts at **Optimum**. Choose another preset, reuse the last session when available, or adjust starting
+grip and variation. Changes in the dialog apply to that drive only.
 Weather and the clock travel together through Save-as-new-track followed by Play. Wind-only and temperature-only changes
 leave the editor's lighting/reflection maps alone.
 

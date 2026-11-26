@@ -14,14 +14,18 @@ in [CREDITS.md](CREDITS.md), and each track's generated description. Upstream cr
 | Mapterhorn, AWS Terrain Tiles | Terrain heights and fallback | `engine/dem.py` |
 | Copernicus polar DEM, Canadian HRDEM and BC lidar | Region-specific elevation support | `engine/polardem.py`, `engine/hrdem.py`, `engine/lidarbc.py` |
 | USGS lidar, Norwegian NVDB, French IGN roads | Measured road/bridge/tunnel elevations where supported | `engine/roadz.py` |
-| ESA WorldCover, Meta/WRI canopy heights | Ground classes and vegetation distribution/heights | `engine/mapdata.py`, `engine/maprasters.py` |
+| ESA WorldCover 2021 | Ground classes, vegetation sampling and distant terrain colours | `engine/maprasters.py`, `src/scenery/groundcover.py`, `src/scenery/farview.py` |
+| Meta/WRI canopy heights | Vegetation heights | `engine/mapdata.py`, `engine/maprasters.py` |
+| EOX Sentinel-2 cloudless 2016 | Regional dryness for SD meadow, scrub and forest-floor colours | `src/scenery/dryness.py`, `engine/imagery.py` |
 | OSM railway details and US crossing data | Rail equipment and level crossings | `engine/railtags.py`, `engine/fra.py` |
 | Bundled climate/bridge/region data | Regional scenery and bridge choices | `tools/data/`, consumers in `engine/` and `src/scenery/` |
 | ambientCG textures and Map2Lap artwork | Shared assets and painted scenery | `tools/get_textures.py`, `src/scenery/` |
 
-Map2Lap paints comic ground and roofs; an AC build does not run the inherited aerial-image pipeline in `engine/imagery.py`.
-Distant terrain uses `src/scenery/farview.py`, also without aerial imagery. Library textures/models are explicit imports
-with retained source/licence metadata; see [editor-library.md](docs/editor-library.md).
+SD builds sample red and green from EOX imagery over WorldCover grass and shrubland. The result tints the painted
+ground in the corridor and distant view. Where vegetation samples are insufficient, land cells use the bundled Köppen
+climate map. HD uses the original palette. Distant terrain takes local land use and water into account near the corridor.
+If WorldCover is unavailable, it uses a height/slope palette and still draws the available local polygons.
+Library imports retain their own source and licence metadata. [Editor Library](docs/editor-library.md)
 
 Build readers cache downloaded inputs locally. Missing data, retries and fallbacks vary by source; uncached places are
 not guaranteed to build offline. `engine/netfetch.py` owns build-fetch policies. Diagnostics:
@@ -33,9 +37,13 @@ not guaranteed to build offline. `engine/netfetch.py` owns build-fetch policies.
 |---|---|
 | Map display | OpenStreetMap raster tiles, `ui/src/components/TrackMap.tsx` |
 | Place search, track name/country | Nominatim, `src/generator.py` and `src/server.py` |
-| Route through pins | OSRM, `src/generator.py` |
+| Route through pins and Circuit closure | OSRM, `src/generator.py` and `src/app/circuitlap.py` |
+| Bug reports, replies and ticket updates | Map2Lap feedback service at `map2lap.couchcoding.at`, `src/app/feedback.py` |
 | App releases and update downloads | GitHub, `src/app/updater.py` |
 | Explicit CSP installation | Official patch download, `src/app/csp.py` |
+
+A new feedback ticket sends the description, category, app version, operating system and detected CSP version.
+The sender can attach images and a track code. The installation keeps its ticket access key in `settings.json`.
 
 Weather is selected in the Editor and written to the AC session (`src/app/weather.py`), not fetched from Open-Meteo.
 Map2Lap has no BeamMP server-browser service. The inherited BeamNG.Earth live-world status text and service list do not

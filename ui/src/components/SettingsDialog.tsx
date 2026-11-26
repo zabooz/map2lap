@@ -145,9 +145,8 @@ function BuildFiles({settings: s, busy}: {settings: ReturnType<typeof useSetting
       <label className={styles.check}>
         <input type="checkbox" checked={!s.settings?.clean} onChange={e => void s.save({clean: !e.target.checked})} /> Keep build files
       </label>
-      <p className="small muted">Looking at a track needs only the track itself. The editing tools, coming step by step, will
-        need its build files. They take about as much disk space as the track, and hold the build’s log for bug reports.
-        Applies to the next build.</p>
+      <p className="small muted">Keep the build log and intermediate files for diagnosing problems. The Editor uses the
+        installed track and its editing data. This setting applies to the next build.</p>
       <div className={`${styles.pathRow} ${styles.verRow}`}>
         <span>All build files: <span className="val">{files.line}</span></span>
         <button disabled={busy || files.clearing} onClick={() => {

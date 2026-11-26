@@ -51,7 +51,7 @@ test("a stored track that is gone leaves the choice empty", async ({page}) => {
 
 test("a note only for a track without build files", async ({page}) => {
   await openEditor(page, "gamma");
-  await expect(page.locator("#edit-note")).toContainText("build files are gone");
+  await expect(page.locator("#edit-note")).toContainText("The Editor uses the installed track");
   await page.locator("#edit-track").selectOption("alpha");
   await expect(page.locator("#edit-note")).toBeHidden();
 });

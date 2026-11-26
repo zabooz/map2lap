@@ -13,7 +13,7 @@ line here (`engine/tests/test_tools.py`).
 | Compare generated trees/bushes, regional palettes and all terrain/road surfaces (including pavements, verges and ballast) in Vegetation | `vegetation_gallery.py [--ac-root <AC folder>]` (labelled production TreeFX models and surface samples; default stages under `out/`) |
 | Compare TreeFX default and dimmed crown shading and isolate individual lighting inputs | `rendering_gallery.py [--ac-root <AC folder>]` (labelled variants, grey cards and production ground swatches; default stages under `out/`) |
 | Repeat an AC lighting comparison on Windows or Proton with fixed cameras, renderer screenshots and recoverable settings | `rendering_preview.py start\|capture\|stop\|restore\|status`; [workflow](rendering_preview.md), camera bridge `rendering_camera.lua`, optional DXBC reader `rendering_disassemble.c` |
-| Measure an unattended offline race on the installed AI line, archive telemetry and restore settings | `ai_race.py start <track> [--opponents 18 --laps 3 --car bmw_m3_e30_dtm --strength 95 --aggression 50]`, `status`, `stop`, `restore`, `report` (`out/ai-race/<session>/report.json`) |
+| Measure an unattended offline race on the installed AI line, archive telemetry and restore settings | `ai_race.py start <track> [--opponents 18 --laps 3 --car bmw_m3_e30_dtm --strength 95 --aggression 50]`, or e.g. `--opponents 3 --strengths 95,90,85` for individual strengths. `status`, `stop`, `restore`, `report` (`out/ai-race/<session>/report.json`) |
 | A mark or a recorded drive from AC: what did the car feel, on what, where, on which side of the line? | `mark.py [track]`, then `docs/ac-reports.md` |
 | All the data about a spot at once: map picture, roads and tags, heights, plans, decks, walls, surface, vegetation | `spot.py <track> --route <m>` |
 | What grows at a spot and why it looks so: climate zone, land cover, ground painted, the map's areas, trees and bushes by sprite, the tile's cap | `plants.py <track> --route <m>` |
@@ -27,14 +27,14 @@ line here (`engine/tests/test_tools.py`).
 | Which surface is that bump: deck, junction pad or ground? At the lanes you ask for? | `measure.py <track> --profile --from <m> --to <m> [--across -8,-4,0,4,8]` |
 | Which bridge part is here: does it tilt or lie level and why, what meets at its ends, is a pad paved there and why? | `heights.py <track> --from <m> --to <m> --decks` |
 | A spot's G, steps, ground over a deck, against the reference | `measure.py <track> [--from <m> --to <m>]` |
-| Rebuild and compare route tests plus Perth's bridge/building area test | `measure.py --all --long --install --reference` |
+| Rebuild and compare short and long test tracks, including the Circuit and Perth Area | `measure.py --all --long --build`. Use `--install` to drive them in AC. Add `--reference` only to replace the stored comparison values. |
 | Holes in the ground, in the whole built area | `measure.py <track> --holes`, `check_drive.py` |
 | Why does a wall between two roads stand there or not: each test per segment; does ground stand in front of its cut line? | `heights.py <track> --from <m> --to <m> --walls`, `measure.py <track> --walls` |
 | A road beside the route: its profile, the ground across it, what it lies on | `heights.py <track> --from <m> --to <m> --road <name or id>` |
 | Does the land away from the roads lie where the elevation and the map say: hillsides gone, water on land, water walls, a map area that is no water? | `surroundings.py <track>`, then Read the PNG |
 | A tunnel portal's heights | `portal.py <track> <AC x> <AC z>` |
 | Does a retained build have tunnel-portal holes, exposed or proud tubes, blocked mouths, bad internal joins, upper-road conflicts or dropped markings? | `measure_tunnels.py <track> [--json <file>]` (reads `out/tracks/<track>`; reports AC and map coordinates) |
-| The track of a report, built as its sender built it | `from_debug.py <session folder>` |
+| Rebuild the route or area recorded in a Track Debug session | `from_debug.py <session folder>`. [Inputs used for reproduction](../docs/ac-reports.md#finding-the-cause) |
 | A stretch built again fast, with its profile | `stretch.py` |
 | Did a change leave the tracks as they were, and if not, what moved and where (AC x, z, route metre)? | `compare_parts.py` (all a build leaves up to the OBJ), `compare_kn5.py` (kn5) |
 | Why is a build slow: which step, what are the workers doing? | `watch_build.py`, then start the build |

@@ -82,8 +82,9 @@ Build as copy carries the correction recipe and resolves it on the new geometry.
 A hand-replaced line is identified by its checksum and remains available for a test drive.
 
 `GET /api/editor/<track>/ai-line` returns JSON with the file status, revision, point count, circuit flag, calculation
-availability and input validity. Its `hints` field reports whether the installed INI is current, why margins are unplaced,
-and the reason for each rejected correction. Open lines also report the timed speed range in m/s when available. With
+availability and input validity. Its `hints` field reports whether the installed INI is current, why danger zones are
+unplaced and which zones were rejected. Move and Redraw rejections come from the move preview's `skipped` field.
+Open lines also report the timed speed range in m/s when available. With
 `?r=<revision>` it returns cacheable `application/octet-stream` or HTTP 409 when the installed revision changed. The binary
 contract is 23 consecutive columns of `count` little-endian values each, 92 bytes per sample including all columns. Each column
 is Float32 except `id` (Int32). In order they are `x, y, z, distance, id, speed, gas, brake, lat_g, radius, left, right,
@@ -125,9 +126,8 @@ Recalculate or the next Race with opponents refreshes stale hints from the saved
 
 The Inspector has a fixed width and Selection, Properties and Details tabs. Selection stays pinned while Under pointer
 follows the mouse. Under pointer starts collapsed to the position; opening it is remembered in this browser.
-Selection shows Appearance then Options; Properties contains time/date, conditions and vegetation; Details holds geometry,
+Selection shows Appearance then Options; Properties contains time/date, conditions and scenery; Details holds geometry,
 track statistics and edit notes. Errors outside dialogs use the page's toast stack (`editorToasts.ts`); dialogs own their errors.
-The panel can be resized or hidden without covering the remaining 3D viewport.
 
 Select (V) clicks one surface/object or drags a rectangle across loaded object bounds. Ctrl adds/removes objects;
 Shift selects a matching sort or all prepared regions of a ground material. Mixed objects and sorts delete in one Undo step.

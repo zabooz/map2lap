@@ -33,8 +33,8 @@ does change the build's revisit cache key.
 Both include `src/web` and `src/bin/snow-worker.exe`, with its source/binary hash receipt. Packaging refuses a missing or
 stale snow helper; the ignored preview binary is not an input. Users need no Rust, Bun or Blender.
 Product Play starts the snow helper with installed/enabled CSP and Map2Lap weather effects switched on; it exits with
-the AC session, with Lua fallback if unavailable. Linux uses the same executable inside AC's Proton runtime;
-native Linux/Proton behavior still requires validation, as described in [rust.md](rust.md).
+the AC session, with Lua fallback if unavailable. Linux runs the shipped Windows helper inside AC's Proton runtime
+so both processes see the same shared memory. [Snow helper lifecycle](rust.md#csp-snow-helper)
 
 User-imported assets live in `library/` beside the app on both systems. It is excluded even from accidentally tracked release
 inputs and is created by the app when needed. The Editor's shipped library is `assets/library/`: not in Git (too large), packed
@@ -72,7 +72,8 @@ Platform handling is in `app/system.py`: Steam and its libraries, AC's Proton pr
 `Documents` with `race.ini`), Play, processes, the folder picker, free memory.
 
 The page detects the AC folder and enabled CSP locally and warns when either is missing or CSP differs from the
-tested public 0.2.11. Play remains available. **Install CSP** is explicit: it downloads the official public archive,
+tested public 0.2.11. Play requires a detected AC installation. A CSP warning still allows launch, but newly built
+tracks require enabled CSP to load. **Install CSP** downloads the official public archive,
 checks and stages it, merges with rollback, and activates `dwrite.dll` last (`app/csp.py`). CSP is not bundled;
 Build, Play and updates are refused during installation.
 

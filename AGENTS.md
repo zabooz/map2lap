@@ -24,7 +24,7 @@ Read only the references needed for the task; the topic guides link to their imp
 ```powershell
 # pass or fail: the unit tests (a process per file) and a kn5 build of a short test track
 .venv\Scripts\python.exe tools\check.py
-.venv\Scripts\python.exe tools\check.py --fast          # the unit tests only
+.venv\Scripts\python.exe tools\check.py --fast          # unit tests except the files in SLOW, no kn5 build
 .venv\Scripts\python.exe tools\check.py test_roads      # some test files
 
 # the test tracks, built up to the OBJ parts and measured against their references

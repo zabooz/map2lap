@@ -1,6 +1,6 @@
 # Map2Lap
 
-**Real roads for Assetto Corsa.** Pick a route on a map – or draw an area – and Map2Lap builds a drivable Assetto
+**Real roads for Assetto Corsa.** Mark a route or circuit on the map, or draw an area, and Map2Lap builds a drivable Assetto
 Corsa track from real-world data: lidar terrain, real roads with bridges and tunnels, buildings, water and trees, in a
 comic style. The track is installed straight into Assetto Corsa.
 
@@ -33,21 +33,27 @@ Steam. Before the first track:
 
 ## Features
 
-- **Route or area:** routes follow real roads (with waypoints) and build a corridor along them; areas build everything
-  inside a rectangle.
+These features describe the current source tree. For a downloaded build, see its [release notes](https://github.com/zabooz/map2lap/releases).
+
+- **Route, Circuit and Area.** Set a start and finish for a Route. For a Circuit, place pins in driving order and click
+  **Close circuit** to route back to the start. Both build a corridor along the roads. An Area builds the rectangle you draw.
 - **A complete world:** terrain, roads, bridges, tunnels, buildings, street furniture, guardrails, pylons, rivers and
   lakes, trees, rocks, fields – plus distant terrain up to 40 km.
-- **Timing:** routes get a start line, a finish line and START/FINISH gantries, timed like a rally stage.
+- **Driving sessions.** Play offers Practice on all tracks. On a Route with start and finish gates, Hotlap times a flying
+  start and Race runs once from A to B. On a Circuit, Race lets you choose the lap count. Track details show your best
+  stage time or lap. Race offers AI opponents up to the available grid capacity.
 - **Editor:** inspect a track in 3D, move/copy/delete objects, import models and textures, paint object groups,
-  adjust tree spacing, raise terrain, edit roads and add racing kerbs. Changes are kept automatically as a draft;
+  adjust tree spacing, raise terrain, edit roads and add racing kerbs. Move or redraw the AI line and mark danger zones
+  to reserve passing space along either edge. Changes are kept automatically as a draft;
   Undo restores the previous step. **Save** writes the track without rebuilding, **▾** offers Save as new track,
   and **▶ Play** saves if needed before driving. Keep the retained source to restore deleted built objects after Save.
 - **Controls:** The tool list shows the current shortcuts. Ctrl adds to a selection; Shift selects all matching
   objects or ground regions. Help below the tools explains the active tool and its modifiers.
 - **Conditions:** preview time of day, seasons and weather, then use them for the next Play, with independent air/road
   temperatures and wind. These session controls do not change the saved track.
-- **My tracks:** Built tracks can be rebuilt or copied from the map. Edited tracks can be reopened, played, deleted,
-  or built as a new copy without edits; rebuilding never overwrites the edited original.
+- **My tracks.** Search Built or Edited tracks by name and filter by Route, Circuit or Area. Built tracks offer
+  **Rebuild** and **Build as copy**. To copy an Edited track with its edits, open it in the Editor and choose
+  **Save as new track**.
 
 Short routes (2–20 km) work best: Assetto Corsa loads the whole track at once.
 
@@ -70,14 +76,14 @@ stay out of the preview.
 | A build fails | See the build log. Usually the map data couldn't be downloaded: check the connection and try again. |
 | A new track is missing in Content Manager | Restart Content Manager. |
 
-Found a broken road or bridge? Please open an issue with the coordinates. Easiest: **Settings → Map2Lap → Testing → Track Debug
-app**, press **F10** at the spot while driving and attach that session's folder from
-`Documents\Assetto Corsa\map2lap_debug` (the marks, the drive around each, a screenshot of each, and what it takes to
-build the same track again).
+Found a broken road or bridge? Open **Report a bug** in the side rail. Include the coordinates or route metre,
+and optionally a track code and screenshots. Open the ticket again to read updates or reply. To capture what the car
+did at the spot, enable **Settings → Map2Lap → Testing → Track Debug app** and press **F10** while driving.
+The app saves a screenshot and driving data under `Documents\Assetto Corsa\map2lap_debug`. [Track Debug files](docs/ac-reports.md)
 
-To share a track, copy its **track code** from the status card (under **My tracks → Built**, or under **New track** as
-soon as the route is set); the other person pastes it into the same field under **New track** and builds it. A track under
-**Edited** has no code: a code holds the route, not the edits.
+To share build settings, copy the **Track code** from **New track** or from the selected track under **My tracks → Built**.
+Paste it under **New track** to build from the same pins or area and scenery settings. Pins are routed again on the
+current map. Editor edits belong to the saved track.
 
 ## Development
 
@@ -85,7 +91,7 @@ soon as the route is set); the other person pastes it into the same field under 
 py -3.14 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 .venv\Scripts\python.exe tools\get_textures.py
-"Start Map2Lap.bat"            # Linux: python3.14 -m venv .venv, .venv/bin/python ..., ./start.sh
+& ".\Start Map2Lap.bat"        # Linux: python3.14 -m venv .venv, .venv/bin/python ..., ./start.sh
 ```
 
 Assetto Corsa with CSP is found through Steam, or set it in the page's Settings. The map data cache (`cache\`, 20 GB by
@@ -102,8 +108,8 @@ bun run check                 # TypeScript, ESLint and unit tests
 bun run e2e                   # builds src/web and tests the page in Chrome
 ```
 
-`bun run build` rebuilds `src/web` without browser tests. Commit it together with the `ui/` changes. Browser setup and
-the other browsers: [ui/AGENTS.md](ui/AGENTS.md).
+`bun run build` rebuilds `src/web` without browser tests. Commit it together with the `ui/` changes.
+Chrome setup and test commands are in [ui/AGENTS.md](ui/AGENTS.md).
 
 ## Credits
 
@@ -113,6 +119,7 @@ the other browsers: [ui/AGENTS.md](ui/AGENTS.md).
 | Map data | © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, [Overture Maps Foundation](https://overturemaps.org/) | ODbL |
 | Elevation | [Mapterhorn](https://mapterhorn.com/attribution), AWS Terrain Tiles | per source |
 | Land cover | © ESA WorldCover project 2021, contains modified Copernicus Sentinel data | CC BY 4.0 |
+| Regional SD ground colours | [EOxCloudless](https://cloudless.eox.at) by EOX IT Services GmbH, contains modified Copernicus Sentinel data 2016 & 2017 | CC BY 4.0 |
 | Tree heights | Meta and World Resources Institute | CC BY 4.0 |
 | Routes, place names | [OSRM](https://project-osrm.org/), [Nominatim](https://nominatim.org/) | usage policies |
 | Textures | [ambientCG](https://ambientcg.com/) | CC0 |

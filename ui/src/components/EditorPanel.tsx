@@ -32,8 +32,8 @@ export function EditorPanel({tracks, choice, status, hidden, fileRef, savedRef, 
             <span id="edit-saved" ref={savedRef} />
           </div>
           {tracks.some(t => t.name === choice && !t.build_files && !t.edited) && (
-            <p id="edit-note" className="small muted">This track’s build files are gone. Deleting objects works, changing its road later will
-              need them: build it again under My tracks.</p>
+            <p id="edit-note" className="small muted">This track’s build files are gone. The Editor uses the installed track
+              and its editing data.</p>
           )}
           <div ref={fileRef} />
         </section>

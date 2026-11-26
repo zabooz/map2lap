@@ -6,6 +6,7 @@ Start here for data ownership and synchronization, then read only the relevant t
 | Task | Reference |
 |---|---|
 | Selection, movement, copies, road tools, kerbs, trees and walls | [editor-tools.md](editor-tools.md) |
+| Moving or redrawing the racing line and marking AI danger zones | [AI line](editor-tools.md#ai-line) |
 | Library, model/material import, portable models and Groups | [editor-library.md](editor-library.md) |
 | Ground selection, paint layers, UVs, caches and native export | [editor-ground.md](editor-ground.md) |
 | Clock, seasons, weather, wind and temperatures | [editor-weather.md](editor-weather.md) |
@@ -82,8 +83,10 @@ Portable model/paint inputs have their own recovery rules in the linked topics. 
 
 Save, build and track deletion exclude each other under `trackcopy`/server locks. Updates also wait for Save; a restart
 cannot interrupt it. An Edited track cannot be rebuilt in place: server, `generator.build` and `finish_obj` enforce this.
-Build as copy creates a new track from map inputs without edits; OBJ-only analysis remains allowed. Unreferenced sources
-are cleaned only for their own available AC folder. Delete track asks confirmation.
+**Save as new track** applies the whole draft to a copy in the Editor. **Build as copy** in My tracks → Built runs the
+generator on the map inputs. The rebuild API carries saved AI moves, redraws and danger zones in the new build's
+recipe and resolves their anchors against its road. Other Editor changes require Save. OBJ-only analysis remains
+available. Unreferenced sources are cleaned only for their own available AC folder. Delete track asks confirmation.
 
 Current tools use installed tracks and retained editing data, not kept generator output. Build files (including logs) are
 kept by default and managed in Settings > Editor > Build files. Old tracks lacking selection/object metadata need one

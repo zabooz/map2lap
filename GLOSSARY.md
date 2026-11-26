@@ -92,7 +92,7 @@ A notice in the page’s top-centre stack, including Editor progress/errors (`co
 build status own their errors separately.
 
 **Inspector**:
-The resizable right panel with Selection, Properties and Details tabs. Selection stays pinned; separate Under pointer
+The fixed-width right panel with Selection, Properties and Details tabs. Selection stays pinned; separate Under pointer
 information follows the mouse.
 
 **Material library**:
@@ -138,8 +138,8 @@ The unchanged pre-Save KN5/object list retained under `out/sources` and shared b
 its recipe matches, allowing baked deletions to be restored; it belongs to one AC folder.
 
 **Edit list**:
-The draft at `out/edits/<track>.json`, bound to the shown source revision (`app/trackedits.py`). It holds deletions,
-placements, heights, copies, models, paints, wall edits and tree spacing; a mismatched base makes it outdated.
+The draft at `out/edits/<track>.json`, bound to the shown source revision (`app/trackedits.py`). It records object,
+scenery, surface, road and AI edits. Changing the underlying source makes the draft outdated.
 
 **Build facts**:
 A track’s KN5-bound `data/map2lap_editor` manifest and tile archives: lossless paint masks, map features and original
@@ -243,7 +243,12 @@ The part of a track holding a bug, built into AC to drive it: `<track>_<route me
 No test track, and deleted when the fix is in.
 
 **Route**:
-The road line OSRM finds through the pins, plus the run-off behind the end pin.
+A track through ordered pins, which can end near its start. A point-to-point Route can include a grid approach
+before the start and runout beyond the finish.
+
+**Circuit**:
+A track explicitly routed back to its first pin for lap timing. The build places start/finish, sectors and grid on
+the driven lap. [Timing and grid placement](docs/ac-rules.md#timing-grid-and-driving-sessions)
 
 **Corridor**:
 The width either side of the route that a build covers.
@@ -379,7 +384,7 @@ The `measure.py` values a test track's build is compared with.
 A map cell's facts and complete plans kept on disk, keyed by the code key; a later build of the same place reads them back.
 
 **Code key**:
-A hash of the `engine/` code, the native module, the Python and numpy versions and the `BNE_*` environment variables but
+A hash of the `engine/` code and building styles, the native module, the Python and numpy versions and the `BNE_*` environment variables but
 `BNE_REVISIT`, `BNE_REVISIT_MB` and `BNE_REVISIT_SKIP`; a new one makes the next build cold.
 
 **Cold build**:
@@ -398,7 +403,8 @@ listed in `app/mapcache.py:EDITOR`. Build-cache accounting, cleanup and Clear le
 operations, material snapshots and saved track data are separate from this cache.
 
 **Track code**:
-A track's inputs in one shareable line (`M2L1-...`), built again from them on the generator page.
+A shareable encoding of the track kind, pins and corridor or area bounds, title, track version and build options
+(`app/trackcode.py`). [Code formats and routing](docs/ac-reports.md#sharing-a-track)
 
 **Track version**:
 The version of how built tracks look and drive (`TRACK_VERSION`); separate from the app's `VERSION`.

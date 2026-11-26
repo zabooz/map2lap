@@ -164,7 +164,8 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 
 ## AI line
 
-Build and Rebuild generate `ai/fast_lane.ai` on the finished track. Editor Save carries the installed line for display
+Route and Circuit builds attempt to generate `ai/fast_lane.ai` on the finished track. A failed line calculation is
+logged and the track can still be driven solo. Editor Save carries the installed line for display
 and updates it in the background when its inputs change. A Race with opponents requires a current or explicitly accepted manual line. Practice,
 Hotlap and solo Race skip this step. The Editor can explicitly recalculate the saved track's line.
 `data/map2lap_ai.json` fingerprints collision geometry, grid and timing markers, route, mapped road and
@@ -238,11 +239,9 @@ This moves braking into the available runout and keeps the timed line when the r
 A Circuit begins at its timing line and closes without a repeated endpoint. When the path cannot be sampled on the road,
 the log gives the reason and, for a surface failure, the route metre. Play keeps the Race dialog open and offers an explicit solo start or cancellation.
 
-## Traps
+## Timing, grid and driving sessions
 
-- `WALL` stays undefined in `surfaces.ini`: defined, every wall turns into ground and you drive through it (Kunos:
-  `07WALL006`, no WALL key). Walls are double-sided, because BeamNG winds them inconsistently.
-- AC drives along **+Z** of the start point (`obj_to_kn5.empty`). Start slots move up to the first road on the route.
+- AC drives along **+Z** of the start point (`obj_to_kn5.empty`).
 - Point-to-point routes get `AC_AB_START_L/R` and `AC_AB_FINISH_L/R` (acs.exe knows them; CSP's rally mode reads them) and
   `"run": "point-to-point"` in `ui_track.json`; circuits and areas keep the lap line `AC_TIME_0_L/R`.
 - A point-to-point gate keeps its six-car placement reference. The builder follows the real incoming
@@ -265,7 +264,8 @@ the log gives the reason and, for a surface failure, the route metre. Play keeps
 - Play offers Practice, Hotlap and Race for timed Routes and Circuits. A–B sessions use the default layout and
   measure from the start gate to the finish gate. Race has start lights and one run on a Route, or a lap count on
   a Circuit. A Race can use the installed AI line with up to one fewer opponent than the track has pitboxes.
-  Five opponents are preselected when space permits. White non-colliding grid brackets follow the road faces at each Route and Circuit
+  The Play dialog starts at five opponents when space permits, 95% strength and 50% aggression. Areas and Routes
+  without A–B gates offer Practice. White non-colliding grid brackets follow the road faces at each timed Route and Circuit
   spawn. Their shared pit nodes remain usable. A track-local CSP script hides the stock sign holders there.
   The player starts behind the selected opponents and only their own best time is
   imported into AC's `personalbest.ini`.
@@ -291,6 +291,11 @@ the log gives the reason and, for a surface failure, the route metre. Play keeps
   start/finish line; the split lines also prevent AC from counting the drive from the grid as a full lap.
 - The converter keeps split lines ordered and moves them to safe crossings of the driven road on one level. If it
   cannot place both on a Route, it logs the problem and keeps start-to-finish timing. A Circuit build requires both.
+
+## Traps
+
+- `WALL` stays undefined in `surfaces.ini`: defined, every wall turns into ground and you drive through it (Kunos:
+  `07WALL006`, no WALL key). Walls are double-sided, because BeamNG winds them inconsistently.
 - BeamNG/Torque winds triangles clockwise → flip them (`shape_parts`), else houses turn black.
 - `.cdae`: read only the **finest level of detail** per object (buildings have two; both on top of each other flicker).
 - Set material values yourself (ksEditor's defaults ksSpecular 1 / ksAmbient 0: white ground, black shadows).
