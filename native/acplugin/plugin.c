@@ -17,6 +17,7 @@ API int ReadProcessMemory(void *, const void *, void *, size_t, size_t *);
 API long SHGetFolderPathW(void *, int, void *, unsigned long, wchar_t *);
 API unsigned long GetPrivateProfileStringW(const wchar_t *, const wchar_t *, const wchar_t *,
                                           wchar_t *, unsigned long, const wchar_t *);
+API unsigned short RtlCaptureStackBackTrace(unsigned long, unsigned long, void **, unsigned long *);
 API int VirtualProtect(void *, size_t, unsigned long, unsigned long *);
 API int FlushInstructionCache(void *, const void *, size_t);
 API void *GetCurrentProcess(void);
@@ -51,7 +52,7 @@ static bool setting(const wchar_t *ini, const wchar_t *section, const wchar_t *k
 
 #include "route_json.h"
 
-static bool route_file(const wchar_t *path) {
+static bool route_file(const wchar_t *path, bool allow_circuit) {
     void *file = CreateFileW(path, 0x80000000 /* GENERIC_READ */, 1 /* FILE_SHARE_READ */, NULL,
                              3 /* OPEN_EXISTING */, 0, NULL);
     if (file == (void *)(intptr_t)-1) return false;
@@ -60,13 +61,13 @@ static bool route_file(const wchar_t *path) {
     // Bound allocation inside AC. Even long generated Routes store a thinned line of at most 2000 points.
     void *heap = GetProcessHeap();
     unsigned char *bytes = !high && size && size <= 16 * 1024 * 1024 ? HeapAlloc(heap, 0, size) : NULL;
-    bool ok = bytes && ReadFile(file, bytes, size, &got, NULL) && got == size && route_json(bytes, size);
+    bool ok = bytes && ReadFile(file, bytes, size, &got, NULL) && got == size && route_json(bytes, size, allow_circuit);
     if (bytes) HeapFree(heap, 0, bytes);
     CloseHandle(file);
     return ok;
 }
 
-static bool track_metadata(const wchar_t *ini) {
+static bool track_metadata(const wchar_t *ini, bool allow_circuit) {
     wchar_t track[256], path[640];
     unsigned long len = GetPrivateProfileStringW(L"RACE", L"TRACK", L"", track, COUNT(track), ini);
     if (!len || len >= COUNT(track)-1 || track[len-1] == L'.' || track[len-1] == L' ') return false;
@@ -81,7 +82,7 @@ static bool track_metadata(const wchar_t *ini) {
     path[len] = 0;
     if (!append(path, COUNT(path), L"content\\tracks\\") ||
         !append(path, COUNT(path), track) || !append(path, COUNT(path), L"\\data\\map2lap.json")) return false;
-    return route_file(path);
+    return route_file(path, allow_circuit);
 }
 
 static bool known_image(const unsigned char *base) {
@@ -100,7 +101,47 @@ static bool known_image(const unsigned char *base) {
     return true;
 }
 
+static bool change_instructions(unsigned char *site, const unsigned char *prior,
+                                const unsigned char *next, size_t count) {
+    unsigned char actual[64];
+    if (count > sizeof(actual)) return false;
+    if (!read_bytes(site, actual, count)) return false;
+    for (size_t i = 0; i < count; ++i)
+        if (actual[i] != prior[i]) return false;
+    unsigned long original, ignored;
+    if (!VirtualProtect(site, count, 0x40, &original)) return false;
+    for (size_t i = 0; i < count; ++i) site[i] = next[i];
+    if (FlushInstructionCache(GetCurrentProcess(), site, count) &&
+        VirtualProtect(site, count, original, &ignored)) return true;
+    for (size_t i = 0; i < count; ++i) site[i] = prior[i];
+    FlushInstructionCache(GetCurrentProcess(), site, count);
+    VirtualProtect(site, count, original, &ignored);
+    return false;
+}
+
+static bool one_lap(const wchar_t *ini) {
+    // AC launchers can supply either lap count. Reject conflicting or missing counts.
+    wchar_t laps[16], race_laps[16];
+    GetPrivateProfileStringW(L"SESSION_0", L"LAPS", L"\x1f", laps, COUNT(laps), ini);
+    GetPrivateProfileStringW(L"RACE", L"RACE_LAPS", L"\x1f", race_laps, COUNT(race_laps), ini);
+    bool session_one = equal(laps, L"1"), race_one = equal(race_laps, L"1");
+    return (session_one && (race_one || equal(race_laps, L"\x1f"))) ||
+           (race_one && equal(laps, L"\x1f"));
+}
+
+static const wchar_t *race_gate(bool allow_circuit) {
+    wchar_t ini[320];
+    if (SHGetFolderPathW(NULL, 5 /* documents */, NULL, 0, ini) != 0 ||
+        !append(ini, COUNT(ini), L"\\Assetto Corsa\\cfg\\race.ini")) return L"off: race.ini";
+    if (!setting(ini, L"SESSION_0", L"TYPE", L"3")) return L"off: session";
+    if (!allow_circuit && !one_lap(ini)) return L"off: laps";
+    if (!setting(ini, L"REMOTE", L"ACTIVE", L"0")) return L"off: remote";
+    if (!setting(ini, L"REPLAY", L"ACTIVE", L"0")) return L"off: replay";
+    return track_metadata(ini, allow_circuit) ? NULL : L"off: track";
+}
+
 #include "green_clock.h"
+#include "rollover.h"
 
 typedef struct {
     const wchar_t *name;
@@ -111,7 +152,8 @@ typedef struct {
 } Feature;
 
 static Feature features[] = {
-    { L" green=", green_gate, green_start, green_stop, NULL }
+    { L" green=", green_gate, green_start, green_stop, NULL },
+    { L" rollover=", rollover_gate, rollover_start, rollover_stop, NULL }
 };
 
 EXPORT bool acpInit(void *host) {

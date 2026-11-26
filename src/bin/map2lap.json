@@ -1,7 +1,8 @@
 {
-  "native/acplugin/plugin.c": "069a3d799a2ac4c10952576176ebf35c622fa6d1df67b57514c6b6b68fa34ede",
-  "native/acplugin/green_clock.h": "be7630424af66d1b0302be77920474af03957f11c539ad97976ede38109408aa",
-  "native/acplugin/route_json.h": "fdbd41972efea98ae4e3f209b40819e7456fc2dd1a87f6f09bb0cdccd6636de0",
-  "tools/build_acplugin.py": "5a40d9ad8b02137c26c25575d8a826b8ec2f7214bae85db40cc41003f4770912",
-  "src/bin/map2lap.dll": "821dc1156c270dcd1eb8b08ac1081aa139716515c75ab156fc7582b19bb3da37"
+  "native/acplugin/plugin.c": "b603b95c636910f14a28a2bdbf76a6550c54f36af819c5e0ad2408eef4fa9c2f",
+  "native/acplugin/green_clock.h": "e7bdca58aa05254435a5a48bde0afdd6e8c99866ffdf31e9fd17bc0d5312c36b",
+  "native/acplugin/route_json.h": "eaa3f12c905f27cf7c421e100b592553d439ea6e712c204767a6189a58ea7b9f",
+  "native/acplugin/rollover.h": "035e49d8c4fd18145360d5715bf8955a516e957cc1f1042ea672cb6b818d9429",
+  "tools/build_acplugin.py": "c6c3828931a8a366e765fcc553ea0ec0a0937ce07280f6849a1994420efbee0b",
+  "src/bin/map2lap.dll": "249f6c01ebed219dcab49af3d038f1e4c691f2375354c6ced71b267e5d22b707"
 }

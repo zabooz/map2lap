@@ -37,8 +37,8 @@ Play menu offers Practice, Hotlap and Race. The retirement move runs only during
 AC loads the shipped Windows x64 `map2lap.dll` from `assettocorsa/plugins/` on Windows and under Proton.
 Play installs or updates it before a Race and enables one `map2lap.dll=1` entry under `[PLUGINS]` in
 `plugins/plugins.ini`. Installation preserves the other entries and skips changes while AC is running.
-A plugin installation error lets Play continue. The retirement feature ships separately as Lua and a
-track model. [Plugin installer](../src/app/acplugin.py)
+A plugin installation error lets Play continue. The DLL marks a recovered opponent as retired. The track Lua script and
+parking model handle its placement. [Plugin installer](../src/app/acplugin.py)
 
 | C export | Purpose |
 | --- | --- |
@@ -50,8 +50,8 @@ track model. [Plugin installer](../src/app/acplugin.py)
 Each feature registers its gate, start, stop and status with the ACP callbacks. AC logs the plugin name
 before calling `acpInit`. In `Documents/Assetto Corsa/logs/log.txt`, `Map2Lap green=pending` means the
 session passed the initial gate. Init checks again and reports `active` through subsequent calls to
-`acpGetName` only after writing the clock. An `off:` reason identifies a failed check. Shutdown restores
-the original instructions after checking the installed bytes still belong to this feature.
+`acpGetName` after applying each eligible feature. Each feature reports its own `off:` reason. Shutdown
+restores its original instructions after verifying the current bytes.
 [ACP entry points](../native/acplugin/plugin.c) · [Green clock](../native/acplugin/green_clock.h)
 
 ### A–B race time from green
@@ -93,10 +93,64 @@ Drau Hotlap and a two-lap Drau Race,
 all 476 timer bytes matched the original after initialization. The simulated host also exercises online,
 replay, conflicting counts, differing image/code bytes, a failed write, rollback and shutdown.
 
+### AI retirement on rollover recovery
+
+In an offline Race on a Map2Lap Route or Circuit, the DLL marks an AI opponent as retired when AC
+recovers it to its pit. The DLL accepts any lap count for this feature. Areas, replays, online sessions,
+other session types and tracks without valid Map2Lap metadata close its gate. The clock and rollover
+checks run independently. A two-lap Circuit can report `green=off: laps rollover=active`.
+
+**Read in the matching AC symbols and executable.** After green, `RaceManager::update` calls
+`resetInvalidStateCarsToPits` at RVA `0x141656`. The stock function iterates the whole field, including
+the player. It accumulates time while fewer than two wheels carry load and requests the `PIT` spawn
+when the individual recovery timer expires. `AUTOFLIP_RECOVERY: 1` records the setting at startup.
+The stock recovery branch also logs `INVALID STATE RESET`. The ESC menu, wrong-way handler and UDP
+command listener have independent PIT calls. CSP's configuration also describes stuck-AI and damage
+teleports (`STOP_TELEPORTING_STUCK`, `TELEPORT_WITH_DAMAGE`). A separate stuck-only incident was
+not reproduced.
+
+**How the DLL identifies the recovery.** CSP 0.2.11 redirects the entry to the stock recovery
+function. Both paths still reach `CarAvatar::goToSpawnPosition`. The plugin checks the 39 bytes
+at RVA `0x0D3B34` there, the recovery call instruction and AC's own write to `Car::isRetired` in
+`AIDriver::acquireControls` at RVA `0x29C1A6`. With the supported executable loaded, it checks
+the PIT spawn name, the avatar's AI state and a nonzero physics car ID. Windows stack unwinding must
+find the return address of the recovery call. On a match the DLL sets the same physics flag and
+completes the usual PIT move. All other spawns follow their original fuel-lap and position handling.
+CSP exposes the flag as `car.isRetired`. The existing track script can then move the retired car
+from its pit to `AC_TIME_ATTACK_0`. [Rollover implementation](../native/acplugin/rollover.h)
+
+**Measured under Proton with CSP 0.2.11.** In a one-lap Drau Race, the instrumented AI lay on
+its roof until its recovery timer expired. At its PIT call the timer read 5.006 s against a 5.000 s
+limit and the recovery return address was on the stack. With the clock-only DLL, it returned to
+the race and completed a lap. With rollover enabled it arrived in the pit with R, transferred to
+the parking node and completed zero laps. The five finishers matched observed finish order, with
+a maximum difference of 8.37 ms from green. The retired car remained parked until the last finisher.
+AC subsequently returned it to the pit during session teardown, still retired. AC's
+`race_out.json` lists lap totals and classification order. It puts the retired car behind the
+finishers without a literal DNF field.
+
+In a two-lap Klagenfurt Circuit Race the rollover feature was active and all 476 clock bytes were
+stock. The same AI reached the parking node and was classified with zero laps behind all five
+two-lap finishers, in their observed finish order. Both races ended normally with the retired flag
+still set. In a stock Magione Race both features reported `off: track`. In a Drau Hotlap both
+reported `off: session`. In each control the loaded 39 spawn bytes and all 476 clock bytes matched
+the executable after plugin initialization.
+
+Run `python tools/ai_race.py start drau_bruecke_test --laps 1 --opponents 6 --rollover-ai 5` to
+repeat the physical rollover. The option applies roll torque to the selected opponent in the temporary
+measurement script. Telemetry records orientation, wheel loads, pit and retirement flags and position.
+CSP documents that applying force can invalidate the current lap. The clock-only control demonstrated
+that the recovered opponent could drive out and record a lap. The tool checks for a physical rollover
+in the selected car's telemetry and restores the track configuration on exit.
+
+### Removal
+
 To remove the installed plugin, close AC and run `python tools/ac_plugin.py remove` from the repository
 with the project Python. For an archive installation, delete the `map2lap.dll` line in the `[PLUGINS]`
 section and the file `plugins/map2lap.dll` while AC is closed. The next Race launched via Play installs it
 again. [Release build and receipt](release.md)
+
+## Opponent telemetry in the parking prototype
 
 The DNF prototype needed opponent telemetry. A CSP Lua app supplied the AI, retired, pit and finish
 flags through a named shared-memory mapping. The DLL selected opponents, and the track script checked

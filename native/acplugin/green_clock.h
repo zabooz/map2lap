@@ -27,39 +27,12 @@ static const unsigned char green_clock[25] = {
 static unsigned char *green_base;
 
 static bool change_timer(unsigned char *base, bool enable) {
-    unsigned char *site = base + CLOCK;
-    unsigned char actual[sizeof(tick_clock)];
-    const unsigned char *prior = enable ? tick_clock : green_clock;
-    const unsigned char *next = enable ? green_clock : tick_clock;
-    if (!read_bytes(site, actual, sizeof(actual))) return false;
-    for (size_t i = 0; i < sizeof(actual); ++i)
-        if (actual[i] != prior[i]) return false;
-    unsigned long original, ignored;
-    if (!VirtualProtect(site, sizeof(actual), 0x40, &original)) return false;
-    for (size_t i = 0; i < sizeof(actual); ++i) site[i] = next[i];
-    if (FlushInstructionCache(GetCurrentProcess(), site, sizeof(actual)) &&
-        VirtualProtect(site, sizeof(actual), original, &ignored)) return true;
-    for (size_t i = 0; i < sizeof(actual); ++i) site[i] = prior[i];
-    FlushInstructionCache(GetCurrentProcess(), site, sizeof(actual));
-    VirtualProtect(site, sizeof(actual), original, &ignored);
-    return false;
+    return change_instructions(base + CLOCK, enable ? tick_clock : green_clock,
+                               enable ? green_clock : tick_clock, sizeof(tick_clock));
 }
 
 static const wchar_t *green_gate(void) {
-    wchar_t ini[320];
-    if (SHGetFolderPathW(NULL, 5 /* documents */, NULL, 0, ini) != 0 ||
-        !append(ini, COUNT(ini), L"\\Assetto Corsa\\cfg\\race.ini")) return L"off: race.ini";
-    if (!setting(ini, L"SESSION_0", L"TYPE", L"3")) return L"off: session";
-    // AC launchers can supply either lap count. Reject conflicting or missing counts.
-    wchar_t laps[16], race_laps[16];
-    GetPrivateProfileStringW(L"SESSION_0", L"LAPS", L"\x1f", laps, COUNT(laps), ini);
-    GetPrivateProfileStringW(L"RACE", L"RACE_LAPS", L"\x1f", race_laps, COUNT(race_laps), ini);
-    bool session_one = equal(laps, L"1"), race_one = equal(race_laps, L"1");
-    if (!(session_one && (race_one || equal(race_laps, L"\x1f"))) &&
-        !(race_one && equal(laps, L"\x1f"))) return L"off: laps";
-    if (!setting(ini, L"REMOTE", L"ACTIVE", L"0")) return L"off: remote";
-    if (!setting(ini, L"REPLAY", L"ACTIVE", L"0")) return L"off: replay";
-    return track_metadata(ini) ? NULL : L"off: track";
+    return race_gate(false);
 }
 
 static const wchar_t *green_start(unsigned char *base) {

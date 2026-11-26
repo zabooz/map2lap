@@ -36,7 +36,7 @@ SHA-256 receipts for the snow helper and the AC plugin before creating either ar
 `clang`, `lld-link` and `llvm-dlltool` on PATH (shipped build used LLVM 23.1.5). The builder targets Windows x64,
 sets the PE timestamp to zero and checks for private paths. Commit `native/acplugin/`, the builder, the DLL and
 `src/bin/map2lap.json` together. The plugin test always checks the receipt and compares a fresh build byte-for-byte
-when Clang is available. End users need no LLVM, Rust, Bun or Blender. [Native timing plugin](ac-plugins.md)
+when Clang is available. End users need no LLVM, Rust, Bun or Blender. [Native race plugin](ac-plugins.md)
 Product Play starts the snow helper with installed/enabled CSP and Map2Lap weather effects switched on; it exits with
 the AC session, with Lua fallback if unavailable. Linux runs the shipped Windows helper inside AC's Proton runtime
 so both processes see the same shared memory. [Snow helper lifecycle](rust.md#csp-snow-helper)

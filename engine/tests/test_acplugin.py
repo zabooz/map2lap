@@ -18,7 +18,8 @@ from app import settings
 import make_release
 import test_play_clock as play_fixture
 
-INPUTS = ('native/acplugin/plugin.c', 'native/acplugin/green_clock.h', 'native/acplugin/route_json.h', 'tools/build_acplugin.py')
+INPUTS = ('native/acplugin/plugin.c', 'native/acplugin/green_clock.h', 'native/acplugin/route_json.h',
+          'native/acplugin/rollover.h', 'tools/build_acplugin.py')
 DLL = 'src/bin/map2lap.dll'
 RECEIPT = 'src/bin/map2lap.json'
 FOREIGN = b'\xef\xbb\xbf[Plugins]\r\n; \xfc keep map2lap.dll=0\r\nOTHER.dll = 1\n[more]\r\nvalue=keep'
@@ -112,6 +113,13 @@ class LaunchTest(unittest.TestCase):
 
 
 class ArtifactTest(unittest.TestCase):
+    def test_win64_unwind_table_for_recovery_caller_check(self):
+        image = (ROOT / DLL).read_bytes()
+        pe, = struct.unpack_from('<I', image, 0x3c)
+        exception_rva, length = struct.unpack_from('<II', image, pe + 24 + 112 + 3 * 8)
+        self.assertGreater(exception_rva, 0)
+        self.assertGreaterEqual(length, 12)
+
     def test_receipt_matches_exact_sources_builder_and_dll(self):
         receipt = json.loads((ROOT / RECEIPT).read_bytes())
         self.assertEqual(receipt, {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in (*INPUTS, DLL)})

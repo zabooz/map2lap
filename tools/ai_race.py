@@ -218,10 +218,12 @@ local function emit(line)
   ac.log(line)
   ac.broadcastSharedEvent('__KEY__', line)
 end
+__ROLLOVER_FUNCTION__
 function script.update(dt)
   local sim = ac.getSim()
   if sim.isReplayActive or sim.isOnlineRace or ended then return end
   elapsed, clock = elapsed + dt, clock + dt
+  __ROLLOVER_UPDATE__
   local tick = clock >= 0.5
   local parts = {string.format('M2L_ALL,%.2f,%d', elapsed, sim.raceSessionType)}
   local player = ac.getCar(0)
@@ -613,6 +615,28 @@ def terminate(s, game):
             os.close(handle)
 
 
+def roof_observed(trace, opponent):
+    """Check mirrored telemetry for the selected car's physical rollover confirmation. Pure."""
+    # Up.y below -0.5 puts the roof within 60 degrees of facing the ground.
+    # CSP's wheel-load samples can still be positive on a car resting on its roof.
+    pattern = rb'^M2L_ROLL,state,[0-9.]+,' + str(opponent).encode() + rb',(-?\d+\.\d+),[0-4],0,0,'
+    return any(float(up) < -0.5 for up in re.findall(pattern, trace, re.MULTILINE))
+
+
+
+def probe_bytes(token, opponents, rollover_ai=None):
+    """Build the temporary telemetry script and, on request, roll one AI opponent."""
+    script, update = '', ''
+    if rollover_ai is not None:
+        if not 1 <= rollover_ai <= opponents:
+            raise ValueError('--rollover-ai must select an opponent in this grid (1 through --opponents)')
+        script = Path(__file__).with_name('ai_rollover.lua').read_text(encoding='utf-8')
+        script = script.replace('__TARGET__', str(rollover_ai))
+        update = 'rollOpponent(dt, sim, elapsed)'
+    return (PROBE.replace('__KEY__', token).replace('__COUNT__', str(opponents))
+            .replace('__ROLLOVER_FUNCTION__', script).replace('__ROLLOVER_UPDATE__', update).encode())
+
+
 def begin(args):
     """Prepare all backups and the durable receipt before installing temporary instrumentation."""
     if active():
@@ -639,7 +663,7 @@ def begin(args):
     probe = 'm2l_probe_' + token + '.lua'
     writes = {race: race_bytes(race.read_bytes(), args, ac, track),
               cfg: cfg.read_bytes() + f'\n[SCRIPT_...]\nSCRIPT = {probe}\n'.encode(),
-              cfg.parent / probe: PROBE.replace('__KEY__', token).replace('__COUNT__', str(args.opponents)).encode(),
+              cfg.parent / probe: probe_bytes(token, args.opponents, getattr(args, 'rollover_ai', None)),
               app / 'manifest.ini': MANIFEST, app / 'M2LAutoStart.lua': code.replace('__KEY__', token).encode()}
     replay = race.with_name('replay.ini')
     replay_source = replay if replay.is_file() else ac / 'cfg/replay.ini'
@@ -711,6 +735,8 @@ def start(args):
             if latest['token'] == s['token']:
                 finish(latest, True, monitored=True)
     result = report(run)
+    if getattr(args, 'rollover_ai', None) is not None and not result.get('rollover_observed'):
+        raise RuntimeError('Selected AI was not observed on its roof: ' + str(run))
     if result['coverage'] not in ('end observed', 'all opponents observed retired'):
         raise RuntimeError('Race ended without verified terminal telemetry: ' + str(run))
 
@@ -739,6 +765,7 @@ def report(run, csp_path=None, ac_path=None, model=None, opponents=None):
     opponents = opponents or s.get('options', {}).get('opponents')
     result = analyse(raw, engine, opponents)
     trace = data(run / 'telemetry.txt')
+    opponent = s.get('options', {}).get('rollover_ai')
     if trace and not csp_path:
         mirrored = analyse(trace, engine, opponents)
         if mirrored['samples'] and (mirrored['samples'] >= result['samples']
@@ -747,6 +774,8 @@ def report(run, csp_path=None, ac_path=None, model=None, opponents=None):
             result = mirrored
             raw = trace
             result['telemetry_source'] = 'telemetry.txt'
+    if opponent is not None:
+        result['rollover_observed'] = roof_observed(trace, opponent)
     result['telemetry_sha256'] = sha(raw)
     result['seconds_missing_at_quit'] = shutdown_gap(data(run / 'closed'), result['last_sample_s'])
     if result['coverage'] == 'end unverified' and (result['seconds_missing_at_quit'] or 0) > 1:
@@ -794,6 +823,7 @@ def main():
     levels.add_argument('--strength', type=int, default=95, help='common opponent strength (default: 95)')
     levels.add_argument('--strengths', type=grid_strengths, metavar='N,N,...',
                         help='one strength (70–100) per opponent, in CAR_1, CAR_2, … order')
+    launch.add_argument('--rollover-ai', type=int, metavar='CAR', help='roll this AI opponent once after green')
     launch.add_argument('--aggression', type=int, default=50)
     launch.add_argument('--timeout', type=int, default=1200, help='wall seconds including loading')
     for action in ('status', 'restore', 'stop'):

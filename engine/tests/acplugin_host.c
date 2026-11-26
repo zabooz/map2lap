@@ -14,6 +14,10 @@ static bool missing_file, short_read;
 int ReadProcessMemory(void *process, const void *src, void *dest, size_t n, size_t *got) {
     (void)process; memcpy(dest,src,n); *got=n; return 1;
 }
+static void *recovery_caller;
+unsigned short RtlCaptureStackBackTrace(unsigned long skip, unsigned long n, void **frames, unsigned long *hash) {
+    (void)skip; (void)hash; assert(n > 0); frames[0] = recovery_caller; return 1;
+}
 static unsigned protects;
 static int deny_write, fail_flush;
 void *GetModuleHandleW(const wchar_t *name) { (void)name; return image; }
@@ -63,6 +67,27 @@ int FlushInstructionCache(void *p,const void *b,size_t n) {
 }
 void *GetCurrentProcess(void) { return NULL; }
 
+static void check_recovery_selection(void) {
+    static unsigned char avatar[0x1200], car[0x3300];
+    SpawnName spawn = {{'P','I','T'}, 3, 7};
+    rollover_base = image;
+    recovery_caller = image + RECOVER_CALL + 5;
+    avatar[0xdec] = 1;
+    assert(!recover_opponent(avatar, NULL, &spawn));
+    assert(!recover_opponent(avatar, car, &spawn));  // Player, including the automatic driver.
+    car[0x3238] = 5;
+    avatar[0xdec] = 0;
+    assert(!recover_opponent(avatar, car, &spawn));
+    avatar[0xdec] = 1;
+    assert(recover_opponent(avatar, car, &spawn));
+    recovery_caller = image + RECOVER_CALL;
+    assert(!recover_opponent(avatar, car, &spawn));  // Other PIT, e.g. a finisher.
+    recovery_caller = image + RECOVER_CALL + 5;
+    spawn.chars[0] = 'X';
+    assert(!recover_opponent(avatar, car, &spawn));
+    rollover_base = NULL;
+}
+
 static void inactive(void) {
     wchar_t name[256];
     assert(acpGetName(name) && wcsstr(name,L"green=off"));
@@ -70,10 +95,14 @@ static void inactive(void) {
     assert(acpShutdown() && !protects);
 }
 int main(int argc, char **argv) {
+    check_recovery_selection();
     wchar_t pending[80];
     assert(acpGetName(pending) && wcsstr(pending, L"green=pending"));
+    assert(wcsstr(pending, L"rollover=pending"));
     metadata="{\"kind\":\"circuit\"}"; inactive();
+    assert(acpGetName(pending) && wcsstr(pending, L"rollover=pending"));
     metadata="{\"kind\":\"area\"}"; inactive();
+    assert(acpGetName(pending) && wcsstr(pending, L"rollover=off: track"));
     metadata="{\"area\":[1,2,3,4]}"; inactive();
     metadata="{\"k\\u0069nd\":\"circuit\"}"; inactive();
     metadata="{\"area\":null,\"area\":[1]}"; inactive();
@@ -85,12 +114,23 @@ int main(int argc, char **argv) {
     laps=L"1"; assert(acpGetName(pending) && wcsstr(pending,L"green=pending"));
     laps=NULL; race_laps=L"1"; assert(acpGetName(pending) && wcsstr(pending,L"green=pending"));
     laps=L"1";
-    type=L"4"; inactive(); type=L"1"; inactive(); type=L"3";
-    remote=L"1"; inactive(); remote=L""; inactive(); remote=L"0";
-    replay=L"1"; inactive(); replay=L"0";
+    type=L"4"; inactive();
+    assert(acpGetName(pending) && wcsstr(pending,L"rollover=off: session"));
+    type=L"1"; inactive();
+    assert(acpGetName(pending) && wcsstr(pending,L"rollover=off: session"));
+    type=L"3";
+    remote=L"1"; inactive();
+    assert(acpGetName(pending) && wcsstr(pending,L"rollover=off: remote"));
+    remote=L""; inactive(); remote=L"0";
+    replay=L"1"; inactive();
+    assert(acpGetName(pending) && wcsstr(pending,L"rollover=off: replay"));
+    replay=L"0";
     track=L"..\\outside"; inactive(); track=L"drau_bruecke_test";
-    missing_file=true; inactive(); missing_file=false;
-    short_read=true; inactive(); short_read=false;
+    missing_file=true; inactive();
+    assert(acpGetName(pending) && wcsstr(pending,L"rollover=off: track"));
+    missing_file=false; short_read=true; inactive();
+    assert(acpGetName(pending) && wcsstr(pending,L"rollover=off: track"));
+    short_read=false;
     assert(argc==1 || argc==2);
     if (argc==1) return 0;
     FILE *f=fopen(argv[1],"rb");
@@ -100,7 +140,27 @@ int main(int argc, char **argv) {
     memcpy(expected,original,sizeof(original));
     wchar_t name[256];
     image[0x1419f20]^=1; assert(acpInit(NULL)); assert(!protects); acpShutdown(); image[0x1419f20]^=1;
-    image[0x29138f]^=1; assert(acpInit(NULL)); assert(!protects); acpShutdown(); image[0x29138f]^=1;
+    image[0x29138f]^=1; assert(acpInit(NULL) && acpGetName(name));
+    assert(wcsstr(name,L"green=off") && wcsstr(name,L"rollover=active"));
+    acpShutdown(); image[0x29138f]^=1;
+    const size_t rollover_sites[] = {SPAWN_MOVE, RECOVER_CALL, AI_RETIRE};
+    for (size_t i = 0; i < COUNT(rollover_sites); ++i) {
+        image[rollover_sites[i]] ^= 1;
+        assert(acpInit(NULL) && acpGetName(name));
+        assert(wcsstr(name,L"green=active") && wcsstr(name,L"rollover=off"));
+        assert(acpShutdown());
+        image[rollover_sites[i]] ^= 1;
+    }
+    unsigned char spawn[39]; memcpy(spawn,image+0xd3b34,sizeof(spawn));
+    metadata="{\"kind\":\"circuit\"}"; laps=race_laps=L"2";
+    assert(acpInit(NULL) && acpGetName(name));
+    assert(wcsstr(name,L"green=off: laps") && wcsstr(name,L"rollover=active"));
+    assert(memcmp(spawn,image+0xd3b34,sizeof(spawn)));
+    assert(acpShutdown() && !memcmp(spawn,image+0xd3b34,sizeof(spawn)));
+    fail_flush=1;  // Circuit: only rollover attempts a write.
+    assert(acpInit(NULL) && acpGetName(name) && wcsstr(name,L"rollover=off"));
+    assert(!memcmp(spawn,image+SPAWN_MOVE,sizeof(spawn)) && acpShutdown());
+    laps=race_laps=L"1"; metadata="{}";
     deny_write=1; assert(acpInit(NULL)); assert(!memcmp(original,image+0x2911f0,sizeof(original)));
     assert(acpGetName(name) && wcsstr(name,L"failed")); acpShutdown(); deny_write=0;
     fail_flush=1; assert(acpInit(NULL)); assert(!memcmp(original,image+0x2911f0,sizeof(original)));
@@ -109,5 +169,5 @@ int main(int argc, char **argv) {
     memcpy(expected+0x29138f-0x2911f0,green_clock,sizeof(green_clock));
     assert(!memcmp(expected,image+0x2911f0,sizeof(expected)));
     assert(acpShutdown() && !memcmp(original,image+0x2911f0,sizeof(original)));
-    puts("Gates, image and code mismatch, write failure, rollback, CLOCK only and shutdown passed.");
+    puts("Gates, image and code mismatch, write failure, independent clock and rollover states, rollback and shutdown passed.");
 }

@@ -1,4 +1,4 @@
-"""Install or remove Map2Lap's native timing plugin in a closed Assetto Corsa installation."""
+"""Install or remove Map2Lap's native race plugin in a closed Assetto Corsa installation."""
 import argparse
 from pathlib import Path
 import sys

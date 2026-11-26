@@ -2,7 +2,7 @@
    Consume the complete document before granting the feature, including unrelated nested values. */
 typedef struct {
     const unsigned char *p, *end;
-    bool kind_seen, area_seen;
+    bool kind_seen, area_seen, allow_circuit;
 } Json;
 
 static unsigned peek(const Json *j) {
@@ -59,18 +59,18 @@ static int character(Json *j) {
     return (int)code;
 }
 
-enum Word { OTHER, KIND, AREA, ROUTE };
+enum Word { OTHER, KIND, AREA, ROUTE, CIRCUIT };
 
 static bool string(Json *j, enum Word *word) {
-    static const char *const names[] = {"", "kind", "area", "route"};
-    unsigned possible = (1 << KIND) | (1 << AREA) | (1 << ROUTE);
+    static const char *const names[] = {"", "kind", "area", "route", "circuit"};
+    unsigned possible = (1 << KIND) | (1 << AREA) | (1 << ROUTE) | (1 << CIRCUIT);
     if (!take(j, '"')) return false;
     size_t n = 0;
     while (j->p < j->end && peek(j) != '"') {
         int c = character(j);
         if (c < 0) return false;
         if (word) {
-            for (int k = KIND; k <= ROUTE; ++k) {
+            for (int k = KIND; k <= CIRCUIT; ++k) {
                 if ((possible & (1 << k)) && (!names[k][n] || names[k][n] != c)) possible &= ~(1 << k);
             }
         }
@@ -79,7 +79,7 @@ static bool string(Json *j, enum Word *word) {
     if (!take(j, '"')) return false;
     if (word) {
         *word = OTHER;
-        for (int k = KIND; k <= ROUTE; ++k)
+        for (int k = KIND; k <= CIRCUIT; ++k)
             if ((possible & (1 << k)) && !names[k][n]) *word = (enum Word)k;
     }
     return true;
@@ -119,7 +119,7 @@ static bool members(Json *j, unsigned depth, bool object) {
         }
         if (key == KIND) {
             enum Word kind;
-            if (j->kind_seen || !string(j, &kind) || kind != ROUTE) return false;
+            if (j->kind_seen || !string(j, &kind) || (kind != ROUTE && !(j->allow_circuit && kind == CIRCUIT))) return false;
             j->kind_seen = true;
         } else if (key == AREA) {
             if (j->area_seen || !literal(j, "null")) return false;
@@ -144,8 +144,8 @@ static bool value(Json *j, unsigned depth) {
     }
 }
 
-static bool route_json(const unsigned char *bytes, size_t size) {
-    Json j = {bytes, bytes + size, false, false};
+static bool route_json(const unsigned char *bytes, size_t size, bool allow_circuit) {
+    Json j = {bytes, bytes + size, false, false, allow_circuit};
     if (size >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf) j.p += 3;
     whitespace(&j);
     if (!take(&j, '{') || !members(&j, 0, true)) return false;

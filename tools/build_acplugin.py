@@ -9,13 +9,14 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = 'native/acplugin/plugin.c'
-INPUTS = (SOURCE, 'native/acplugin/green_clock.h', 'native/acplugin/route_json.h', 'tools/build_acplugin.py')
+INPUTS = (SOURCE, 'native/acplugin/green_clock.h', 'native/acplugin/route_json.h',
+          'native/acplugin/rollover.h', 'tools/build_acplugin.py')
 DLL = 'src/bin/map2lap.dll'
 IMPORTS = {
     'kernel32': ('GetModuleHandleW', 'GetModuleFileNameW', 'CreateFileW', 'GetFileSize', 'ReadFile',
                  'CloseHandle', 'GetProcessHeap', 'HeapAlloc', 'HeapFree', 'ReadProcessMemory',
                  'GetPrivateProfileStringW', 'VirtualProtect',
-                 'FlushInstructionCache', 'GetCurrentProcess'),
+                 'RtlCaptureStackBackTrace', 'FlushInstructionCache', 'GetCurrentProcess'),
     'shell32': ('SHGetFolderPathW',),
 }
 
@@ -31,7 +32,7 @@ def build(target):
             subprocess.run(['llvm-dlltool', '-m', 'i386:x86-64', '-d', f'{dll}.def', '-l', f'{dll}.lib'],
                            cwd=work, check=True)
         subprocess.run(['clang', '--target=x86_64-pc-windows-msvc', '-std=c11', '-O2', '-Wall', '-Wextra',
-                        '-Werror', '-ffreestanding', '-c', ROOT / SOURCE, '-o', work / 'plugin.obj'], check=True)
+                        '-Werror', '-funwind-tables', '-ffreestanding', '-c', ROOT / SOURCE, '-o', work / 'plugin.obj'], check=True)
         subprocess.run(['lld-link', '/dll', '/noentry', '/nodefaultlib', '/machine:x64', '/timestamp:0',
                         '/out:map2lap.dll', 'plugin.obj', *(f'{dll}.lib' for dll in IMPORTS)], cwd=work, check=True)
         output = work / 'map2lap.dll'
