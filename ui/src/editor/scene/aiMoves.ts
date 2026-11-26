@@ -39,7 +39,7 @@ function placeAt(move: AiMove, x: number, z: number) {
 /** A pressed pointer owns a single move until release. Geometry stays in the view, outside React. */
 export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THREE.PerspectiveCamera,
   guide: MoveGuide, url: string, corrections: AiCorrection[], showGuide: boolean,
-  add: (move: AiCorrection) => void, remove: (id: string) => void, note: (why: string) => void,
+  add: (move: AiCorrection) => void, remove: (id: string) => void, note: (why: string) => void, hint: (text: string) => void,
   redraw: () => void, groundDistance: (mouse: THREE.Vector2) => number, groundPoint: (mouse: THREE.Vector2) => THREE.Vector3 | null, previewing: (spans:number[][][]) => void, cursor: (value:string) => void) {
   let pen = false, free = true;
   let lastPointer: PointerEvent | null = null;
@@ -140,7 +140,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
   }
   const amber = new THREE.Color(0xffd23b);
   const pencil = new Pencil(el, scene, camera, guide, corrections, url, groundPoint, groundDistance,
-    e => pick(e), add, remove, note, () => draw());
+    e => pick(e), add, remove, note, hint, () => draw());
   draw();
   if (corrections.length) void post<Checked>(url, {aiCorrections: corrections}).then(check => {
     if (signal.aborted) return;

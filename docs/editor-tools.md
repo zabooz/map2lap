@@ -72,7 +72,7 @@ Free is selected initially. Shift switches Road/Free in Move and Redraw. Switchi
 In Redraw, a right-click while drawing takes back the last ground click. At the start it cancels the draft.
 Saved strokes show their endpoints and ground clicks in the current track frame. Drag a ground marker to reshape the
 curve. A rejected drop shows the reason and keeps the saved stroke. Right-click a ground marker to remove that point,
-or an endpoint to remove the whole stroke. Right-click between markers to open the curve there. Add new ground clicks,
+or an endpoint to remove the whole stroke. Left-click the centreline between markers to continue drawing from the preceding marker. A right-click on the segment also opens it. Add new ground clicks,
 then click a remaining marker to keep the rest, or click the line ahead for a new endpoint. Each completed edit is one
 Undo step. Escape or a tool change discards an unfinished edit. Escape without a draft ends the tool.
 Free mode belongs to each new correction and stays with it during editing.

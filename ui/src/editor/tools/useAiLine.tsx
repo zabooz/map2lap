@@ -144,11 +144,11 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
   useEffect(() => {
     if (!editMoves || !guide) return;
     const session = view.editAiMoves(guide, url, moves, !lane,
-      move => edits.addAiCorrection(move), id => edits.removeAiCorrection(id), setError);
+      move => edits.addAiCorrection(move), id => edits.removeAiCorrection(id), setError, onNote);
     editing.current = session;
     return () => { session.dispose(); editing.current = null; };
-  }, [editMoves, guide, url, moves, lane, edits, view]);
-  useEffect(() => { editing.current?.setMode(pen, free); }, [pen, free, editMoves, guide, url, moves, lane, edits, view]);
+  }, [editMoves, guide, url, moves, lane, edits, view, onNote]);
+  useEffect(() => { editing.current?.setMode(pen, free); }, [pen, free, editMoves, guide, url, moves, lane, edits, view, onNote]);
 
   const lastStatus = useRef<{revision:string; mode:AiLineMode|null; preparing:boolean}>(null);
   const reportedError = useRef<string | null>(null);

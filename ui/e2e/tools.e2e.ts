@@ -177,9 +177,27 @@ test("Redraw finishes on the line, Escape discards the stroke, and a saved free 
   await expect(page.locator("#edit-ai-preview")).toContainText("End precedes the start");
   await page.keyboard.press("Escape");
   expect(await moves()).toHaveLength(0);
-  await click(62); await click(125,3.5); await click(205);
+  // A saved stroke with only A and B can be reopened in its middle.
+  await click(62); await click(205);
   await expect.poll(moves).toHaveLength(1);
+  const [straight] = await moves();
+  expect(straight.points).toEqual([]);
+  // Reopen P with the saved recipe. Its markers arrive with the measured preview.
+  await page.keyboard.press("p");
+  await expect(bar).toHaveCount(0);
+  const markers = page.waitForResponse(r => r.url().endsWith("/move-preview") &&
+    r.request().postDataJSON()?.aiCorrections?.[0]?.id === straight.id);
+  await page.keyboard.press("p");
+  expect((await (await markers).json()).controls[straight.id]).toHaveLength(2);
+  await click(62);
+  await expect(page.locator("#edit-tool-toasts")).toContainText("Click the line between markers to edit this stroke.");
+  await click(125);
+  await expect(page.locator("#edit-tool-toasts")).toContainText("Click the ground to add points, then click a remaining marker or the AI line ahead to finish.");
+  await expect(page.locator("#edit-ai-preview")).toHaveCount(0);
+  await click(125,3.5); await click(205);
+  await expect.poll(async () => (await moves())[0]?.points.length).toBe(1);
   const [stroke]=await moves();
+  expect(stroke.id).toBe(straight.id);
   expect(stroke.kind).toBe("redraw"); expect(stroke.free).toBe(true);
   expect(stroke.points).toHaveLength(1);
   await page.getByRole("button",{name:"Recalculate AI line"}).click();
@@ -264,7 +282,7 @@ test("Redraw markers edit a saved stroke, reconnect a gap and undo once per gest
   await click(between,true); await click(row(114,6)); await page.keyboard.press("Escape");
   await expect(page.locator("#edit-ai-redraw")).toHaveAttribute("aria-pressed","true");
   expect(await edits()).toEqual([original]);
-  await click(between,true); await click(row(114,6)); await click(second);
+  await click(between); await click(row(114,6)); await click(second);
   await expect.poll(async () => (await edits())[0]?.points.length).toBe(3);
   const [joined] = await edits();
   expect(joined).toEqual({...original,points:[first,joined.points[1],second]});

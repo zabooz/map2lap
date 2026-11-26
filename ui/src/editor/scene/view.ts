@@ -1135,9 +1135,9 @@ export class TrackView {
 
   /** Prepare the installed revision of the AI line, retaining its geometry while that revision holds. */
   editAiMoves(guide: MoveGuide, url: string, moves: AiCorrection[], showGuide: boolean,
-    add: (move: AiCorrection) => void, remove: (id: string) => void, note: (reason: string) => void) {
+    add: (move: AiCorrection) => void, remove: (id: string) => void, note: (reason: string) => void, hint: (text: string) => void) {
     return editMoves(this.renderer.domElement, this.scene, this.camera, guide, url, moves, showGuide,
-      add, remove, note, () => { this.dirty = true; }, mouse => this.pointing.hit(mouse)?.distance ?? Infinity,
+      add, remove, note, hint, () => { this.dirty = true; }, mouse => this.pointing.hit(mouse)?.distance ?? Infinity,
       mouse => {
         this.picker.setFromCamera(mouse, this.camera);
         const ray = this.picker.ray;

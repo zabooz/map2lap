@@ -66,7 +66,7 @@ export class Pencil {
     private url: string, private ground: (mouse: THREE.Vector2) => THREE.Vector3 | null,
     private depth: (mouse: THREE.Vector2) => number, private pick: (e: PointerEvent) => number,
     private add: (item: AiCorrection) => void, private remove: (id: string) => void,
-    private note: (why: string) => void, private draw: () => void) {
+    private note: (why: string) => void, private hint: (text: string) => void, private draw: () => void) {
     window.addEventListener("keydown", e => {
       if ((this.draft || this.drag) && e.key === "Escape" && !editorInputBlocked(e.target) && this.el.checkVisibility()) {
         e.stopImmediatePropagation(); e.preventDefault(); this.reset(); this.draw();
@@ -198,7 +198,8 @@ export class Pencil {
     this.scene.add(this.remainder);
     s.line.visible = s.markers.visible = false;
     if (this.extension) this.extension.visible = s.item.free;
-    this.preview(this.prefix());
+    this.preview(this.prefix(), s.error);
+    this.hint("Click the ground to add points, then click a remaining marker or the AI line ahead to finish.");
   }
   /** Pick a piece of the sampled curve, including the space between projected samples. */
   private segment(e: PointerEvent, s: Stroke) {
@@ -233,15 +234,17 @@ export class Pencil {
           } else if (!endpoint) {
             this.drag = {stroke:s,marker,pointer:e.pointerId};
             this.el.setPointerCapture(e.pointerId);
-          } else this.note(s.error ?? `Overlapping correction at route metre ${s.from.toFixed(1)}`);
+          } else if (s.error) this.note(s.error);
+          else this.hint("Click the line between markers to edit this stroke.");
           return true;
         }
       }
       const sample = this.pen ? this.segment(e,s) : this.hit(e,s.points);
       if (sample<0) continue;
-      if (e.button===0) this.note(s.error ?? `Overlapping correction at route metre ${s.from.toFixed(1)}`);
-      else if (!this.pen) this.remove(s.item.id);
-      else this.beginOpening(s,s.samples.findIndex(index => index>sample)-1);
+      if (this.pen) this.beginOpening(s,s.samples.findIndex(index => index>sample)-1);
+      else if (e.button===2) this.remove(s.item.id);
+      else if (s.error) this.note(s.error);
+      else this.hint("Press P to edit this redraw.");
       return true;
     }
     return false;
@@ -281,7 +284,10 @@ export class Pencil {
     if (this.drag.target && q) this.dragPoint(q,true);
     else {
       const message = this.drag.stroke.error;
-      this.reset(); this.note(message ?? "Drag this point to reshape the stroke"); this.draw();
+      this.reset();
+      if (message) this.note(message);
+      else this.hint("Drag this point to reshape the stroke.");
+      this.draw();
     }
     return true;
   }
