@@ -436,6 +436,8 @@ def race_bytes(raw, args, ac, track):
     ini[player].update(MODEL='-', MODEL_CONFIG='', SKIN=skin, SETUP='')
     ini['SESSION_0'] = dict(NAME='Race', TYPE='3', WAIT_TIME='0', SPAWN_SET='START', LAPS=str(args.laps), DURATION_MINUTES='0')
     server._write_race_grid(ini, player, ai, str(ac), installed)
+    for slot, strength in enumerate(args.strengths or (), start=1):
+        ini[f'CAR_{slot}']['AI_LEVEL'] = str(strength)
     out = io.StringIO()
     ini.write(out, space_around_delimiters=False)
     return out.getvalue().encode()
@@ -769,6 +771,17 @@ def report(run, csp_path=None, ac_path=None, model=None, opponents=None):
     return result
 
 
+def grid_strengths(value):
+    """Read comma-separated integer AI levels in grid order. Pure."""
+    try:
+        levels = [int(part) for part in value.split(',')]
+    except ValueError:
+        raise argparse.ArgumentTypeError('expected comma-separated integers') from None
+    if any(not 70 <= level <= 100 for level in levels):
+        raise argparse.ArgumentTypeError('each AI strength must be 70–100%')
+    return levels
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action', required=True)
@@ -777,7 +790,10 @@ def main():
     launch.add_argument('--opponents', type=int, default=18)
     launch.add_argument('--laps', type=int, default=3)
     launch.add_argument('--car', default='bmw_m3_e30_dtm')
-    launch.add_argument('--strength', type=int, default=95)
+    levels = launch.add_mutually_exclusive_group()
+    levels.add_argument('--strength', type=int, default=95, help='common opponent strength (default: 95)')
+    levels.add_argument('--strengths', type=grid_strengths, metavar='N,N,...',
+                        help='one strength (70–100) per opponent, in CAR_1, CAR_2, … order')
     launch.add_argument('--aggression', type=int, default=50)
     launch.add_argument('--timeout', type=int, default=1200, help='wall seconds including loading')
     for action in ('status', 'restore', 'stop'):
@@ -790,6 +806,8 @@ def main():
     read.add_argument('--opponents', type=int)
     args = parser.parse_args()
     if args.action == 'start':
+        if args.strengths is not None and len(args.strengths) != args.opponents:
+            parser.error('--strengths requires one value per opponent')
         if args.timeout <= 0:
             parser.error('--timeout must be positive')
         start(args)

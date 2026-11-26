@@ -32,6 +32,40 @@ import watch_build as wb  # noqa: E402
 
 
 class AIRaceTest(unittest.TestCase):
+    def test_opponent_strengths_follow_grid_order_and_require_one_valid_level_per_car(self):
+        import configparser
+        import io
+        from pathlib import Path
+        import ai_race
+
+        with tempfile.TemporaryDirectory() as temp:
+            ac = Path(temp)
+            (ac / 'content/cars/bmw/skins/blue').mkdir(parents=True)
+            track = ac / 'content/tracks/circuit'
+            (track / 'ui').mkdir(parents=True)
+            (track / 'ui/ui_track.json').write_text('{"pitboxes": 4}')
+
+            def grid(args):
+                raw = ai_race.race_bytes(b'[RACE]\n', args, ac, track)
+                ini = configparser.ConfigParser()
+                ini.read_string(raw.decode())
+                return [ini.getint(f'CAR_{i}', 'AI_LEVEL') for i in range(1, 4)]
+
+            cli = ['ai_race', 'start', 'circuit', '--car', 'bmw', '--opponents', '3']
+            with unittest.mock.patch.object(ai_race.mytracks, 'is_circuit', return_value=True):
+                with unittest.mock.patch.object(ai_race, 'start') as launch:
+                    for options, levels in (([], [95]*3), (['--strength', '91'], [91]*3),
+                                            (['--strengths', '70,95,100'], [70, 95, 100])):
+                        with unittest.mock.patch.object(sys, 'argv', cli + options):
+                            ai_race.main()
+                        self.assertEqual(grid(launch.call_args.args[0]), levels)
+                    invalid = [['--strengths', x] for x in ('92,99', '69,95,100', '92,95,101', '92,,100')]
+                    for options in [*invalid, ['--strength', '95', '--strengths', '92,95,100']]:
+                        with unittest.mock.patch.object(sys, 'argv', cli + options), \
+                                unittest.mock.patch('sys.stderr', new_callable=io.StringIO), self.assertRaises(SystemExit):
+                            ai_race.main()
+                    self.assertEqual(launch.call_count, 3)
+
     def test_native_outputs_include_ac_saved_player_setup_and_telemetry(self):
         from pathlib import Path
         import ai_race
