@@ -34,9 +34,11 @@ Play menu offers Practice, Hotlap and Race. The retirement move runs only during
 
 ## A native Windows plugin alongside CSP
 
-For a feature that needs a native component, AC has its own plugin loader. The tested arrangement places
-a Windows x64 DLL in `assettocorsa/plugins/`. AC loads it from `plugins/plugins.ini`. CSP keeps its
-normal installation by `acs.exe`. The track retirement feature ships as Lua and a track model.
+AC loads the shipped Windows x64 `map2lap.dll` from `assettocorsa/plugins/` on Windows and under Proton.
+Play installs or updates it before a Race and enables one `map2lap.dll=1` entry under `[PLUGINS]` in
+`plugins/plugins.ini`. Installation preserves the other entries and skips changes while AC is running.
+A plugin installation error lets Play continue. The retirement feature ships separately as Lua and a
+track model. [Plugin installer](../src/app/acplugin.py)
 
 | C export | Purpose |
 | --- | --- |
@@ -45,57 +47,62 @@ normal installation by `acs.exe`. The track retirement feature ships as Lua and 
 | `bool acpUpdate(const ACCarState *player, float dt)` | Receive player telemetry and the update interval. |
 | `bool acpShutdown(void)` | Release resources when AC closes the plugin. |
 
-The minimal example treats both host pointers as opaque. Save it as `Map2LapExample.c`.
+Each feature registers its gate, start, stop and status with the ACP callbacks. AC logs the plugin name
+before calling `acpInit`. In `Documents/Assetto Corsa/logs/log.txt`, `Map2Lap green=pending` means the
+session passed the initial gate. Init checks again and reports `active` through subsequent calls to
+`acpGetName` only after writing the clock. An `off:` reason identifies a failed check. Shutdown restores
+the original instructions after checking the installed bytes still belong to this feature.
+[ACP entry points](../native/acplugin/plugin.c) · [Green clock](../native/acplugin/green_clock.h)
 
-```c
-#include <stdbool.h>
-#include <stddef.h>
+### A–B race time from green
 
-#define EXPORT __declspec(dllexport)
-typedef struct IACPPluginHost IACPPluginHost;
-typedef struct ACCarState ACCarState;
+The DLL reads the current user's `cfg/race.ini` in AC's Documents folder on every session load.
+Activation requires all of the following conditions.
 
-EXPORT bool acpGetName(wchar_t *out) {
-    const wchar_t *name = L"Map2Lap example";
-    while ((*out++ = *name++)) {}
-    return true;
-}
-EXPORT bool acpInit(IACPPluginHost *host) { (void)host; return true; }
-EXPORT bool acpUpdate(const ACCarState *player, float dt) {
-    (void)player;
-    (void)dt;
-    return true;
-}
-EXPORT bool acpShutdown(void) { return true; }
-```
+- `[RACE] TRACK` names one track folder under `content/tracks` beside the running game. Its
+  `data/map2lap.json` is a readable JSON object. A Route can omit `kind` (older builds) or set it to
+  `"route"`. Its top-level `area` is absent or null. Circuit, Area and malformed metadata close the gate.
+- `[SESSION_0] TYPE=3`, `[REMOTE] ACTIVE=0` and `[REPLAY] ACTIVE=0` are explicit. At least one of
+  `[SESSION_0] LAPS` and `[RACE] RACE_LAPS` must be present and every supplied count must be `1`.
+- The loaded `acs.exe` matches the supported PE header offset, timestamp, image size and CodeView GUID
+  and age. The 476-byte `TimeTransponder::step` fingerprint and the original 25 CLOCK bytes must match.
 
-Build in a Visual Studio x64 Native Tools prompt and check that the four names above appear as
-undecorated exports.
+Play, Content Manager and other launchers use the same checks. CM's Quick Drive INI test mode retained
+a previous custom INI key through both a Practice and a Race start. Session eligibility is therefore
+determined directly from AC's settings and the selected track. [Route metadata reader](../native/acplugin/route_json.h)
 
-```bat
-cl /nologo /std:c11 /O2 /LD Map2LapExample.c /link /OUT:Map2LapExample.dll
-dumpbin /exports Map2LapExample.dll
-```
+**Executable and symbols.** The matching Kunos `acs.pdb` lies beside `acs.exe` in the Steam installation
+(CodeView GUID `9BEE7421-88FE-47C4-B56C-15496409A8DE`, age 47). Disassembly shows that the stock clock
+adds 3 ms per executed physics step. When physics falls behind, `PhysicsDriveThread::run` advances the
+simulation clock past the backlog. The step counter misses that time. In a one-lap A–B Race the plugin
+replaces the counter at RVA `0x29138F` with `physicsTime [rcx+0x20] − startTimeMS [rcx+0x178]`, in
+milliseconds. AC retains its normal zeroing at `0x291313` and `0x2913C1`. The next step measures time
+from the common green again, and gate B records the latest value.
 
-On Linux the same freestanding example also builds with Clang and LLD.
+**Measured in AC under Proton.** With the earlier step-counting prototype on Heiligenblut the official
+times were 2.608–2.645 s short. The log recorded two clock resets. Telemetry estimated 27.60 s of vehicle
+movement in 30.22 s elapsed. The individual reset durations were not measured. On rebuilt Drau, stock
+timing placed 2 of 17 finishers correctly. CLOCK alone placed 18 of 18 correctly.
 
-```sh
-clang --target=x86_64-pc-windows-msvc -O2 -ffreestanding -c Map2LapExample.c -o example.obj
-lld-link /dll /noentry /nodefaultlib /machine:x64 /out:Map2LapExample.dll example.obj
-```
+The shipped DLL was observed active in a one-lap Drau Race both through the measurement tool and through
+Content Manager Quick Drive. Each classified all 18 AI in observed finish order. Maximum absolute timing
+differences were 8.55 ms and 9.60 ms respectively, measured from the interpolated CSP countdown zero to
+the first finish flag with one counted lap. Play also installed a missing DLL and launched an 18-opponent
+Race with the correct finish order and a maximum difference of 11.51 ms. In a stock Magione Race, a
+Drau Hotlap and a two-lap Drau Race,
+all 476 timer bytes matched the original after initialization. The simulated host also exercises online,
+replay, conflicting counts, differing image/code bytes, a failed write, rollback and shutdown.
 
-With AC closed, copy the DLL to `plugins/` and add `Map2LapExample.dll=1` under the existing
-`[PLUGINS]` section of `plugins/plugins.ini`. Launch AC and look for
-`ACP PLUGIN: Map2Lap example` in `Documents/Assetto Corsa/logs/log.txt`. A diagnostic counter
-in `acpUpdate` can confirm that the update callback runs. Close AC before removing the example DLL
-and its INI entry. Distribute a compiled DLL with any future native feature and register its own
-entry when installing it.
+To remove the installed plugin, close AC and run `python tools/ac_plugin.py remove` from the repository
+with the project Python. For an archive installation, delete the `map2lap.dll` line in the `[PLUGINS]`
+section and the file `plugins/map2lap.dll` while AC is closed. The next Race launched via Play installs it
+again. [Release build and receipt](release.md)
 
 The DNF prototype needed opponent telemetry. A CSP Lua app supplied the AI, retired, pit and finish
 flags through a named shared-memory mapping. The DLL selected opponents, and the track script checked
 each selected car again before requesting its move. The prototype's 32-bit selection mask covered slots
 0–31. Future features supporting larger grids need a wider representation. A plugin that only consumes
-telemetry can omit the optional GUI and controls exports. The example leaves player input with AC.
+telemetry can omit the optional GUI and controls exports. The shipped plugin leaves player input with AC.
 
 ## Measuring a change
 

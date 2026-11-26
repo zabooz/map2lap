@@ -58,16 +58,28 @@ TEXTURES = os.path.join("assets", "textures")
 LIBRARY = os.path.join("assets", "library")
 
 
-def check_snow_worker():
-    """Refuse source-only or stale snow acceleration in either release archive."""
+def _check_receipt(receipt, names, label, builder):
+    """Verify every expected source, builder and binary before creating either release archive."""
     root = Path(HERE)
     try:
-        hashes = json.loads((root / 'src/bin/snow-worker.json').read_text(encoding='utf-8'))
-        names = ('native/snowworker/main.rs', 'tools/build_snow_worker.py', 'src/bin/snow-worker.exe')
+        hashes = json.loads((root / receipt).read_text(encoding='utf-8'))
         if any(hashes.get(name) != hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names):
             raise ValueError('stale helper')
     except (OSError, ValueError, TypeError, AttributeError):
-        raise SystemExit('Missing or stale snow helper: run tools/build_snow_worker.py before packaging') from None
+        raise SystemExit(f'Missing or stale {label}: run {builder} before packaging') from None
+
+
+def check_snow_worker():
+    """Check the shipped snow helper against its source and builder."""
+    builder = 'tools/build_snow_worker.py'
+    _check_receipt('src/bin/snow-worker.json', ('native/snowworker/main.rs', builder, 'src/bin/snow-worker.exe'),
+                   'snow helper', builder)
+
+
+def check_acplugin():
+    """Check the shipped timing DLL against its sources and builder."""
+    from build_acplugin import DLL, INPUTS
+    _check_receipt('src/bin/map2lap.json', (*INPUTS, DLL), 'AC plugin', 'tools/build_acplugin.py')
 
 
 def files(system):
@@ -135,6 +147,7 @@ def embedded_python(dst):
 
 def build_win():
     check_snow_worker()
+    check_acplugin()
     zname = f"Map2Lap-{version.VERSION}-win64"
     dst = os.path.join(DIST, NAME)
     shutil.rmtree(dst, ignore_errors=True)
@@ -165,6 +178,7 @@ def _add(tar, path, name, mode):
 
 def build_linux():
     check_snow_worker()
+    check_acplugin()
     tname = f"Map2Lap-{version.VERSION}-linux-x64"
     if PY_VERSION not in PBS_SHA256:
         raise SystemExit(f"No python-build-standalone checksum for {PY_VERSION}: set PBS_TAG and PBS_SHA256")

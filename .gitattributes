@@ -8,3 +8,7 @@ native/snowworker/main.rs text eol=lf
 tools/build_snow_worker.py text eol=lf
 # Built bundles contain third-party shader strings; review their sources in ui/.
 src/web/** -whitespace linguist-generated=true
+# The native AC plugin's release receipt also hashes the checked-out sources.
+native/acplugin/* text eol=lf
+tools/build_acplugin.py text eol=lf
+src/bin/map2lap.dll binary

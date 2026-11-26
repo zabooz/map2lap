@@ -1,0 +1,7 @@
+{
+  "native/acplugin/plugin.c": "069a3d799a2ac4c10952576176ebf35c622fa6d1df67b57514c6b6b68fa34ede",
+  "native/acplugin/green_clock.h": "be7630424af66d1b0302be77920474af03957f11c539ad97976ede38109408aa",
+  "native/acplugin/route_json.h": "fdbd41972efea98ae4e3f209b40819e7456fc2dd1a87f6f09bb0cdccd6636de0",
+  "tools/build_acplugin.py": "5a40d9ad8b02137c26c25575d8a826b8ec2f7214bae85db40cc41003f4770912",
+  "src/bin/map2lap.dll": "821dc1156c270dcd1eb8b08ac1081aa139716515c75ab156fc7582b19bb3da37"
+}

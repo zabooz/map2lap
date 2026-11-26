@@ -48,6 +48,8 @@ line here (`engine/tests/test_tools.py`).
 | Build the Rust module, read a DLL's imports | `build_native.py`, `pe_imports.py` |
 | Build the Editor's portable Rust geometry kernel for browser workers | `build_editor_geometry.py` |
 | Build the shipped CSP snow helper for Windows and Linux/Proton | `build_snow_worker.py` |
+| Build the shipped native AC timing DLL and its hash receipt | `build_acplugin.py` |
+| Install or remove the native AC timing DLL with the game closed | `ac_plugin.py install\|remove [--ac <AC folder>]` |
 | Make a release, test its update | `make_release.py`, `test_update.py` |
 | The CC0 textures a clone lacks | `get_textures.py` |
 | The Editor's shipped library (`assets/library`, packed by `make_release.py`): every shown CC0 object of `library/` simplified, textures as they are | `build_library.py [--level 25]` |

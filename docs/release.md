@@ -11,6 +11,7 @@ first and stop the generator server before replacing earthfast: it locks the `.p
 .venv\Scripts\python.exe tools\build_native.py --linux        # earthfast.pyd + earthfast.abi3.so
 .venv\Scripts\python.exe tools\build_modelconvert.py --linux  # Windows + Linux converter and notices
 .venv\Scripts\python.exe tools\build_snow_worker.py           # Windows exe, also used inside Proton
+.venv\Scripts\python.exe tools\build_acplugin.py              # Windows x64 AC plugin, also used inside Proton
 
 # Compile WASM BEFORE building the UI: ui/build.ts copies this artifact into src/web
 .venv\Scripts\python.exe tools\build_editor_geometry.py      # ui/assets/editorgeometry.wasm
@@ -23,15 +24,19 @@ Pop-Location
 ```
 
 Stop on any failed command. Check the generated files and commit them with their sources before packing the intended
-release revision. Changing Rust or UI inputs afterwards requires rebuilding the affected artifacts and repeating the
+release revision. Changing native or UI inputs afterwards requires rebuilding the affected artifacts and repeating the
 relevant checks. **Editor WASM → UI build → release packaging** is mandatory: packaging does not compile them.
 `bun run build` alone builds the UI but does not satisfy the release browser checks.
 
 Each archive includes its platform's earthfast module and model converter/notices; the Linux converter is executable.
 The tracked `engine/buildings/styles.json` is packed with the engine modules; changing it needs no Python code edit, but
 does change the build's revisit cache key.
-Both include `src/web` and `src/bin/snow-worker.exe`, with its source/binary hash receipt. Packaging refuses a missing or
-stale snow helper; the ignored preview binary is not an input. Users need no Rust, Bun or Blender.
+Both archives include `src/web`, `src/bin/snow-worker.exe` and `src/bin/map2lap.dll`. Packaging checks the
+SHA-256 receipts for the snow helper and the AC plugin before creating either archive. For the plugin, put
+`clang`, `lld-link` and `llvm-dlltool` on PATH (shipped build used LLVM 23.1.5). The builder targets Windows x64,
+sets the PE timestamp to zero and checks for private paths. Commit `native/acplugin/`, the builder, the DLL and
+`src/bin/map2lap.json` together. The plugin test always checks the receipt and compares a fresh build byte-for-byte
+when Clang is available. End users need no LLVM, Rust, Bun or Blender. [Native timing plugin](ac-plugins.md)
 Product Play starts the snow helper with installed/enabled CSP and Map2Lap weather effects switched on; it exits with
 the AC session, with Lua fallback if unavailable. Linux runs the shipped Windows helper inside AC's Proton runtime
 so both processes see the same shared memory. [Snow helper lifecycle](rust.md#csp-snow-helper)

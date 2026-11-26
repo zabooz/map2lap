@@ -37,7 +37,7 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
 import generator  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app import (ailanejobs, builtroad, csp, debugapp, feedback, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadbend, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, trackstitch, tracksource, tracksurfaces,  # noqa: E402
+from app import (acplugin, ailanejobs, builtroad, csp, debugapp, feedback, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadbend, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, trackstitch, tracksource, tracksurfaces,  # noqa: E402
                  trackdetail, trackinspect, trackpaint, trackview, updater, version, weather)
 from app.paths import ROOT, SRC  # noqa: E402
 from server_editor import EditorHandlers, IMAGE_TYPES  # noqa: E402
@@ -553,6 +553,11 @@ def _launch_play(ac, track_file, race_file, ini, selected_weather, effects, *, t
                     return 409, {"error": "Wait for the current Editor save before racing"}
                 except OSError as error:
                     return 409, {"error": f"Could not prepare retired AI parking: {error}"}
+            if ini.getint("SESSION_0", "TYPE") == 3:
+                try:
+                    acplugin.install(ac)
+                except (OSError, UnicodeError) as error:
+                    print(f"AC timing plugin could not be installed: {error}", flush=True)
             with open(race_file, "w", encoding="utf-8") as f:
                 ini.write(f, space_around_delimiters=False)
             system.start_ac(ac, weather_effects=effects)
@@ -646,6 +651,8 @@ def play(name, clock=None, weather_options=None, car=None, *, session=None, laps
         if (sec.upper().startswith("CAR_") and sec != player) or (sec.startswith("SESSION_") and sec != "SESSION_0"):
             ini.remove_section(sec)
     for sec in ("REMOTE", "REPLAY", "BENCHMARK", "RESTART", "__PREVIEW_GENERATION"):
+        if sec in ("REMOTE", "REPLAY") and not ini.has_section(sec):
+            ini.add_section(sec)
         if ini.has_section(sec):
             ini.set(sec, "ACTIVE", "0")
     start = {"NAME": "Practice", "TYPE": "1", "DURATION_MINUTES": "0", "SPAWN_SET": "START"}
