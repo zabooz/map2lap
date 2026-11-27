@@ -77,7 +77,7 @@ def check_snow_worker():
 
 
 def check_acplugin():
-    """Check the shipped timing DLL against its sources and builder."""
+    """Check the shipped AC plugin DLL (timing, AI spacing, rollover) against its sources and builder."""
     from build_acplugin import DLL, INPUTS
     _check_receipt('src/bin/map2lap.json', (*INPUTS, DLL), 'AC plugin', 'tools/build_acplugin.py')
 
