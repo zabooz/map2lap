@@ -126,14 +126,15 @@ class IslandTest(unittest.TestCase):
         f = features([ring] + arms, ["tertiary"] * 5)
         f.rules["oneway"] = rules([(0, 1.0)], "float")
         walks = []
-        roads.build_tile(FRAME, 0, 0, [f], flat, lambda la, lo: np.ones(np.shape(la), bool), walks=walks)
-        islands_w = [w for w in walks if w.get("fid") == "island"]
-        self.assertEqual(len(islands_w), 1, "one continuous island curb owned by the centre's tile")
-        # a curbstone round the planted island, no sidewalk slab (nobody walks there: the user saw a sidewalk inside
-        # Heiligenblut's roundabout)
-        self.assertLessEqual(islands_w[0]["w"], 0.3)
-        L = float(np.hypot(*np.diff(islands_w[0]["pts"][:, :2], axis=0).T).sum())
-        self.assertGreater(L, 2 * math.pi * (R - 4) * 0.85, "the curb goes most of the way round")
+        chunks = roads.build_tile(FRAME, 0, 0, [f], flat, lambda la, lo: np.ones(np.shape(la), bool), walks=walks)
+        # the island's edge: a flat band of setts on the ground, no raised sidewalk round it (the user saw a sidewalk
+        # inside Heiligenblut's roundabout)
+        self.assertFalse([w for w in walks if w.get("fid") == "island"], "no sidewalk run round the island")
+        aprons = [c for c in chunks if c.get("surface_id") == "island"]
+        self.assertTrue(aprons)
+        self.assertEqual({(c["m"], c["w"]) for c in aprons}, {("italy_cobblestone", islands.ISLAND_BAND_M)})
+        L = sum(float(np.hypot(*np.diff(np.array(c["n"])[:, :2], axis=0).T).sum()) for c in aprons)
+        self.assertGreater(L, 2 * math.pi * (R - 4) * 0.85, "the band goes most of the way round")
         for w in walks:
             if "corner" in w or w.get("fid") == "island":
                 continue
@@ -141,11 +142,10 @@ class IslandTest(unittest.TestCase):
             self.assertGreater(float(np.hypot(mid[0] - cx, mid[1] - cy)), R - 1.0,
                                "no sidewalk facing the island")
 
-    def test_roundabout_on_a_tile_corner_curb_shared_by_its_tiles(self):
-        # a roundabout on the corner of four tiles: each tile its part of the curb (clipped to its box; a geotile's
-        # skin cuts them at its quad), together all the way round with no gap, and the same vertices either side of a
-        # seam (the whole ring simplified before it is clipped). (gave the whole curb to the tile with the
-        # island's centre: with the geotiles' skins clipping at the quad the other three quarters were lost.)
+    def test_roundabout_on_a_tile_corner_band_drawn_by_its_tiles(self):
+        # a roundabout on the corner of four tiles: each tile draws its part of the island's paved band (clipped to its
+        # box, as every draped piece), together all the way round. (the whole band given to the tile with the
+        # island's centre lost the other three quarters once geotiles' skins clipped at the quad.)
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from test_roads import FRAME, flat, features, rules
         R, cx, cy = 22.0, 3.0, -2.0
@@ -156,23 +156,16 @@ class IslandTest(unittest.TestCase):
                 for a in (0.3, math.pi / 2 + 0.3, math.pi + 0.3, 3 * math.pi / 2 + 0.3)]
         f = features([ring] + arms, ["tertiary"] * 5)
         f.rules["oneway"] = rules([(0, 1.0)], "float")
-        total, pts = 0.0, []
+        pts = []
         for tx, ty in ((0, 0), (-1, 0), (0, -1), (-1, -1)):
-            walks = []
-            roads.build_tile(FRAME, tx, ty, [f], flat, lambda la, lo: np.ones(np.shape(la), bool), walks=walks)
-            for w in walks:
-                if w.get("fid") == "island":
-                    total += float(np.hypot(*np.diff(w["pts"][:, :2], axis=0).T).sum())
-                    pts.append(w["pts"][:, :2])
-        self.assertGreaterEqual(len(pts), 4, "a piece in each tile")
+            chunks = roads.build_tile(FRAME, tx, ty, [f], flat, lambda la, lo: np.ones(np.shape(la), bool), walks=[])
+            tile = [np.array(c["n"])[:, :2] for c in chunks if c.get("surface_id") == "island"]
+            self.assertTrue(tile, "a piece in each tile")
+            pts.extend(tile)
         r = np.hypot(*(np.concatenate(pts) - (cx, cy)).T)
-        self.assertLess(float(r.max() - r.min()), 0.3, "one curb ring")
-        L1 = 2 * math.pi * float(r.mean())
-        self.assertAlmostEqual(total, L1, delta=0.02 * L1, msg="all the way round")
-        ends = np.array([p[k] for p in pts for k in (0, -1)])
-        for e in ends:              # every cut end meets another piece's
-            d = np.hypot(*(ends - e).T)
-            self.assertLess(np.sort(d)[1], 1e-6)
+        self.assertLess(float(r.max() - r.min()), 0.3, "one band ring")
+        angles = np.concatenate([np.arctan2(p[:, 1] - cy, p[:, 0] - cx) for p in pts])
+        self.assertEqual(len(np.unique(np.floor((angles + math.pi) / (math.pi / 4)) % 8)), 8, "all the way round")
 
 
 class RingTest(unittest.TestCase):
