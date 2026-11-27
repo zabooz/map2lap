@@ -153,6 +153,7 @@ static const wchar_t *race_gate(bool allow_circuit) {
 
 #include "green_clock.h"
 #include "rollover.h"
+#include "spacing.h"
 #include "probe.h"
 
 typedef struct {
@@ -166,6 +167,7 @@ typedef struct {
 static Feature features[] = {
     { L" green=", green_gate, green_start, green_stop, NULL },
     { L" rollover=", rollover_gate, rollover_start, rollover_stop, NULL },
+    { L" spacing=", spacing_gate, spacing_start, spacing_stop, NULL },
     { L" probe=", probe_gate, probe_start, probe_stop, NULL }
 };
 

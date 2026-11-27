@@ -452,6 +452,10 @@ def race_bytes(raw, args, ac, track):
         ini[f'CAR_{slot}']['AI_LEVEL'] = str(strength)
     if getattr(args, 'dll_probe', False):
         ini['MAP2LAP_PROBE'] = {'ACTIVE': '1'}  # read by map2lap.dll's probe feature
+    spacing = {k: str(v) for k, v in (('SIDE', getattr(args, 'side', None)), ('PASS', getattr(args, 'pass_factor', None)))
+               if v is not None}
+    if spacing:
+        ini['MAP2LAP_AI'] = spacing  # read by map2lap.dll's spacing feature
     out = io.StringIO()
     ini.write(out, space_around_delimiters=False)
     return out.getvalue().encode()
@@ -671,7 +675,8 @@ def begin(args):
     app = ac / 'apps/lua/M2LAutoStart'
     if app.exists():
         raise RuntimeError('M2LAutoStart already exists; its owner must remove it first')
-    if getattr(args, 'dll_probe', False) and not acplugin.install(str(ac)):
+    dll = getattr(args, 'dll_probe', False) or getattr(args, 'side', None) or getattr(args, 'pass_factor', None)
+    if dll and not acplugin.install(str(ac)):
         raise RuntimeError('Could not install map2lap.dll while AC is running')
     docs = Path(system.documents(str(ac))) / 'Assetto Corsa'
     cfg = track / 'extension/ext_config.ini'
@@ -859,6 +864,10 @@ def main():
     launch.add_argument('--aggression', type=int, default=50)
     launch.add_argument('--caution', type=cautions, metavar='X,X,...',
                         help='CSP AI caution: one value for all opponents or one per opponent')
+    launch.add_argument('--side', type=float, metavar='F',
+                        help='AI gap alongside a car in carHalfWidth units (stock 3.0, 1.5–5)')
+    launch.add_argument('--pass', dest='pass_factor', type=float, metavar='F',
+                        help='base of all AI passing distances in carHalfWidth units (stock 2.5, 1.5–5)')
     launch.add_argument('--dll-probe', action='store_true',
                         help='install map2lap.dll and log AI hook bytes and per-car AIDriver values')
     launch.add_argument('--timeout', type=int, default=1200, help='wall seconds including loading')

@@ -241,6 +241,16 @@ The two repetitions at each caution value show substantial variation in followin
 A conversion from caution to bumper gap would need a paced leader and repeated following
 on the same stretch at the same speeds.
 
+### Spacing trial
+
+The DLL's spacing feature redirects the two multiplies to its own floats in a page within rel32 reach of
+`acs.exe`, because the 3.0 and 2.5 constants are shared `.rdata` pool entries (84 and 12 readers).
+`race.ini` `[MAP2LAP_AI]` requests `SIDE=` (stock 3.0, alongside) and `PASS=` (stock 2.5, the base of all
+passing distances), each 1.5–5 carHalfWidth; a missing key leaves that instruction stock. Under CSP 0.2.11 the
+probe showed CSP hooks only at function entries, so the two sites are stock before the trial.
+`tools/ai_race.py start <track> --side 2.2 --pass 1.9` installs the DLL and requests both.
+[Spacing](../native/acplugin/spacing.h)
+
 ## Measuring a change
 
 Run `tools/ai_race.py start <track> --opponents 18 --laps 3 --car bmw_m3_e30_dtm` on a test track.
