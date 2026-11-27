@@ -243,12 +243,16 @@ on the same stretch at the same speeds.
 
 ### Spacing trial
 
-The DLL's spacing feature redirects the two multiplies to its own floats in a page within rel32 reach of
-`acs.exe`, because the 3.0 and 2.5 constants are shared `.rdata` pool entries (84 and 12 readers).
+The DLL's spacing feature redirects single instructions to its own floats in a page within rel32 reach of
+`acs.exe`, because the constants are shared `.rdata` pool entries (3.0 and 2.5 have 84 and 12 readers).
 `race.ini` `[MAP2LAP_AI]` requests `SIDE=` (stock 3.0, alongside), `PASS=` (2.5, the base of all passing
-distances), `PER_CAR=` (0.2 extra room per car ahead), `TARGET=` (1.5, passing target and in-the-way overlap)
-and `APEX=` (200 m corner gate); a missing key leaves that instruction stock. Ranges and effects are in the source. Under CSP 0.2.11 the
-probe showed CSP hooks only at function entries, so the two sites are stock before the trial.
+distances), `PER_CAR=` (0.2 extra room per car ahead), `TARGET=` (1.5, passing target only) and `APEX=`
+(200 m corner gate); a missing key leaves that instruction stock. The passing target multiplies by `xmm15`,
+which three other checks also read (in-the-way overlap, time-to-impact base, corner shift), so its 5-byte
+`mulss` becomes a jump to a stub in that page, which reads the float and jumps back. Each site changes 4 or
+5 bytes in one store within a cache line, so a running AI thread never executes a torn instruction.
+Ranges and effects are in the source. Under CSP 0.2.11 the probe showed CSP hooks only at function entries,
+so the sites are stock before the trial.
 `tools/ai_race.py start <track> --side 2.2 --per-car 0.05 --target 1.15 --apex 80` installs the DLL and requests them.
 [Spacing](../native/acplugin/spacing.h)
 

@@ -108,6 +108,35 @@ static bool known_image(const unsigned char *base) {
     return true;
 }
 
+typedef uint32_t __attribute__((aligned(1))) unaligned_u32;
+typedef uint64_t __attribute__((aligned(1))) unaligned_u64;
+
+/* Write to[] over site[], which holds from[]. When the differing bytes span at most 8, they go out as one 4- or
+   8-byte store inside a 64-byte cache line, which x86 performs atomically even unaligned: a thread executing the
+   site sees the old or the new instruction, never a torn rel32. The spacing trial changes 4 or 5 bytes while AI
+   threads may run. Longer patches (green, rollover; applied while the race loads) are written byte by byte.
+   The store may cover up to 7 unchanged bytes around the site, rewritten with their current value. */
+static void store_bytes(unsigned char *site, const unsigned char *to, const unsigned char *from, size_t count) {
+    size_t first = count, last = 0;
+    for (size_t i = 0; i < count; ++i)
+        if (from[i] != to[i]) { if (first == count) first = i; last = i; }
+    if (first == count) return;
+    size_t width = last - first < 4 ? 4 : 8;
+    unsigned char *at = site + first;
+    if (((uintptr_t)at & 63) + width > 64) at = site + last + 1 - width;  // end the store at the last change
+    if (last - first >= 8 || ((uintptr_t)at & 63) + width > 64) {
+        for (size_t i = first; i <= last; ++i) site[i] = to[i];
+        return;
+    }
+    uint64_t word = 0;
+    for (size_t k = 0; k < width; ++k) {
+        ptrdiff_t i = at + k - site;
+        word |= (uint64_t)(i >= 0 && (size_t)i < count ? to[i] : at[k]) << (8*k);
+    }
+    if (width == 4) *(volatile unaligned_u32 *)at = (uint32_t)word;
+    else *(volatile unaligned_u64 *)at = word;
+}
+
 static bool change_instructions(unsigned char *site, const unsigned char *prior,
                                 const unsigned char *next, size_t count) {
     unsigned char actual[64];
@@ -115,14 +144,17 @@ static bool change_instructions(unsigned char *site, const unsigned char *prior,
     if (!read_bytes(site, actual, count)) return false;
     for (size_t i = 0; i < count; ++i)
         if (actual[i] != prior[i]) return false;
+    // Unlock 8 bytes either side as well: an atomic store can reach that far beyond the site.
+    unsigned char *open = site - 8;
+    size_t span = count + 16;
     unsigned long original, ignored;
-    if (!VirtualProtect(site, count, 0x40, &original)) return false;
-    for (size_t i = 0; i < count; ++i) site[i] = next[i];
+    if (!VirtualProtect(open, span, 0x40, &original)) return false;
+    store_bytes(site, next, prior, count);
     if (FlushInstructionCache(GetCurrentProcess(), site, count) &&
-        VirtualProtect(site, count, original, &ignored)) return true;
-    for (size_t i = 0; i < count; ++i) site[i] = prior[i];
+        VirtualProtect(open, span, original, &ignored)) return true;
+    store_bytes(site, prior, next, count);
     FlushInstructionCache(GetCurrentProcess(), site, count);
-    VirtualProtect(site, count, original, &ignored);
+    VirtualProtect(open, span, original, &ignored);
     return false;
 }
 
