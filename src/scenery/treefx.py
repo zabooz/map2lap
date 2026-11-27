@@ -776,6 +776,21 @@ def png(img):
 # TreeFX crowns at 0.8 of CSP's full brightness keep the ratio to the ground's light values (obj_to_kn5.VALUES):
 # at 1.0 the trees stood out brighter than the darker meadow under Clear.
 BRIGHTNESS = 0.8
+SNOW_WHITE_GAIN = 1.5  # Albedo of fully covered snow relative to CSP's original winter white, before clipping.
+
+
+def _snow_atlas(texture):
+    """Lift winter foliage luminance while preserving alpha and TreeFX's green-minus-red mask. Pure."""
+    pixels = np.array(texture)
+    rgb = pixels[:, :, :3].astype(np.float32)
+    # The generated tree.ini uses LEAVES MULT=20, OFFSET=0. Adding the same
+    # amount to all channels preserves that mask, including along needle edges.
+    leaf = np.clip((rgb[:, :, 1] - rgb[:, :, 0]) * (20 / 255), 0, 1)
+    leaf[T:, T:] = 0  # The bark quadrant also supplies the crown's permanent wood.
+    luminance = rgb @ np.array([0.2125, 0.7154, 0.0721], np.float32)
+    lift = np.minimum(np.rint(luminance * (SNOW_WHITE_GAIN - 1) * leaf), 255 - rgb.max(axis=2))
+    pixels[:, :, :3] = rgb + lift[:, :, None]
+    return Image.fromarray(pixels)
 
 
 def tree_ini(name, H, W, meshes):
@@ -796,14 +811,21 @@ def tree_ini(name, H, W, meshes):
 
 
 @functools.lru_cache(maxsize=96)
-def bin_bytes(name, season='summer'):
+def bin_bytes(name, season='summer', *, bright_snow=False):
     """One shared model/geometry for a species, with its selected foliage atlas. Pure."""
     _, lods = model(name)
     tex = season_texture(name, season)
+    # The shrub leaf clusters already reach the luminance of snow-brightened spruce needles.
+    # Their native TreeFX winter shading keeps the individual clusters visible in direct sun.
+    snow = bright_snow and season == 'winter' and name not in DECIDUOUS and name not in BUSHES
+    if snow:
+        tex = _snow_atlas(tex)
     H, W = size(name)
     # CSP caches textures by filename, across loads. Winter's transparent foliage must
     # never replace summer's atlas in that cache, even when the model geometry is shared.
     prefix = f'm2l_{name}_f{TREE_FORMAT}_{season}'
+    if snow:
+        prefix += f'_snow{round(100 * SNOW_WHITE_GAIN)}'
     textures = [(f"{prefix}_d.png", png(tex)), (f"{prefix}_n.png", png(Image.new("RGBA", (64, 64), (128, 128, 255, 255))))]
     meshes = [(f"{prefix}_lod{i}.mesh", mesh_bytes(m, textures, W / 2, H)[0]) for i, m in enumerate(lods)]
     marker = f'\n[MAP2LAP]\nTREE_FORMAT={TREE_FORMAT}\nSPECIES={name}\nSEASON={season}\nDECIDUOUS={int(name in DECIDUOUS)}\n'
@@ -815,9 +837,9 @@ def bin_bytes(name, season='summer'):
     return buffer.getvalue()
 
 
-def runtime_name(name, season):
+def runtime_name(name, season, *, bright_snow=False):
     """CSP cache identity of an owned species, season and complete generated payload. Pure."""
-    digest = hashlib.sha256(bin_bytes(name, season)).hexdigest()[:16]
+    digest = hashlib.sha256(bin_bytes(name, season, bright_snow=bright_snow)).hexdigest()[:16]
     return f'm2l_runtime_{name}_f{TREE_FORMAT}_{season}_{digest}.bin'
 
 
