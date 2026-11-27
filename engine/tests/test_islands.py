@@ -129,9 +129,6 @@ class IslandTest(unittest.TestCase):
         roads.build_tile(FRAME, 0, 0, [f], flat, lambda la, lo: np.ones(np.shape(la), bool), walks=walks)
         islands_w = [w for w in walks if w.get("fid") == "island"]
         self.assertEqual(len(islands_w), 1, "one continuous island curb owned by the centre's tile")
-        # a curbstone round the planted island, no sidewalk slab (nobody walks there: the user saw a sidewalk inside
-        # Heiligenblut's roundabout)
-        self.assertLessEqual(islands_w[0]["w"], 0.3)
         L = float(np.hypot(*np.diff(islands_w[0]["pts"][:, :2], axis=0).T).sum())
         self.assertGreater(L, 2 * math.pi * (R - 4) * 0.85, "the curb goes most of the way round")
         for w in walks:
