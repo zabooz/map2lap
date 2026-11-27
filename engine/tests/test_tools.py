@@ -46,9 +46,13 @@ class AIRaceTest(unittest.TestCase):
             (track / 'ui/ui_track.json').write_text('{"pitboxes": 4}')
 
             def grid(args):
-                raw = ai_race.race_bytes(b'[RACE]\n', args, ac, track)
+                # A Play race leaves its AI spacing and an earlier probe in race.ini; a measured race starts stock.
+                stale = b'[RACE]\n[MAP2LAP_AI]\nSIDE=2.2\n[MAP2LAP_PROBE]\nACTIVE=1\n'
+                raw = ai_race.race_bytes(stale, args, ac, track)
                 ini = configparser.ConfigParser()
                 ini.read_string(raw.decode())
+                self.assertNotIn('MAP2LAP_AI', ini)
+                self.assertNotIn('MAP2LAP_PROBE', ini)
                 return [ini.getint(f'CAR_{i}', 'AI_LEVEL') for i in range(1, 4)]
 
             cli = ['ai_race', 'start', 'circuit', '--car', 'bmw', '--opponents', '3']

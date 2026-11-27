@@ -10,6 +10,14 @@ from track.route_race import ac_running
 
 DLL = Path(SRC) / 'bin/map2lap.dll'
 
+# race.ini [MAP2LAP_AI] for Play races: map2lap.dll's spacing feature (native/acplugin/spacing.h) lets opponents use
+# the room that is there. Factors of Car::carHalfWidth (half track + 0.3 m, 1.02 m for the BMW M3 E30 DTM, body 1.72 m):
+# SIDE 2.2 (stock 3.0) holds 0.5 m air alongside instead of 1.3 m; TARGET 1.3 (1.5) aims a pass 3.3 m beside the car
+# ahead instead of 3.8 m, the one change that made them pass at all; PER_CAR 0.05 (0.2) asks less room per car ahead;
+# APEX 80 (200 m) lets a pass start closer before a corner. Measured on heiligenblut_test with 12 opponents: passes
+# 6-10 per lap against 2-4 stock, somewhat more contacts. A car whose body is much wider than its track keeps less air.
+AI_SPACING = {'SIDE': '2.2', 'PER_CAR': '0.05', 'TARGET': '1.3', 'APEX': '80'}
+
 
 def _registry(raw, enable):
     """Edit only map2lap.dll assignments in [PLUGINS], preserving other bytes. Pure."""

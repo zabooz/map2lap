@@ -241,7 +241,14 @@ The two repetitions at each caution value show substantial variation in followin
 A conversion from caution to bumper gap would need a paced leader and repeated following
 on the same stretch at the same speeds.
 
-### Spacing trial
+### AI spacing
+
+Play races write `acplugin.AI_SPACING` to `race.ini` `[MAP2LAP_AI]` (`SIDE=2.2`, `PER_CAR=0.05`, `TARGET=1.3`,
+`APEX=80`), and practice and hotlap remove it. On `heiligenblut_test` with 12 opponents and one lap, opponents passed
+each other 6 and 10 times against 2 and 4 stock, with somewhat more contacts. Leaving TARGET out brought passes back
+to stock (2 and 2) and contacts to zero. Without SIDE, the cars ran as far apart alongside as stock. The two races
+without APEX passed about as often as with it. `tools/ai_race.py` removes an inherited `[MAP2LAP_AI]`: a measured race
+is stock unless its options request values.
 
 The DLL's spacing feature redirects single instructions to its own floats in a page within rel32 reach of
 `acs.exe`, because the constants are shared `.rdata` pool entries (3.0 and 2.5 have 84 and 12 readers).
@@ -253,7 +260,7 @@ which three other checks also read (in-the-way overlap, time-to-impact base, cor
 5 bytes in one store within a cache line, so a running AI thread never executes a torn instruction.
 Ranges and effects are in the source. Under CSP 0.2.11 the probe showed CSP hooks only at function entries,
 so the sites are stock before the trial.
-`tools/ai_race.py start <track> --side 2.2 --per-car 0.05 --target 1.15 --apex 80` installs the DLL and requests them.
+`tools/ai_race.py start <track> --side 2.2 --per-car 0.05 --target 1.3 --apex 80` installs the DLL and requests them.
 [Spacing](../native/acplugin/spacing.h)
 
 ## Measuring a change

@@ -437,7 +437,8 @@ def race_bytes(raw, args, ac, track):
     ini.optionxform = str
     ini.read_string(raw.decode('utf-8-sig'))
     for s in list(ini):
-        if s.upper().startswith(('CAR_', 'SESSION_')) and s.upper() != 'CAR_0':
+        # Play leaves its AI spacing in race.ini: a measured race is stock unless its options request the DLL.
+        if (s.upper().startswith(('CAR_', 'SESSION_')) and s.upper() != 'CAR_0') or s.upper() in ('MAP2LAP_AI', 'MAP2LAP_PROBE'):
             ini.remove_section(s)
     for s in ('REMOTE', 'BENCHMARK', '__PREVIEW_GENERATION', 'RESTART', 'REPLAY'):
         ini[s] = dict(ini[s], ACTIVE='0') if s in ini else {'ACTIVE': '0'}

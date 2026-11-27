@@ -84,7 +84,7 @@ class LaunchTest(unittest.TestCase):
         self.play.install_ai()
 
     def test_play_installs_for_races_and_supplies_offline_flags(self):
-        from app import mytracks
+        from app import acplugin, mytracks
         for kind, mode in [('route', 'practice'), ('route', 'hotlap'), ('route', 'race'), ('circuit', 'race')]:
             mytracks.save(self.play.track, {'kind': kind})
             opts = {'laps': 1, 'ai': {'opponents': 0}} if mode == 'race' else {}
@@ -94,6 +94,8 @@ class LaunchTest(unittest.TestCase):
                 self.assertNotIn('AB_GREEN', self.play.race.read_text())
                 for section in ('REMOTE', 'REPLAY'):
                     self.assertEqual(self.play.ini().get(section, 'ACTIVE'), '0')
+                spacing = dict(self.play.ini()['MAP2LAP_AI']) if self.play.ini().has_section('MAP2LAP_AI') else None
+                self.assertEqual(spacing, acplugin.AI_SPACING if mode == 'race' else None)
 
     def test_busy_or_failed_update_leaves_old_dll_and_race_starts(self):
         from app import mytracks

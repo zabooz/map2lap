@@ -686,6 +686,9 @@ def play(name, clock=None, weather_options=None, car=None, *, session=None, laps
             _write_race_grid(ini, player, ai, ac, installed)
         except (OSError, ValueError) as error:
             return 400, {"error": str(error)}
+    ini.remove_section("MAP2LAP_AI")
+    if session == "race":
+        ini["MAP2LAP_AI"] = acplugin.AI_SPACING  # opponents race closer (map2lap.dll, race sessions only)
     if clock is not None:
         if not ini.has_section("LIGHTING"):
             ini.add_section("LIGHTING")
