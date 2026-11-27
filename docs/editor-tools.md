@@ -90,6 +90,30 @@ contract is 23 consecutive columns of `count` little-endian values each, 92 byte
 is Float32 except `id` (Int32). In order they are `x, y, z, distance, id, speed, gas, brake, lat_g, radius, left, right,
 camber, direction, normal_x, normal_y, normal_z, segment_length, forward_x, forward_y, forward_z, tag, grade`.
 
+### Driving a circuit line
+
+**Record AI line** opens Practice on the installed circuit. The CSP app consumes a one-use token from Play’s
+race configuration, enters the car and arms AC’s fast-lane recorder. Cross start/finish, drive a complete lap
+and exit Practice. AC writes its completed lap on exit. Explicitly stopping the recorder after the crossing
+can export the first samples of the following lap. The dialog includes the native AI app controls for a manual start.
+
+The server checks the launched track, layout, Practice token and candidate revision after AC exits. A readable
+new lap is frozen by SHA-256, including AC’s trailing spline grid. The preview lists the hint zones that will
+apply. Placement uses the original spline’s route metres, driving level and the recorded lap’s forward order.
+An inherited stretch crossing a detour or ambiguous passage stays in the recipe. New hints anchor directly to
+the driven lap. Move and Redraw use the driven positions as their editing guide. The preview identifies applied
+and rejected corrections. Both sets of edits have separate reset controls and both are retained by default.
+
+When the spline supplies no side widths anywhere, the Editor draws a four-metre editing band centred on
+the driven positions. Missing headings come from neighbouring positions. Hint colours, endpoints and picking
+share these display edges. The point inspector reads the original spline fields, including zero widths.
+
+Accept records the source ID and both choices in one draft history step. For a recording the Editor and Save
+use the same v7 calculation: bank, forward direction and passing widths come from the driven positions, connected
+KN5 surface and mapped carriageway. The car's recorded speed, gas and brake profile follows its samples.
+Save installs the calculated spline in `ai/fast_lane.ai` and writes the applicable hints. It retains the previous spline and its route correspondence for
+Undo, and bundles the recording for Save as. Race checks the checksum of the chosen spline before launching opponents.
+
 ### Marking AI hint zones
 
 Choose **Danger zone**, **Corner speed**, **Braking** or **Speed limit** in the AI group. Click A and B on the

@@ -31,7 +31,7 @@ import server  # noqa: E402
 import server_editor  # noqa: E402
 from app import circuitlap, mapcache, materiallibrary, objectlibrary, mytracks, settings, system, trackcode, updater, version  # noqa: E402
 from scenery import cars, treefx  # noqa: E402
-from track import buildscenery, editorinfo, fastlane, kn5, make_track_folder, objectlist, obj_to_kn5, surfaceindex  # noqa: E402
+from track import ailinestate, buildscenery, editorinfo, fastlane, kn5, make_track_folder, objectlist, obj_to_kn5, surfaceindex  # noqa: E402
 from track.textures import dds_mipmaps  # noqa: E402
 
 # Test an isolated UI build without replacing the live generator page's bundles.
@@ -195,7 +195,7 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None, roof_material=None, ground_quality="sd", circuit=None, ai_moves=False, margin_profile=False, margin_redraw=False, hairpin=False):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None, roof_material=None, ground_quality="sd", circuit=None, ai_moves=False, margin_profile=False, margin_redraw=False, hairpin=False, timing_nodes=()):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     ground_specular: (ksSpecular, ksSpecularEXP) of its ground tiles, which then shine (else they have none).
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
@@ -231,7 +231,7 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
     if grass:
         road.name = "1GRASS_ground_0_0"
     tree.children = [road, ground("1GRASS_ground_-1_0", 1, -TILE, -TILE),
-                     ground("nocol_far_1", 2, -2000.0, 0.0, 4000.0, -3.0), kn5.Node(1, "AC_START_0", 1, matrix=START)]
+                     ground("nocol_far_1", 2, -2000.0, 0.0, 4000.0, -3.0), kn5.Node(1, "AC_START_0", 1, matrix=START), *timing_nodes]
     if ai_moves:
         # A street with two distinct edges in view for the band and its correction tests.
         textures[0] = (textures[0][0], dds(((92, 92, 92),)))
@@ -485,8 +485,16 @@ def stand_ins():
     server.csp.inspect = lambda ac: {"status": "installed", "version": "0.2.11", "build": 3465, "enabled": True}
     mapcache.usage = lambda: (5000000, 3)
     mapcache.clear = lambda: (calls.append(["map data cleared"]), 5000000)[1]
-    server.play = lambda name, clock=None, weather_options=None, car=None, *, session=None, laps=None, ai=None, grip=None: (
-        calls.append(["play", name] if laps is None else ["play", name, laps]), (200, {"ok": True}))[1]
+    real_play = server.play
+    def play(name, clock=None, weather_options=None, car=None, *, session=None, laps=None, ai=None, grip=None, record=False):
+        calls.append(["play", name] if laps is None else ["play", name, laps])
+        if record:
+            return real_play(name, clock, weather_options, car, session=session, record=True)
+        return 200, {"ok": True}
+    server.play = play
+    server.race_ini = lambda: str(Path(AC, "cfg/race.ini"))
+    system.ensure_steam = lambda: True
+    system.start_ac = lambda *args, **kwargs: ac_open.set()
     calculate = server.ailanejobs.compute
     def lane_worker(*args):
         result = calculate(*args)
@@ -631,6 +639,44 @@ class Handler(server.Handler):
                        tree_model=body.get('tree_model', 'spruce'), terrain_cell_m=body.get('terrain_cell_m', 2),
                        parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'), structure=body.get('structure'), roof_material=body.get('roof_material'), ground_quality=body.get('ground_quality', 'sd'), ai_moves=body.get('ai_moves', False),
                        hairpin=body.get('hairpin', False), margin_profile=body.get('margin_profile', False), margin_redraw=body.get('margin_redraw', False))
+        elif self.path == "/__test/recording-circuit":
+            nodes = [obj_to_kn5.empty("AC_TIME_0_" + side, (x, 0, -96), (0, 0, 1))
+                     for side, x in (("L", 164), ("R", 172))]
+            make_track("alpha", "Alpha Test", circuit={"kind": "circuit"}, timing_nodes=nodes, with_trees=False)
+            folder = Path(AC, "content/tracks/alpha")
+            theta = np.linspace(0, 2*np.pi, 96, endpoint=False)
+            xyz = np.column_stack((128+40*np.cos(theta), np.zeros(96), -96+40*np.sin(theta)))
+            np.savetxt(folder / fastlane.ROUTE, xyz[:, [0, 2]], header=f"anchor {ANCHOR[0]} {ANCHOR[1]}", comments="")
+            route = ailinestate._route(folder, True)
+            def anchor(m):
+                return dict(metre=m, route=route.key, level=0, origin=list(ANCHOR), context=route.context(m).tolist())
+            margins = [dict(id=f"brake{i}", kind="braking", value=.9, start=anchor(m), end=anchor(m+15))
+                       for i, m in enumerate((20, 60, 120))]
+            move = dict(id="bend", kind="move", anchor=anchor(90), free=True, range=20, routeOffset=1.)
+            mytracks.save(folder, {**mytracks.load(folder), "edits":{"aiMargins":margins, "aiCorrections":[move]}})
+            pts = np.zeros(len(xyz), fastlane.POINT)
+            pts["pos"] = xyz
+            fastlane._write_lane(folder / fastlane.FILE, pts, np.zeros(len(pts), fastlane.DETAIL))
+            ailinestate.record_ready(folder, ailinestate.input_key(folder / "alpha.kn5", True), circuit=True,
+                                     metres=route.metres[:-1])
+            for file, contents in (("cfg/race.ini", "[RACE]\nMODEL=car_a\n"),
+                                   ("system/cfg/assetto_corsa.ini", "[AC_APPS]\nENABLE_DEV_APPS=0\n")):
+                ini = Path(AC, file)
+                ini.parent.mkdir(parents=True, exist_ok=True)
+                ini.write_text(contents)
+        elif self.path == "/__test/finish-recording":
+            folder = Path(AC, "content/tracks/alpha/ai")
+            source, details, _ = fastlane.read_lane(folder / "fast_lane.ai")
+            points = source.copy()
+            candidate = folder / "fast_lane.ai.candidate"
+            points["pos"][:, 0] += 1.5 if candidate.exists() else 1.
+            if body.get("detour"):
+                points["pos"][20:29, 1] += 10
+            if body.get("invalid"):
+                candidate.write_bytes(b"incomplete v7 file")
+            elif not body.get("cancel"):
+                fastlane._write_lane(candidate, points, details)
+            ac_open.clear()
         elif self.path == "/__test/ai-line":
             lane = Path(AC, "content", "tracks", body["name"], fastlane.FILE)
             points = np.zeros(3, dtype=fastlane.POINT)

@@ -3,11 +3,11 @@
 
 /** The parts of a step that are lists of objects, sent by item key (trackhistory.KEYED); the others go as they are. */
 const KEYED = ["removed", "heights", "placed", "copies", "models", "surfaces", "trees", "walls", "kerbs", "stitches", "aiCorrections", "aiMargins"] as const;
-const PLAIN = ["objectSorts", "paints", "treeSpacing", "carDensity"] as const;
+const PLAIN = ["objectSorts", "paints", "treeSpacing", "carDensity", "aiLine"] as const;
 export const HISTORY_BYTES = 10 * 1024 * 1024;   // (trackhistory.MAX_BYTES)
 
 /** A draft at one point, as edits.ts keeps its steps. */
-export type Snapshot = {[K in typeof KEYED[number]]: object[]} & {objectSorts: string[]; paints: string[]; treeSpacing?: unknown; carDensity?: unknown};
+export type Snapshot = {[K in typeof KEYED[number]]: object[]} & {objectSorts: string[]; paints: string[]; treeSpacing?: unknown; carDensity?: unknown; aiLine?: string | null};
 
 type Entry = Record<string, unknown>;
 

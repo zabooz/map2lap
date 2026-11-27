@@ -626,3 +626,25 @@ test("Side margin wheel notches undo together until the side, stretch, input or 
   }
   edits.stop();
 });
+
+test("accepting a driven line and either reset is one persistent history step", async () => {
+  const anchor = {metre: 20, level: 0, origin: [0,0], context: [[15,0],[20,0],[25,0]]};
+  for (const hints of [true, false]) for (const moves of [true, false]) {
+    const {edits, s} = await started();
+    for (const id of ["a","b","c"])
+      edits.addAiMargin({id, start:anchor, end:{...anchor, metre:40}, kind:"braking", value:0.9});
+    edits.addAiCorrection({id:"bend", kind:"move", free:true, anchor, range:20, routeOffset:1});
+    edits.acceptRecording("1".repeat(64), hints, moves);
+    expect(edits.state().aiMargins.length).toBe(hints ? 0 : 3);
+    expect(edits.state().aiCorrections.length).toBe(moves ? 0 : 1);
+    edits.undo();
+    expect(edits.state().aiLine).toBeNull();
+    expect(edits.state().aiMargins.length).toBe(3);
+    expect(edits.state().aiCorrections[0].id).toBe("bend");
+    edits.saveNow(); await settle();
+    expect(Object.values(historyOf(s, 0).entries)).toContainEqual(expect.objectContaining({aiLine:"1".repeat(64)}));
+    edits.redo();
+    expect(edits.state().aiLine).toBe("1".repeat(64));
+    edits.stop();
+  }
+});

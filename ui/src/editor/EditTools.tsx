@@ -27,6 +27,7 @@ import {useBand} from "./tools/useBand";
 import {useSeparation} from "./tools/useSeparation";
 import {useBank} from "./tools/useBank";
 import {useAiHintZones} from "./tools/useAiHintZones";
+import {RecordLine} from "./tools/RecordLine";
 import {useAiLine} from "./tools/useAiLine";
 import {useSave} from "./state/useSave";
 import type {MenuAt, WheelKeys} from "./types";
@@ -112,7 +113,8 @@ export function EditTools({name, title, routeTrack, loaded, timedMode, visible, 
   const setPlacingWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { placingWheel.current = wheel; }, []);
   const [aiLineWrites, setAiLineWrites] = useState(0);
   const hintTool = toolDef(tool);
-  const aiLine = useAiLine({name, view, routeTrack, loaded, mode: tool === "ai-move" ? "move" : tool === "ai-redraw" ? "redraw" : hintTool.hintKind ? "margin" : null, writes: aiLineWrites,
+  const source = state.aiLine ?? (state.recipe?.aiLine ? "original" : null);
+  const aiLine = useAiLine({name, view, source, routeTrack, loaded, mode: tool === "ai-move" ? "move" : tool === "ai-redraw" ? "redraw" : hintTool.hintKind ? "margin" : null, writes: aiLineWrites,
     unsaved: unsavedAiDraft, edits, moves: state.aiCorrections, editable, onNote: show});
   const hints = useAiHintZones(name, view, edits, state.aiMargins, hintTool, editable, aiLine, setNote);
   const saving = useSave({lanePending: aiLine.pending && !aiLine.working, name, timedMode, edits, state, view, onSaved: savedName => {
@@ -290,7 +292,9 @@ export function EditTools({name, title, routeTrack, loaded, timedMode, visible, 
     <>
       {fileHost && createPortal(<FileButtons edits={edits} view={view} saving={saving} onLibrary={openLibrary} />, fileHost)}
       {savedHost && createPortal(saving.savedText, savedHost)}
-      {toolsHost && createPortal(<ToolPanel routeTrack={routeTrack} aiPanel={aiLine.panel(() => void saving.save(true), saving.busy || saving.recalculating)} state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={openModels} />, toolsHost)}
+      {toolsHost && createPortal(<ToolPanel routeTrack={routeTrack} aiPanel={<>{aiLine.panel(() => void saving.save(true), saving.busy || saving.recalculating)}
+        {timedMode === "circuit" && <RecordLine name={name} edits={edits} state={state} view={view}
+          disabled={!editable || saving.busy || aiLine.working} onAccept={() => { if (tool !== "ai-move") takeUp("ai-move"); view.focus(); }} />}</>} state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={openModels} />, toolsHost)}
       <Models name={name} view={view} edits={edits} replace={replaceTargets} enabled={working("model")}
         onWheel={setPlacingWheel}
         choosing={libraryTab === "objects"} onClose={closeMaterial} onPlace={() => switchTo("model")}

@@ -2,7 +2,7 @@ import {expect, test} from "bun:test";
 import {HistoryKeys, type Snapshot} from "./history";
 
 const NONE: Snapshot = {removed: [], objectSorts: [], heights: [], placed: [], copies: [], paints: [], models: [], surfaces: [], trees: [],
-  walls: [], kerbs: [], stitches: [], aiCorrections: [], aiMargins: [], treeSpacing: null, carDensity: null};
+  walls: [], kerbs: [], stitches: [], aiCorrections: [], aiMargins: [], aiLine: null, treeSpacing: null, carDensity: null};
 const h = (id: string) => ({id, x: 0, z: 0, nx: 1, nz: 1, mm: [1]});
 
 test("a step goes once, by keys; its items once, however many steps hold them", () => {

@@ -11,6 +11,8 @@ export const EDGE_COLOUR = "#eef8ff";
 const SPEED_STOPS = SPEED_COLOURS.map(hex => new THREE.Color(hex));
 const LIFT_M = 0.3;                 // As with Bank road, clear the road surface and its paint.
 const LINE_PX = 2;
+// A car width per side leaves room to see and select overlapping hints when AC supplies no limits.
+const EDIT_HALF_WIDTH_M = 2;
 // One road-car length on either side damps individual terrain cells in the overlay.
 const EDGE_WINDOW_M = 5;
 const HOVER_PX = 8;                 // Pointer can be a few pixels off the thin centre line.
@@ -30,6 +32,18 @@ export function laneEdges([x, y, z]: Place, [fx, fz]: [number, number], [nx, ny,
     return [x + dx, y - (ny ? (nx * dx + nz * dz) / ny : 0), z + dz];
   };
   return [edge(left), edge(-right)];
+}
+
+/** Use the stored heading or the tangent between neighbouring driven positions. Pure. */
+function laneHeading(lane: InstalledAiLine, i: number): [number, number] {
+  const fx = lane.forwardX[i], fz = lane.forwardZ[i];
+  if (fx || fz) return [fx,fz];
+  const last = lane.count - 1;
+  const before = i > 0 ? i-1 : lane.closed ? last : i;
+  const after = i < last ? i+1 : lane.closed ? 0 : i;
+  const dx = lane.x[after]-lane.x[before], dz = lane.z[after]-lane.z[before];
+  if (dx || dz) return [dx,dz];
+  return [lane.x[after]-lane.x[i], lane.z[after]-lane.z[i]];
 }
 
 /** Average each side's width along the road, preserving open endpoints and the circuit seam. Pure. */
@@ -243,8 +257,9 @@ export class AiLineDraw {
     this.closed=lane.closed;
     this.faded=lane.validity === "pending" || lane.validity === "failed";
     this.locations=Array.from(lane.x, (x,i): Place => [x,lane.y[i]+LIFT_M,lane.z[i]]);
-    this.rows=this.locations.map((at,i) => ({at, edges:laneEdges(at,[lane.forwardX[i],lane.forwardZ[i]],
-      [lane.normalX[i],lane.normalY[i],lane.normalZ[i]],lane.left[i],lane.right[i]),
+    this.rows=this.locations.map((at,i) => ({at, edges:laneEdges(at,laneHeading(lane,i),
+      [lane.normalX[i],lane.normalY[i],lane.normalZ[i]],
+      lane.hasSideLimits ? lane.left[i] : EDIT_HALF_WIDTH_M, lane.hasSideLimits ? lane.right[i] : EDIT_HALF_WIDTH_M),
       colour:laneSpeedColour(lane.speed[i],lane.speeds.slow,lane.speeds.fast).toArray()}));
     const edges = displayEdges(this.locations, this.rows.map(row => row.edges), this.closed);
     this.rows.forEach((row,i) => { row.edges = edges[i]; });

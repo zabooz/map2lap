@@ -3,11 +3,14 @@ from concurrent.futures import Future
 from contextlib import contextmanager
 from weakref import WeakValueDictionary
 import json
+import shutil
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import threading
+
+import numpy as np
 
 from app import mytracks, named
 from app.paths import SRC
@@ -84,7 +87,13 @@ def _calculate(model, circuit, slot, revision, original, key):
     # Same filesystem as the installed track for os.replace; outside the folder a Save may swap.
     with tempfile.TemporaryDirectory(dir=model.parent.parent, prefix=".map2lap_lane_") as temporary:
         target = Path(temporary) / "fast_lane.ai"
-        answer = compute(model, circuit, target)
+        recording = original.get("recorded")
+        if recording:
+            from app import lanerecording
+            prepared, fields = lanerecording.publication(model, key, model)
+            shutil.copyfile(prepared, target)
+        else:
+            answer = compute(model, circuit, target)
         with slot.condition:
             if revision[0] != slot.revision or revision[1] != objectlist.state_of(model):
                 return None
@@ -95,6 +104,14 @@ def _calculate(model, circuit, slot, revision, original, key):
             state = ailinestate.status(model.parent, key)
             if state != original:
                 return state if state["status"] == "manual" else None
+            if recording:
+                margins, rejected = ailinestate._saved_margins(model.parent)
+                native = lanerecording.editing(model,key)[1][5], np.asarray(fields["drivenMetres"])
+                metres = None if fields["metres"] is None else np.asarray(fields["metres"])
+                hints, _ = ailinestate._render(model.parent, target, circuit, margins, rejected, metres,
+                                              "recorded", fields["gaps"], native=native)
+                ailinestate.publish_files(model.parent, key, target, fields, hints.data)
+                return ailinestate.status(model.parent, key)
             if answer["inputs"] != key:
                 return _failed(answer.get("message", "The worker read different track inputs. Please retry."))
             if route_race.ac_running():
@@ -113,7 +130,7 @@ def _installed_state(folder, circuit, state, retry, place_margins):
     status = state["status"]
     if place_margins and status in ("ready", "manual"):
         hints = ailinestate.hints_state(folder, circuit)
-        if status == "ready" and hints["unplaced"] == "recalculate":
+        if status == "ready" and hints["unplaced"] == "recalculate" and not state.get("recorded"):
             return None
         # A hand-recorded lane has no route correspondence for placing AI hint zones.
         if status == "ready" or hints["unplaced"] == "manual":
@@ -121,6 +138,8 @@ def _installed_state(folder, circuit, state, retry, place_margins):
                 ailinestate.sync_hints(folder, circuit, report_deferred=True)
                 hints["state"] = "current"
             return {**state, "hints": hints}
+    if state.get("recorded"):
+        return None if status == "pending" else state
     if status == "pending" or retry and status in ("manual", "failed"):
         return None
     return state
@@ -149,7 +168,7 @@ def ensure(model, circuit, *, force=False, retry=False, saved_inputs=None, place
                     original = ailinestate.status(model.parent, key)
                     if place_margins and route_race.ac_running():
                         raise ailinestate.Deferred("Close Assetto Corsa before updating the AI line.")
-                    if not force:
+                    if not force or original.get("recorded"):
                         installed = _installed_state(model.parent, circuit, original, retry, place_margins)
                         if installed is not None:
                             return installed

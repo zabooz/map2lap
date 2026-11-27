@@ -51,7 +51,7 @@ function ScalarField({limit, value, enabled, change, view}: {
 /** Mark, inspect and adjust stretches of the installed line. The active type owns picking and the value controls. */
 export function useAiHintZones(name: string, view: TrackView, edits: TrackEdits, zones: AiMargin[], tool: ToolDef, editable: boolean,
                             ai: AiLine, onNote: (text:string) => void): ToolController {
-  const {guide, lane, refresh, reloadInstalled} = ai;
+  const {guide, lane, source, refresh, reloadInstalled} = ai;
   const kind = tool.hintKind;
   const enabled = tool.group === "ai" && (kind ? editable : zones.length > 0);
   const margins = useMemo(() => zones.filter(m => (m.kind ?? "danger") === kind), [zones, kind]);
@@ -60,7 +60,8 @@ export function useAiHintZones(name: string, view: TrackView, edits: TrackEdits,
   const [selected, setSelected] = useState<string | null>(null);
   const [hover, setHover] = useState<{fraction: number; owner?: MarginLocation} | null>(null);
   const [reply, setReply] = useState<{zones: AiMargin[]; refresh: string; revision: string; data?: MarginPreview; error?: string}>();
-  const revision = lane?.revision;
+  const revision = lane?.revision, file = lane?.file;
+  const corrections = file ? edits.state().aiCorrections : undefined;
   const laneKey = `${revision}:${refresh}`;
   const marked = draftMarks?.laneKey === laneKey ? draftMarks : null;
   const correspondence = useRef<{revision: string; metres: number[] | null} | null>(null);
@@ -70,7 +71,7 @@ export function useAiHintZones(name: string, view: TrackView, edits: TrackEdits,
     let current = true;
     // One route metre per installed sample can dwarf the hint sections. Reuse it until the lane is refreshed.
     const withMetres = correspondence.current?.revision !== laneKey;
-    void post<MarginPreview & {changed?: boolean}>(`/api/editor/${encodeURIComponent(name)}/ai-line/margins`, {aiMargins: zones, revision, withMetres}).then(answer => {
+    void post<MarginPreview & {changed?: boolean}>(`/api/editor/${encodeURIComponent(name)}/ai-line/margins`, {aiMargins: zones, revision, withMetres, source, file, aiCorrections:corrections}).then(answer => {
       if (!current) return;
       if (answer.changed) {
         setReply(undefined);
@@ -96,7 +97,7 @@ export function useAiHintZones(name: string, view: TrackView, edits: TrackEdits,
       setReply({zones, refresh, revision, data: {...answer as MarginPreview, metres: correspondence.current?.metres}});
     });
     return () => { current = false; };
-  }, [enabled, revision, zones, refresh, laneKey, name, reloadInstalled, onNote]);
+  }, [enabled, revision, source, file, corrections, zones, refresh, laneKey, name, reloadInstalled, onNote]);
   // Place all types together. Switching tools can pick its zones immediately, and
   // changing a value keeps the existing endpoints pickable during the request.
   const sameLane = reply && reply.refresh === refresh && reply.revision === revision ? reply : null;
@@ -205,7 +206,8 @@ export function useAiHintZones(name: string, view: TrackView, edits: TrackEdits,
   const section = values.find(atHover);
   const scalar = scalarSections?.find(atHover);
   const message = current?.error || ai.lineMessage || (!lane && "Loading the installed AI line …");
-  const note = preview?.unplaced === "manual" ? "Not applied: the AI line was replaced by hand"
+  const note = preview?.unplaced === "recorded" ? "Stored only · no reliable route match on this recording"
+    : preview?.unplaced === "manual" ? "Not applied: the AI line was replaced by hand"
     : preview?.unplaced === "recalculate" || (marked && preview?.metres === null) ? `Not yet applied · Recalculate the AI line to place ${kind === "danger" ? "danger zones" : "AI hints"}` : undefined;
   const steps = kind && kind !== "danger" ? hintSteps(kind) : null;
   const sideField = (side: MarginSide) => <SideField side={side} value={existing?.[side] ?? null} enabled={!!target}

@@ -1,3 +1,4 @@
+import type {AiCorrection} from "../state/edits";
 import type {Place} from "../types";
 import {fetchBytes, fetchJson} from "./requests";
 
@@ -23,7 +24,7 @@ export interface AiLinePoint {
 }
 
 export interface AiHintsState {state: "current" | "stale"; unplaced: string | null; rejected?: Record<string, string>}
-export interface AiLineReady {hints?: AiHintsState; speedRange?: [number, number] | null; status: "ready"; canCalculate?: boolean; validity?: string; message: string | null; closed: boolean; revision: string; count: number}
+export interface AiLineReady {file?: string; skipped?: Record<string,string>; hints?: AiHintsState; speedRange?: [number, number] | null; status: "ready"; canCalculate?: boolean; validity?: string; message: string | null; closed: boolean; revision: string; count: number}
 interface AiLineUnavailable {hints?: AiHintsState; status: "missing" | "invalid"; canCalculate?: boolean; validity?: string; message: string; closed: null; revision: null; count: 0}
 export interface AiLineHover {point: AiLinePoint; metre: number | null}
 export type InstalledAiLine = ReturnType<typeof decodeAiLine>;
@@ -38,9 +39,11 @@ export function decodeAiLine(status: AiLineReady, buffer: ArrayBuffer) {
   let slow = Infinity, fast = -Infinity;
   if (status.speedRange) [slow, fast] = status.speedRange;
   else for (const v of speed) { slow = Math.min(slow, v); fast = Math.max(fast, v); }
-  return {...status, speeds: {slow, fast}, x: column(0), y: column(1), z: column(2), distance: column(3),
+  const left = column(10), right = column(11);
+  const hasSideLimits = left.some(width => width > 0) || right.some(width => width > 0);
+  return {...status, hasSideLimits, speeds: {slow, fast}, x: column(0), y: column(1), z: column(2), distance: column(3),
     id: new Int32Array(buffer, 4 * count * Int32Array.BYTES_PER_ELEMENT, count), speed,
-    gas: column(6), brake: column(7), lat_g: column(8), radius: column(9), left: column(10), right: column(11),
+    gas: column(6), brake: column(7), lat_g: column(8), radius: column(9), left, right,
     camber: column(12), direction: column(13), normalX: column(14), normalY: column(15), normalZ: column(16),
     segmentLength: column(17), forwardX: column(18), forwardY: column(19), forwardZ: column(20), tag: column(21), grade: column(22)};
 }
@@ -54,13 +57,16 @@ export function aiLinePoint(lane: InstalledAiLine, i: number): AiLinePoint {
 }
 
 /** Read the installed revision. Reuse the decoded columns when the status still names the same bytes. */
-export async function fetchAiLine(name: string, known: InstalledAiLine | null, signal: AbortSignal) {
-  const url = `/api/editor/${encodeURIComponent(name)}/ai-line`;
-  const status = await fetchJson<AiLineReady | AiLineUnavailable>(url, signal);
+export async function fetchAiLine(name: string, known: InstalledAiLine | null, signal: AbortSignal, source?: string | null, moves?: AiCorrection[]) {
+  const base = `/api/editor/${encodeURIComponent(name)}/ai-line`;
+  const prepared = source && source !== "original" ? await fetchJson<{file:string; skipped:Record<string,string>}>(base+"/prepare", signal,
+    {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({source,aiCorrections:moves ?? []})}) : undefined;
+  const url = base + (prepared ? "/prepared/"+prepared.file : source ? "/source/"+source : "");
+  const status = {...await fetchJson<AiLineReady | AiLineUnavailable>(url, signal), ...prepared};
   if (status.status !== "ready") return status;
   if (known?.revision === status.revision && known.closed === status.closed
     && known.speedRange?.[0] === status.speedRange?.[0] && known.speedRange?.[1] === status.speedRange?.[1])
-    return JSON.stringify(known.hints) === JSON.stringify(status.hints) && known.validity === status.validity && known.canCalculate === status.canCalculate && known.message === status.message
+    return JSON.stringify(known.hints) === JSON.stringify(status.hints) && known.validity === status.validity && known.canCalculate === status.canCalculate && known.message === status.message && JSON.stringify(known.skipped) === JSON.stringify(status.skipped)
       ? known : {...known, ...status};
   const buffer = await fetchBytes(`${url}?r=${encodeURIComponent(status.revision)}`, signal);
   return decodeAiLine(status, buffer);

@@ -34,11 +34,11 @@ function PointDetails({hover: {point: p, metre}}: {hover: AiLineHover}) {
   </section>;
 }
 
-function Legend({slow, fast}: {slow: number; fast: number}) {
+function Legend({slow, fast, hasSideLimits}: {slow: number; fast: number; hasSideLimits: boolean}) {
   return <span className={styles.legend}>
     {slow === fast ? <span><i style={{background: SPEED_COLOURS[1]}} />{speed(fast)}</span>
       : <span>{value(slow * 3.6, 1)} <i className={styles.ramp} style={{background: `linear-gradient(to right, ${SPEED_COLOURS.join(", ")})`}} /> {speed(fast)}</span>}
-    <span><i style={{background: EDGE_COLOUR}} /> Side limits</span>
+    <span><i style={{background: EDGE_COLOUR}} /> {hasSideLimits ? "Side limits" : "Editing band · no recorded side limits"}</span>
   </span>;
 }
 
@@ -51,9 +51,11 @@ export type AiLineMode = "move" | "redraw" | "margin";
 /** AI line and hint tools share a guide prepared after the editable track finishes loading. Checks the
     installed revision when one of them is taken up from another tool (not between the two), after recalculation and after Save.
     Visibility does not affect a transfer. */
-export function useAiLine({name, view, mode, writes, unsaved, edits, moves, editable, routeTrack, loaded, onNote}: {
-  name: string; view: TrackView; mode: AiLineMode | null; writes: number; unsaved: boolean; edits: TrackEdits; moves: AiCorrection[]; editable: boolean; routeTrack: boolean; loaded: boolean; onNote: (text: string) => void;
+export function useAiLine({name, view, mode, writes, source, unsaved, edits, moves, editable, routeTrack, loaded, onNote}: {
+  source?: string | null; name: string; view: TrackView; mode: AiLineMode | null; writes: number; unsaved: boolean; edits: TrackEdits; moves: AiCorrection[]; editable: boolean; routeTrack: boolean; loaded: boolean; onNote: (text: string) => void;
 }) {
+  const recorded = !!source && source !== "original";
+  const recordedMoves = recorded ? moves : undefined;
   const enabled = mode !== null, pen = mode === "redraw";
   const [free, setFree] = useState(true);
   const job = useSyncExternalStore(subscribeAiUpdates, () => aiUpdate(name));
@@ -65,7 +67,7 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
   const known = useRef<InstalledAiLine | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [externalChange, setExternalChange] = useState(0);
-  const localRevision = `${writes}:${job.revision}`;
+  const localRevision = `${source ?? "installed"}:${writes}:${job.revision}:${JSON.stringify(recordedMoves ?? [])}`;
   const lastRead = useRef<string | null>(null);
   const [answer, setAnswer] = useState<AiLineAnswer | null>(null);
   const [hovered, setHovered] = useState<{lane: InstalledAiLine; hover: AiLineHover} | null>(null);
@@ -79,7 +81,7 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
           if (!signal.aborted) setStatus(meta);
           return;
         }
-        const answer = await fetchAiLine(name, known.current, signal);
+        const answer = await fetchAiLine(name, known.current, signal, source, recordedMoves);
         if (signal.aborted) return;
         // On re-entry a different installed revision can also reveal a publication in another Editor.
         if (known.current && answer.revision !== known.current.revision && lastRead.current === localRevision)
@@ -97,7 +99,7 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
     }
     void read();
     return () => request.abort();
-  }, [name, view, attempt, localRevision, routeTrack]);
+  }, [name, view, attempt, localRevision, routeTrack, source, recordedMoves]);
   useEffect(() => () => view.setAiLine(null), [view]);
 
   const reloadInstalled = useCallback(() => {
@@ -119,8 +121,8 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
 
   const editing = useRef<ReturnType<TrackView["editAiMoves"]> | null>(null);
   const [prepared, setPrepared] = useState<{revision: string; guide?: MoveGuide; error?: string} | null>(null);
-  const revision = JSON.stringify([name, writes, externalChange]);
-  const url = `/api/editor/${encodeURIComponent(name)}/ai-line/move-preview`;
+  const revision = JSON.stringify([name, source, writes, externalChange]);
+  const url = `/api/editor/${encodeURIComponent(name)}/ai-line/move-preview` + (recorded ? "/"+source : "");
   const request = useRef<{revision: string; promise: ReturnType<typeof post<MoveGuide>>} | null>(null);
   const canPrepare = loaded && routeTrack && editable && !!status.canCalculate;
   useEffect(() => {
@@ -176,7 +178,7 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
     activate: ({tool}) => { setError(""); if (toolDef(tool).group !== "ai") setAttempt(value => value + 1); },
     clear: () => setHovered(null),
     options: <>
-      <ToolOptions id="edit-ai-line-set" title={toolTitle(toolDef(pen ? "ai-redraw" : "ai-move"))} note={unsaved ? "Line from the last build or save" : undefined}
+      <ToolOptions id="edit-ai-line-set" title={toolTitle(toolDef(pen ? "ai-redraw" : "ai-move"))} note={recorded ? "Recorded line" : unsaved ? "Line from the last build or save" : undefined}
         options={canEdit ? {
           shift: <span>
             <ToolChoice label="Road" on={!free} hint="Stay on the selected road" onClick={thenView(view, () => setFree(false))} />
@@ -186,7 +188,7 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
         actions={<>
           {answer && "validity" in answer && answer.validity === "manual" && <span>Manually replaced</span>}
           {(lane?.validity === "pending" || lane?.validity === "failed") && <span>Outdated</span>}
-          {lane ? <Legend {...lane.speeds} />
+          {lane ? <Legend {...lane.speeds} hasSideLimits={lane.hasSideLimits} />
           : <span role="status">{answer?.message ?? "Loading the installed AI line …"}</span>}</>} />
       {!pen && hover && <PointDetails hover={hover} />}
     </>,
@@ -194,5 +196,5 @@ export function useAiLine({name, view, mode, writes, unsaved, edits, moves, edit
   const panel = (recalculate: () => void, saving: boolean) => (answer && "canCalculate" in answer ? answer.canCalculate : routeTrack) &&
     <button type="button" disabled={job.working || saving || (!unsaved && (!validity || validity === "ready") && hints?.state !== "stale" && hints?.unplaced !== "recalculate")}
       onClick={thenView(view, recalculate)}>Recalculate AI line</button>;
-  return {controller, panel, lane, guide, lineMessage: !lane && answer?.message, reloadInstalled, refresh: `${localRevision}:${externalChange}`, pending: validity === "pending", working: job.working};
+  return {controller, panel, lane, guide, source, lineMessage: !lane && answer?.message, reloadInstalled, refresh: `${localRevision}:${externalChange}`, pending: validity === "pending", working: job.working};
 }

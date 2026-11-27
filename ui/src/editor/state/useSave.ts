@@ -12,7 +12,7 @@ import type {TrackView} from "../scene/view";
 export const isChanged = (s: EditState) => s.removed.length > 0 || s.objectSorts.length > 0 || s.heights.length > 0
   || s.placed.length > 0 || s.copies.length > 0 || s.paints.length > 0 || (s.models?.length ?? 0) > 0
   || s.surfaces.length > 0 || (s.trees?.length ?? 0) > 0 || (s.walls?.length ?? 0) > 0 || (s.kerbs?.length ?? 0) > 0 || (s.stitches?.length ?? 0) > 0 || (s.aiCorrections?.length ?? 0) > 0 || (s.aiMargins?.length ?? 0) > 0
-  || !!s.treeSpacing || !!s.carDensity;
+  || !!s.aiLine || !!s.treeSpacing || !!s.carDensity;
 type SaveAction = "save" | "recalculate" | "play";
 type SavedLine = {status: string; inputs?: string; message?: string; hints?: {state: string; unplaced: string | null}};
 

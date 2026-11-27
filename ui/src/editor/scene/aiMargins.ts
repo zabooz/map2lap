@@ -13,7 +13,7 @@ export interface MarginPreview {
   sections: Section[];
   scalars?: Partial<Record<ScalarHint, [number, number, number][]>>;
   margins: Record<string, MarginLocation>;
-  unplaced: "manual" | "recalculate" | null;
+  unplaced: "manual" | "recalculate" | "recorded" | null;
   metres?: number[] | null;
   guideMarks?: Record<string, {start?: GuideMark; end?: GuideMark; error?: string}>;
 }

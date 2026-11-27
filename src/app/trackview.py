@@ -70,7 +70,7 @@ def recipe(ac, name):
     if not (isinstance(edits, dict) and tracksource.exists(edits.get("source"))):
         from app import trackmodels
         cold = trackmodels.cold_recipe(ac, name)
-        ai = {key: edits[key] for key in ("aiCorrections", "aiMargins") if key in edits and edits[key] != []} if isinstance(edits, dict) else {}
+        ai = {key: edits[key] for key in ("aiCorrections", "aiMargins", "aiLine") if edits.get(key)} if isinstance(edits, dict) else {}
         if ai:
             if not cold:
                 revision = objectlist.state_of(path)

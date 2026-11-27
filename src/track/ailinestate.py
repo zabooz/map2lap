@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -12,6 +13,7 @@ import numpy as np
 from track import aicorrections, aihints, aimargins, fastlane, route_race
 
 FILE = Path("data/map2lap_ai.json")
+RECORDINGS = Path("data/map2lap_recordings")
 # When line code changes, bump this and update LaneCodeVersionTest in engine/tests/test_fastlane.py.
 # For comments or refactors proven to leave the generated line unchanged, update only the test's source digest.
 CODE_VERSION = 14
@@ -150,10 +152,54 @@ def _route(folder, circuit):
     return aicorrections.Route(path, origin, circuit)
 
 
-def _render(folder, lane, circuit, margins, rejected, metres, unplaced):
+def crosses_gap(start, end, gaps, length):
+    """Whether a directed hint includes an unverified section of a recorded circuit. Pure."""
+    return any(low <= b and a <= high for a, b in aimargins.intervals(start % length, end % length, length)
+               for low, high in gaps)
+
+
+def _driven_hints(margins, route, metres, native, gaps, rejected):
+    """Translate inherited marks onto a measured lap. Marks created on this lap already own its metres."""
+    driven, stations = native
+    def translate(value, before, after, source_length, target_length):
+        source = np.unwrap(before, period=source_length)
+        target = np.unwrap(after, period=target_length)
+        at = source[0] + (value-source[0]) % source_length
+        return float(np.interp(at, np.r_[source,source[0]+source_length], np.r_[target,target[0]+target_length]) % target_length)
+    placed = []
+    for zone in margins:
+        marks = dict(zone)
+        old = {}
+        try:
+            for key in ("start", "end"):
+                anchor = zone[key]
+                if anchor.get("route") == driven.key:
+                    continue
+                if route is None or metres is None:
+                    raise ValueError("Stored only: no reliable route match on this recording.")
+                old[key], level = route.resolve(anchor)
+                at = translate(old[key], metres, stations, route.length, driven.length)
+                marks[key] = dict(anchor, route=driven.key, metre=at, level=level, origin=driven.origin,
+                                  context=driven.context(at).tolist())
+            if old and gaps:
+                for key in ("start","end"):
+                    if key not in old:
+                        old[key] = translate(marks[key]["metre"], stations, metres, driven.length, route.length)
+                if crosses_gap(old["start"], old["end"], gaps, route.length):
+                    raise ValueError("Stored only: the recording diverges from this route section.")
+            placed.append(marks)
+        except ValueError as error:
+            rejected[zone["id"]] = str(error)
+    return placed
+
+
+def _render(folder, lane, circuit, margins, rejected, metres, unplaced, gaps=(), *, native=None):
     """Resolve margins against the recipe's route and the selected lane's own samples."""
     placement = None
-    if margins and metres is not None:
+    if native:
+        margins = _driven_hints(margins, _route(folder,circuit), metres, native, gaps, rejected)
+        placement = native
+    elif margins and metres is not None:
         route = _route(folder, circuit)
         if route is None:
             for margin in margins:
@@ -162,6 +208,15 @@ def _render(folder, lane, circuit, margins, rejected, metres, unplaced):
             margins = []
         else:
             placement = route, metres
+            if gaps:
+                for margin in margins:
+                    try:
+                        start, end = (route.resolve(margin[k])[0] for k in ("start", "end"))
+                        if crosses_gap(start, end, gaps, route.length):
+                            rejected[margin["id"]] = "Stored only: the recording diverges from this route section."
+                    except ValueError as error:
+                        rejected[margin["id"]] = str(error)
+                margins = [m for m in margins if m["id"] not in rejected]
     result, profile = aihints.render_profile(lane, circuit, margins, placement, unplaced)
     return result._replace(rejected=rejected | result.rejected), profile
 
@@ -170,6 +225,7 @@ def _expected(folder, circuit, lane=None, metres=None, margins=None):
     """Return expected hints and their profile. An absent profile indicates an unreadable lane."""
     lane = folder / fastlane.FILE if lane is None else lane
     margins, rejected = _saved_margins(folder) if margins is None else (margins, {})
+    gaps, native = [], None
     unplaced = "recalculate" if margins else None
     if not lane.is_file():
         return aihints.Hints(b"", rejected, unplaced, []), None
@@ -177,10 +233,19 @@ def _expected(folder, circuit, lane=None, metres=None, margins=None):
         record = _raw_record(folder)
         digest = checksum(lane)
         metres = _metres(record, lane, digest)
-        if record.get("status") == "ready" and record.get("lane") and record["lane"] != digest:
+        if record.get("recorded") and record.get("lane") == digest:
+            unplaced = "recorded"
+            gaps = record.get("gaps", [])
+            digest_source = recorded_key(folder)
+            if digest_source and record.get("drivenMetres") is not None:
+                from track import drivenline
+                raw = folder / RECORDINGS / (digest_source + ".ai")
+                _, origin = fastlane.read_route(folder)
+                native = drivenline.driven_route(fastlane.read_lane(raw)[0], origin)[2], np.asarray(record["drivenMetres"])
+        elif record.get("status") == "ready" and record.get("lane") and record["lane"] != digest:
             unplaced = "manual"
     try:
-        return _render(folder, lane, circuit, margins, rejected, metres, unplaced)
+        return _render(folder, lane, circuit, margins, rejected, metres, unplaced, gaps, native=native)
     except fastlane.NoLine:
         return aihints.Hints(b"", rejected, unplaced, []), None
 
@@ -193,6 +258,11 @@ def hints(folder, circuit, *, lane=None, metres=None) -> aihints.Hints:
 def margin_preview(folder, circuit, margins):
     """Preview draft margins on the installed lane using the same placement and merge as the INI."""
     result, profile = _expected(folder, circuit, margins=margins)
+    return preview_fields(result, profile)
+
+
+def preview_fields(result, profile):
+    """Render shared hint locations and rejection reasons for the Editor. Pure."""
     profile = profile or aihints.Profile([], {}, {})
     locations = dict(profile.locations)
     for key, error in result.rejected.items():
@@ -241,9 +311,14 @@ def record_ready(folder, inputs, skipped=None, *, circuit=False, metres=None):
 
 def publish(folder, inputs, candidate, skipped=None, *, circuit=False, metres=None):
     """Install a worker's complete candidate, restoring the original bytes on metadata failure."""
+    fields, data = _ready_data(folder, candidate, skipped, circuit, metres)
+    publish_files(folder, inputs, candidate, fields, data)
+
+
+def publish_files(folder, inputs, candidate, fields, data):
+    """Install the prepared spline, placement record and hint sections as one publication."""
     lane = folder / fastlane.FILE
     lane.parent.mkdir(exist_ok=True)
-    fields, data = _ready_data(folder, candidate, skipped, circuit, metres)
     hint_path = folder / aihints.FILE
     previous_hints = hint_path.read_bytes() if hint_path.is_file() else None
     backup = candidate.with_suffix(".previous")
@@ -287,6 +362,15 @@ def mark_outdated(folder, inputs, message=None, *, keep=None):
 
 def status(folder, inputs):
     """Classify installed bytes against a known input fingerprint."""
+    if inputs and inputs == recorded_key(folder):
+        lane = folder / fastlane.FILE
+        record = _raw_record(folder)
+        expected = record.get("lane") if record.get("recorded") and record.get("inputs") == inputs else inputs
+        if lane.is_file() and checksum(lane) == expected:
+            if expected == inputs and "drivenMetres" not in record and (folder / RECORDINGS / (inputs+".ai")).is_file():
+                return {"status":"pending", "inputs":inputs, "recorded":True}
+            return {"status": "ready", "inputs": inputs, "lane": expected, "recorded": True}
+        return {"status": "failed", "recorded": True, "message": "The installed recording changed. Save the selected line again."}
     record = _record(folder)
     if inputs == record.get("inputs") and record.get("status") == "failed" and record.get("message"):
         return {"status": "failed", "message": record["message"]}
@@ -297,8 +381,20 @@ def status(folder, inputs):
     return {"status": "pending"}
 
 
+def recorded_key(folder):
+    """Return the exact spline selected for AC in the installed recipe."""
+    try:
+        recipe = json.loads((folder / "data/map2lap.json").read_bytes()).get("edits") or {}
+    except (FileNotFoundError, ValueError):
+        return None
+    key = recipe.get("aiLine") if isinstance(recipe, dict) else None
+    return key if isinstance(key,str) and re.fullmatch("[0-9a-f]{64}",key) else None
+
+
 def input_key(model, circuit):
-    """Fingerprint the inputs on disk for a Save, a Race or the Editor's status."""
+    """Identify the selected recording or fingerprint the automatic solver's inputs."""
+    if selected := recorded_key(Path(model).parent):
+        return selected
     return fingerprint(fastlane.lane_inputs(Path(model), circuit, lambda line: None), circuit)
 
 

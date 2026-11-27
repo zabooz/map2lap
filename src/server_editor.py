@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import generator
 import numpy as np
-from app import ailanejobs, mytracks, settings, trackedits, trackinspect, trackview
+from app import lanerecording, ailanejobs, mytracks, settings, trackedits, trackinspect, trackview
 from track import ailinestate, aimargins, editorinfo, fastlane, route_race
 
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
@@ -73,10 +73,10 @@ def _timed_speeds(xz, speed, markers):
     return [float(timed.min()), float(timed.max())]
 
 
-def _lane_data(model, revision=None):
+def _lane_data(model, revision=None, path=None):
     """Return the installed line's status, or its bytes if revision still matches the file in directory."""
     directory = model.parent
-    path = directory / fastlane.FILE
+    path = path or directory / fastlane.FILE
     try:
         current = _lane_revision(path.stat())
         if revision is not None and revision != current:
@@ -168,11 +168,15 @@ class _PreviewBand:
 
 
 @lru_cache(maxsize=1)
-def _move_reference(model, circuit, revision):
+def _move_reference(model, circuit, revision, source=None):
     """Keep the automatic reference across pointer gestures on the same installed geometry."""
-    inputs = fastlane.lane_inputs(model, circuit, lambda _: None, preview=True)
-    sections = []
-    reference, invalid = fastlane.preview_reference(model, inputs, circuit, preview_sections=sections)
+    if source:
+        inputs, reference, measured = lanerecording.editing(model, source)
+        sections, invalid = [(reference[0]["pos"], measured)], {}
+    else:
+        inputs = fastlane.lane_inputs(model, circuit, lambda _: None, preview=True)
+        sections = []
+        reference, invalid = fastlane.preview_reference(model, inputs, circuit, preview_sections=sections)
     band = _PreviewBand(reference, inputs[3], sections)
     return reference, invalid, fastlane._local_roads(inputs[2], free=True), band
 
@@ -286,10 +290,29 @@ def _margin_preview(model, body):
     margins = body.get("aiMargins") if isinstance(body, dict) else None
     if error := aimargins.problem(margins):
         raise ValueError(error)
-    lane, revision = model.parent / fastlane.FILE, body.get("revision")
+    source, revision = body.get("source"), body.get("revision")
+    folder = lanerecording.original(model.parent) if source == "original" else model.parent
+    recorded = source and source != "original"
+    lane = folder / fastlane.FILE
+    if recorded:
+        file = body.get("file")
+        lane = lanerecording.prepared_path(file) if file else lanerecording.path(model, source)
     _check_margin_revision(lane, revision)
     circuit = mytracks.is_circuit(model.parent)
-    preview = ailinestate.margin_preview(model.parent, circuit, margins)
+    if recorded:
+        metres, gaps = lanerecording.route_alignment(folder, lane)
+        native = None
+        if file:
+            ready = lanerecording.prepare(model, source, body.get("aiCorrections", []))
+            if ready["file"] != file:
+                raise trackview.Unreadable(LANE_CHANGED)
+            native = lanerecording.editing(model, source)[1][5], ready["stations"]
+        result, profile = ailinestate._render(folder, lane, circuit, margins, {}, metres, "recorded", gaps, native=native)
+        if native:
+            metres = native[1]
+        preview = ailinestate.preview_fields(result, profile)
+    else:
+        preview = ailinestate.margin_preview(folder, circuit, margins)
     if preview["unplaced"]:
         # The Editor can project these guide marks for display. Only checksum-bound
         # sample metres can place a margin in the exported INI.
@@ -306,7 +329,8 @@ def _margin_preview(model, body):
                     marks["error"] = str(error)
     if body.get("withMetres") is True:
         # Redraw can resample the installed spline independently of the automatic editing guide.
-        metres = ailinestate.lane_metres(model.parent, lane)
+        if not recorded:
+            metres = ailinestate.lane_metres(folder, lane)
         preview["metres"] = None if metres is None else metres.tolist()
     _check_margin_revision(lane, revision)  # A hand replacement can happen outside the Save/worker lock.
     return preview
@@ -333,7 +357,7 @@ def _move_preview(model, body):
     files = [model, model.parent / fastlane.ROUTE, *map(Path, editorinfo.archives(model))]
     revision = tuple((path.name, _lane_revision(path.stat())) for path in files)
     circuit = mytracks.is_circuit(model.parent)
-    ref, errors, wider, band = _move_reference(model, circuit, revision)
+    ref, errors, wider, band = _move_reference(model, circuit, revision, body.get("source"))
     points, detail, ribbon, _, road, route = ref
     if body.get("guide"):
         xyz = points["pos"].astype(float)
@@ -441,11 +465,19 @@ class EditorHandlers:
         except ConnectionError:             # (the page asked for another track meanwhile)
             pass
 
-    def _ai_line(self, name, revision=None):
+    def _ai_line(self, name, revision=None, source=None, prepared=False):
         """The spline accompanying the installed KN5 of track name, independent of its source and draft."""
         try:
             with _installed_lane(generator.slug(name)) as model:
-                data = _lane_data(model, revision)
+                path = None
+                if prepared:
+                    path = lanerecording.prepared_path(source)
+                elif source and source == ailinestate.recorded_key(model.parent):
+                    path = model.parent / fastlane.FILE
+                elif source:
+                    path = (lanerecording.original(model.parent) / fastlane.FILE if source == "original"
+                            else lanerecording.path(model, source))
+                data = _lane_data(model, revision, path)
                 if revision is None:
                     info = mytracks.load(model.parent) or {}
                     data["canCalculate"] = not bool(info.get("area"))

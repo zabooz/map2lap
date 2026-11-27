@@ -1,7 +1,24 @@
 import {expect, test} from "bun:test";
-import {Vector3} from "three";
+import {Scene, Vector3} from "three";
 import type {Place} from "../types";
-import {displayEdges, laneBand, laneEdges, laneSpeedColour, pickLanePoint, SPEED_COLOURS} from "./aiLine";
+import {AiLineDraw, displayEdges, laneBand, laneEdges, laneSpeedColour, pickLanePoint, SPEED_COLOURS} from "./aiLine";
+import {decodeAiLine} from "./aiLineData";
+
+test("a recording without side limits or forward vectors has a banked editing band across the lap seam", () => {
+  const words = new Float32Array(4 * 23);
+  const lane = decodeAiLine({count:4,revision:"recording",closed:true,message:null,status:"ready"},words.buffer);
+  lane.x.set([10,0,-10,0]); lane.z.set([0,10,0,-10]);
+  lane.normalX.fill(.1); lane.normalY.fill(1);
+  const draw = new AiLineDraw(new Scene());
+  draw.set(lane);
+  const {at,edges:[left,right]} = draw.bandRows[0];
+  expect(left[0]-right[0]).toBeCloseTo(4);
+  expect(left[2]).toBeCloseTo(at[2]);
+  expect(left[1]-right[1]).toBeCloseTo(-.4);
+  expect(lane.left[0]).toBe(0);
+  expect(lane.forwardZ[0]).toBe(0);
+  draw.set(null);
+});
 
 test("speed colours reach the ends of the legend and a constant speed has a defined colour", () => {
   expect(laneSpeedColour(3, 5, 25).getHexString()).toBe(SPEED_COLOURS[0].slice(1));

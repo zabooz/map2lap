@@ -524,7 +524,7 @@ def _play_blocker():
     return None
 
 
-def _launch_play(ac, track_file, race_file, ini, selected_weather, effects, *, timed):
+def _launch_play(ac, track_file, race_file, ini, selected_weather, effects, *, timed, record=False):
     """Prepare the track and launch one AC session while status requests remain independent."""
     name = ini.get("RACE", "TRACK")
     if not play_lock.acquire(blocking=False):
@@ -558,9 +558,19 @@ def _launch_play(ac, track_file, race_file, ini, selected_weather, effects, *, t
                     acplugin.install(ac)
                 except (OSError, UnicodeError) as error:
                     print(f"AC timing plugin could not be installed: {error}", flush=True)
-            with open(race_file, "w", encoding="utf-8") as f:
-                ini.write(f, space_around_delimiters=False)
-            system.start_ac(ac, weather_effects=effects)
+            def start():
+                with open(race_file, "w", encoding="utf-8") as f:
+                    ini.write(f, space_around_delimiters=False)
+                system.start_ac(ac, weather_effects=effects)
+            ini.remove_option("RACE", "__MAP2LAP_RECORDING")
+            if record:
+                from app import recordingpractice
+                try:
+                    token = recordingpractice.launch(ac, Path(track_file), ini["RACE"]["CONFIG_TRACK"], race_file, ini, start)
+                except (OSError, ValueError) as error:
+                    return 409, {"error": str(error)}
+                return 200, {"token": token}
+            start()
             if timed:
                 _watch_best(race_file, name, ini.get("RACE", "MODEL"))
     finally:
@@ -568,7 +578,7 @@ def _launch_play(ac, track_file, race_file, ini, selected_weather, effects, *, t
     return 200, {"ok": True}
 
 
-def play(name, clock=None, weather_options=None, car=None, *, session=None, laps=None, ai=None, grip=None):
+def play(name, clock=None, weather_options=None, car=None, *, session=None, laps=None, ai=None, grip=None, record=False):
     """Drive the track in AC (My tracks and the Editor, "Play"): race.ini the way Content Manager writes it, with the last
     settings (car, skin, weather, assists) but this track and offline; then acs.exe (system.start_ac;
     system.ensure_steam starts Steam if needed). clock: the local hour to start at (the Editor's), else the last one stays.
@@ -600,6 +610,8 @@ def play(name, clock=None, weather_options=None, car=None, *, session=None, laps
         return 400, {"error": "Choose Practice, Hotlap or Race"}
     if session != "race" and (laps is not None or ai is not None):
         return 400, {"error": "Laps and AI opponents are Race options"}
+    if record and (not circuit or session != "practice"):
+        return 400, {"error": "Recording requires a Circuit practice."}
     if session == "hotlap" and not (circuit or timed_route):
         return 400, {"error": "Hotlap requires a Circuit or a Route with start and finish timing"}
     lane_choice = ai if isinstance(ai, dict) else {}
@@ -687,7 +699,7 @@ def play(name, clock=None, weather_options=None, car=None, *, session=None, laps
     ini['LIGHTING']['__MAP2LAP_WEATHER_EFFECTS'] = str(int(effects))
 
     def launch():
-        return _launch_play(ac, track_file, race_file, ini, selected_weather, effects, timed=circuit or timed_route)
+        return _launch_play(ac, track_file, race_file, ini, selected_weather, effects, timed=circuit or timed_route, **({"record": True} if record else {}))
 
     if session == "race" and ai[0]:
         return ailanejobs.race(Path(track_file), circuit, lane_choice, launch)
@@ -988,6 +1000,10 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
         editor, edits = EDITOR_PATH.fullmatch(self.path), EDITS_PATH.fullmatch(self.path)
         if editor:
             self._editor(editor)
+        elif (source := re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/source/(original|[0-9a-f]{64})(?:\?r=([\w-]+))?", self.path)):
+            self._ai_line(source[1], source[3], source[2])
+        elif (prepared := re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/prepared/([0-9a-f]{64})(?:\?r=([\w-]+))?", self.path)):
+            self._ai_line(prepared[1], prepared[3], prepared[2], prepared=True)
         elif (ai_line := AI_LINE_PATH.fullmatch(self.path)):
             self._ai_line(*ai_line.groups())
         elif (inspection := re.fullmatch(r"/api/editor/([^/]+)/(inspect|thumbnail|appearance|statistics)", urlsplit(self.path).path)):
@@ -1056,19 +1072,37 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
     def do_POST(self):
         if route := re.fullmatch(r"/api/feedback(?:/([1-9][0-9]*)/(messages|seen))?", self.path):
             return self._feedback(route)
-        preview = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/(move-preview|margins)", self.path)
+        record = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/record(?:/([0-9a-f]{32}))?", self.path)
+        if record:
+            if not self._own_page():
+                return self._send(403, {"error": "Only the editor can record a line"})
+            from app import recordingpractice
+            try:
+                model = Path(trackview.kn5_path(settings.ac_path(), record[1]))
+                if record[2]:
+                    return self._send(200, recordingpractice.result(model, record[2]))
+                body = self._body()
+                return self._send(*play(record[1], body.get("clock"), body.get("weather"), session="practice", record=True))
+            except (ValueError, OSError, trackview.NotOurs) as error:
+                return self._send(400, {"error": str(error)})
+        preview = re.fullmatch(r"/api/editor/([a-z0-9_]+)/ai-line/(move-preview|margins|prepare)(?:/([0-9a-f]{64}))?", self.path)
         if preview:
             if not self._own_page():
                 return self._send(403, {"error": "Only the editor can preview AI line edits"})
             try:
                 from server_editor import _installed_lane, _margin_preview, _move_preview
                 body = self._body()
-                if preview[2] == "margins":
+                if preview[2] == "prepare":
+                    from app import lanerecording
+                    with _installed_lane(preview[1]) as model:
+                        ready = lanerecording.prepare(model, body.get("source"), body.get("aiCorrections", []))
+                        result = {k: ready[k] for k in ("file", "skipped")}
+                elif preview[2] == "margins":
                     with _installed_lane(preview[1]) as model:
                         result = _margin_preview(model, body)
                 else:
                     model = Path(trackview.kn5_path(settings.ac_path(), preview[1]))
-                    result = _move_preview(model, body)
+                    result = _move_preview(model, {**body, "source": preview[3]} if preview[3] else body)
                 return self._send(200, result)
             except trackview.Unreadable as e:
                 return self._send(409, {"changed": True, "error": str(e)})

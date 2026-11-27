@@ -1531,16 +1531,19 @@ def check_selected_road(xz, metres, ribbon, nearest, owned):
         raise NoLine(f"Outside the selected road at route metre {metres[owned[~fits][0]]:.1f}")
 
 
-def _drawn_reference(model, inputs, circuit, report_returns, *, diagnostic=False):
+def _drawn_reference(model, inputs, circuit, report_returns, *, diagnostic=False, driven=None):
     """Splice hand-drawn sections before a complete route ever needs to have a floor."""
     path, markers, meshes, mapped, rings, origin, corrections = inputs
-    route = aicorrections.Route(path, origin, circuit)
+    route = driven[5] if driven else aicorrections.Route(path, origin, circuit)
     road, wider = _local_roads(meshes), _local_roads(meshes, free=True)
     sections = sorted((airedraw.resolve(item, route, SPACING/2) for item in corrections
                        if item["kind"] == "redraw"), key=lambda section: section.start)
     if circuit:
-        closed, metres = obj_to_kn5._closed_lap(path)
-        first = _gate(closed, metres, markers, "AC_TIME_0")
+        if driven:
+            first = driven[2].metres[0]
+        else:
+            closed, metres = obj_to_kn5._closed_lap(path)
+            first = _gate(closed, metres, markers, "AC_TIME_0")
         for section in sections:
             if section.start < first:
                 section.start += route.length
@@ -1550,7 +1553,10 @@ def _drawn_reference(model, inputs, circuit, report_returns, *, diagnostic=False
     for section, following in zip(sections, sections[1:]):
         if section.end > following.start:
             raise NoLine(f"Overlapping correction at route metre {following.start:.1f}")
-    _, xz, height, ribbon = _sample(path, markers, circuit, road, mapped, rings, ownership=True,
+    if driven:
+        xz, height, ribbon = driven[0]["pos"][:, XZ].astype(float), driven[0]["pos"][0,1], driven[2]
+    else:
+        _, xz, height, ribbon = _sample(path, markers, circuit, road, mapped, rings, ownership=True,
                                     redraws=sections, free_road=wider, diagnostic=diagnostic)
     stations = ribbon.metres
     retain = np.ones(len(xz), bool)
@@ -1589,7 +1595,18 @@ def _drawn_reference(model, inputs, circuit, report_returns, *, diagnostic=False
         if part.item["free"]:
             free |= inside
     queries = _per_point(road, wider, free)
-    xyz = _surface(metres, points, queries, height, circuit, diagnostic=diagnostic)
+    if driven:
+        xyz = driven[0]["pos"][nearest].astype(float)
+        xyz[:, XZ] = points
+        for i in np.flatnonzero(manual | joined[nearest]):
+            x, y, z = xyz[i]
+            levels = obj_to_kn5.road_levels(_query(queries,i)(x,z,0), x, z)
+            level = min(levels, key=lambda h: abs(h-y), default=np.inf)
+            if abs(y-level) >= obj_to_kn5.LEVEL_GAP_M:
+                raise NoLine(f"No driveable surface at route metre {metres[i]:.1f}")
+            xyz[i,1] = level
+    else:
+        xyz = _surface(metres, points, queries, height, circuit, diagnostic=diagnostic)
     check_splits(xyz, ribbon.splits, circuit)
     for part in sections:
         check_click_levels(part, xyz[(metres >= part.start) & (metres <= part.end)], route)
@@ -1607,10 +1624,14 @@ def _drawn_reference(model, inputs, circuit, report_returns, *, diagnostic=False
             raise NoLine(f"Insufficient clearance at route metre {metres[i]:.1f}")
     limits = airacing.RouteRibbon(ribbon.fixed[nearest] | authored, ribbon.start[nearest], ribbon.end[nearest],
                                   ribbon.half_width[nearest], metres, [(m[nearest], v) for m,v in ribbon.groups],
-                                  ribbon.hard[nearest] | authored, ribbon.splits, ribbon.finish,
+                                  ribbon.hard[nearest] | (manual if driven else authored), ribbon.splits, ribbon.finish,
                                   tuple(value[nearest] for value in ribbon.painted))
     along = _distances(points)
-    if diagnostic:
+    if driven:
+        from track import drivenline
+        records, detail, _ = drivenline.records(xyz, metres, queries, mapped, driven[1], driven[2].metres)
+        aicorrections.check_centreline(xyz, metres, authored, circuit, obj_to_kn5.LEVEL_GAP_M)
+    elif diagnostic:
         records, detail = np.zeros(len(xyz), POINT), np.zeros(len(xyz), DETAIL)
         records["pos"] = xyz
     else:

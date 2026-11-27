@@ -82,6 +82,7 @@ export interface Recipe {
   walls?: WallEdit[];
   kerbs?: KerbEdit[];
   aiCorrections?: AiCorrection[];
+  aiLine?: string | null;
   aiMargins?: AiMargin[];
   stitches?: StitchEdit[];
   treeSpacing?: TreeSpacing | null;
@@ -113,6 +114,7 @@ export interface EditState {
   walls: WallEdit[];
   kerbs: KerbEdit[];
   aiCorrections: AiCorrection[];
+  aiLine?: string | null;
   aiMargins: AiMargin[];
   stitches: StitchEdit[];
   treeSpacing?: TreeSpacing | null;
@@ -153,8 +155,8 @@ export interface AiRedraw {id: string; kind: "redraw"; free: boolean; anchor: Ai
   points: number[][]; tail?: number[]}
 export type AiCorrection = AiMove | AiRedraw;
 
-type Edits = Pick<EditState, "removed" | "objectSorts" | "heights" | "placed" | "copies" | "paints" | "models" | "surfaces" | "trees" | "walls" | "kerbs" | "stitches" | "aiCorrections" | "aiMargins" | "treeSpacing" | "carDensity">;
-const NONE: Edits = {removed: [], objectSorts: [], heights: [], placed: [], copies: [], paints: [], models: [], surfaces: [], trees: [], walls: [], kerbs: [], stitches: [], aiCorrections: [], aiMargins: [], treeSpacing: null, carDensity: null};
+type Edits = Pick<EditState, "removed" | "objectSorts" | "heights" | "placed" | "copies" | "paints" | "models" | "surfaces" | "trees" | "walls" | "kerbs" | "stitches" | "aiCorrections" | "aiMargins" | "aiLine" | "treeSpacing" | "carDensity">;
+const NONE: Edits = {removed: [], objectSorts: [], heights: [], placed: [], copies: [], paints: [], models: [], surfaces: [], trees: [], walls: [], kerbs: [], stitches: [], aiCorrections: [], aiLine: null, aiMargins: [], treeSpacing: null, carDensity: null};
 
 const same = (a: Iterable<string>, b: Iterable<string>) => {
   const x = new Set(a), y = new Set(b);
@@ -174,6 +176,7 @@ export function isCurrent(state: EditState) {
     && JSON.stringify(state.trees ?? []) === JSON.stringify(r.trees ?? []) && JSON.stringify(state.walls ?? []) === JSON.stringify(r.walls ?? [])
     && JSON.stringify(state.kerbs ?? []) === JSON.stringify(r.kerbs ?? [])
     && JSON.stringify(state.aiCorrections ?? []) === JSON.stringify(r.aiCorrections ?? [])
+    && (state.aiLine ?? null) === (r.aiLine ?? null)
     && JSON.stringify(state.aiMargins ?? []) === JSON.stringify(r.aiMargins ?? [])
     && JSON.stringify(state.stitches ?? []) === JSON.stringify(r.stitches ?? [])
     && JSON.stringify(state.treeSpacing ?? null) === JSON.stringify(r.treeSpacing ?? null)
@@ -195,6 +198,7 @@ const sameEdits = (a: Edits, b: Edits) =>
   && JSON.stringify(a.trees ?? []) === JSON.stringify(b.trees ?? []) && JSON.stringify(a.walls ?? []) === JSON.stringify(b.walls ?? [])
   && JSON.stringify(a.kerbs ?? []) === JSON.stringify(b.kerbs ?? [])
   && JSON.stringify(a.aiCorrections ?? []) === JSON.stringify(b.aiCorrections ?? [])
+  && (a.aiLine ?? null) === (b.aiLine ?? null)
   && JSON.stringify(a.aiMargins ?? []) === JSON.stringify(b.aiMargins ?? [])
   && JSON.stringify(a.stitches ?? []) === JSON.stringify(b.stitches ?? [])
   && JSON.stringify(a.treeSpacing ?? null) === JSON.stringify(b.treeSpacing ?? null)
@@ -243,7 +247,7 @@ export class TrackEdits {
     this.savedEdits = e;
     this.set({recipe: {at: Date.now() / 1000, deleted: e.removed.map(d => d.id), objectSorts: e.objectSorts,
                        heights: e.heights.map(h => h.id), placed: e.placed, copies: e.copies, paints: e.paints, models: e.models,
-                       surfaces: e.surfaces, trees: e.trees, walls: e.walls, kerbs: e.kerbs, stitches: e.stitches, aiCorrections: e.aiCorrections, aiMargins: e.aiMargins, treeSpacing: e.treeSpacing, carDensity: e.carDensity}});
+                       surfaces: e.surfaces, trees: e.trees, walls: e.walls, kerbs: e.kerbs, stitches: e.stitches, aiCorrections: e.aiCorrections, aiLine: e.aiLine ?? null, aiMargins: e.aiMargins, treeSpacing: e.treeSpacing, carDensity: e.carDensity}});
   }
 
   /** action once all before it are done. Strokes on their way to the server go on in the order they were made, and what comes after
@@ -337,7 +341,7 @@ export class TrackEdits {
       const edits = {removed: d.deleted as Removed[], objectSorts: (d.object_sorts ?? []) as string[],
                      heights: (d.heights ?? []) as HeightChange[], placed: (d.placed ?? []) as Placement[], copies: (d.copies ?? []) as ObjectCopy[], paints: (d.paints ?? []) as string[], models: (d.models ?? []) as ModelInstance[],
                      surfaces: (d.surfaces ?? []) as SurfaceCut[], trees: (d.trees ?? []) as AddedTree[], walls: (d.walls ?? []) as WallEdit[],
-                     kerbs: (d.kerbs ?? []) as KerbEdit[], aiCorrections: (d.aiCorrections ?? []) as AiCorrection[], aiMargins: (d.aiMargins ?? []) as AiMargin[], stitches: (d.stitches ?? []) as StitchEdit[], treeSpacing: (d.tree_spacing ?? null) as TreeSpacing | null, carDensity: (d.car_density ?? null) as CarDensity | null};
+                     kerbs: (d.kerbs ?? []) as KerbEdit[], aiCorrections: (d.aiCorrections ?? []) as AiCorrection[], aiLine: d.aiLine ?? null, aiMargins: (d.aiMargins ?? []) as AiMargin[], stitches: (d.stitches ?? []) as StitchEdit[], treeSpacing: (d.tree_spacing ?? null) as TreeSpacing | null, carDensity: (d.car_density ?? null) as CarDensity | null};
       const taken = handed?.name === this.name && sameEdits(handed.edits, edits) ? handed : null;
       handed = null;
       this.history = new HistoryKeys();
@@ -350,7 +354,7 @@ export class TrackEdits {
       this.onServer = edits;
       this.unanswered = [];
       const s = d.saved;
-      const recipe = s ? {at: s.at, deleted: s.deleted, objectSorts: s.object_sorts, heights: s.heights ?? [], placed: s.placed ?? [], copies: s.copies ?? [], paints: s.paints ?? [], models: s.models ?? [], surfaces: s.surfaces ?? [], trees: s.trees ?? [], walls: s.walls ?? [], kerbs: s.kerbs ?? [], stitches: s.stitches ?? [], aiCorrections: s.aiCorrections ?? [], aiMargins: s.aiMargins ?? [], treeSpacing: s.tree_spacing ?? null, carDensity: s.car_density ?? null, needsSave: !!s.needs_save} : null;
+      const recipe = s ? {at: s.at, deleted: s.deleted, objectSorts: s.object_sorts, heights: s.heights ?? [], placed: s.placed ?? [], copies: s.copies ?? [], paints: s.paints ?? [], models: s.models ?? [], surfaces: s.surfaces ?? [], trees: s.trees ?? [], walls: s.walls ?? [], kerbs: s.kerbs ?? [], stitches: s.stitches ?? [], aiCorrections: s.aiCorrections ?? [], aiLine: s.aiLine ?? null, aiMargins: s.aiMargins ?? [], treeSpacing: s.tree_spacing ?? null, carDensity: s.car_density ?? null, needsSave: !!s.needs_save} : null;
       this.set({...edits, keptRevision: d.revision, recipe, canUndo: this.past.length > 0, canRedo: this.future.length > 0, outdated: d.outdated, save: "saved"});
       this.savedEdits = recipe && !hasUnsavedChanges(this.now) ? edits : null;
       this.compare();
@@ -570,6 +574,12 @@ export class TrackEdits {
     if (JSON.stringify(walls) !== JSON.stringify(this.now.walls)) this.change({...this.edits(), walls});
   }
 
+  /** Adopt the immutable lap and both independent reset choices in one history entry. */
+  acceptRecording(aiLine: string, resetHints: boolean, resetMoves: boolean) {
+    this.change({...this.edits(), aiLine, aiMargins: resetHints ? [] : this.now.aiMargins,
+      aiCorrections: resetMoves ? [] : this.now.aiCorrections});
+  }
+
   /** A prepared spacing layer as one undoable edit, kept separately from manual deletions. */
   setTreeSpacing(treeSpacing: TreeSpacing) {
     if (JSON.stringify(treeSpacing) !== JSON.stringify(this.now.treeSpacing)) this.change({...this.edits(), treeSpacing});
@@ -584,7 +594,7 @@ export class TrackEdits {
   changed() {
     return this.now.removed.length > 0 || this.now.objectSorts.length > 0 || this.now.heights.length > 0
       || this.now.placed.length > 0 || this.now.copies.length > 0 || this.now.paints.length > 0 || this.now.models.length > 0
-      || this.now.surfaces.length > 0 || this.now.trees.length > 0 || this.now.walls.length > 0 || this.now.kerbs.length > 0 || this.now.stitches.length > 0 || this.now.aiCorrections.length > 0 || this.now.aiMargins.length > 0 || !!this.now.treeSpacing || !!this.now.carDensity;
+      || this.now.surfaces.length > 0 || this.now.trees.length > 0 || this.now.walls.length > 0 || this.now.kerbs.length > 0 || this.now.stitches.length > 0 || this.now.aiCorrections.length > 0 || !!this.now.aiLine || this.now.aiMargins.length > 0 || !!this.now.treeSpacing || !!this.now.carDensity;
   }
 
   /** Unsaved changes taken back to the last Save, as one step that can be undone. */
@@ -601,7 +611,7 @@ export class TrackEdits {
         if (d.base !== base || this.base !== base) throw new Error(TRACK_CHANGED);
         target = {removed: d.deleted ?? [], objectSorts: d.object_sorts ?? [],
           heights: d.heights ?? [], placed: d.placed ?? [], copies: d.copies ?? [], paints: d.paints ?? [], models: d.models ?? [],
-          surfaces: d.surfaces ?? [], trees: d.trees ?? [], walls: d.walls ?? [], kerbs: d.kerbs ?? [], stitches: d.stitches ?? [], aiCorrections: d.aiCorrections ?? [], aiMargins: d.aiMargins ?? [], treeSpacing: d.tree_spacing ?? null, carDensity: d.car_density ?? null};
+          surfaces: d.surfaces ?? [], trees: d.trees ?? [], walls: d.walls ?? [], kerbs: d.kerbs ?? [], stitches: d.stitches ?? [], aiCorrections: d.aiCorrections ?? [], aiLine: d.aiLine ?? null, aiMargins: d.aiMargins ?? [], treeSpacing: d.tree_spacing ?? null, carDensity: d.car_density ?? null};
         this.savedEdits = target;
       } catch (error) {
         const message = (error as Error).message;
@@ -614,7 +624,7 @@ export class TrackEdits {
 
   private edits(): Edits {
     return {removed: this.now.removed, objectSorts: this.now.objectSorts, heights: this.now.heights, placed: this.now.placed, copies: this.now.copies, paints: this.now.paints, models: this.now.models,
-            surfaces: this.now.surfaces, trees: this.now.trees, walls: this.now.walls, kerbs: this.now.kerbs, stitches: this.now.stitches, aiCorrections: this.now.aiCorrections, aiMargins: this.now.aiMargins, treeSpacing: this.now.treeSpacing, carDensity: this.now.carDensity};
+            surfaces: this.now.surfaces, trees: this.now.trees, walls: this.now.walls, kerbs: this.now.kerbs, stitches: this.now.stitches, aiCorrections: this.now.aiCorrections, aiLine: this.now.aiLine ?? null, aiMargins: this.now.aiMargins, treeSpacing: this.now.treeSpacing, carDensity: this.now.carDensity};
   }
 
   /** The changes kept from an older build are given up. */
@@ -666,7 +676,7 @@ export class TrackEdits {
   private isSaved() {
     return this.now.removed === this.onServer?.removed
       && this.now.objectSorts === this.onServer?.objectSorts && this.now.heights === this.onServer?.heights && this.now.placed === this.onServer?.placed && this.now.copies === this.onServer?.copies && this.now.paints === this.onServer?.paints && this.now.models === this.onServer?.models
-      && this.now.surfaces === this.onServer?.surfaces && this.now.trees === this.onServer?.trees && this.now.walls === this.onServer?.walls && this.now.kerbs === this.onServer?.kerbs && this.now.aiCorrections === this.onServer?.aiCorrections && this.now.aiMargins === this.onServer?.aiMargins && this.now.stitches === this.onServer?.stitches
+      && this.now.surfaces === this.onServer?.surfaces && this.now.trees === this.onServer?.trees && this.now.walls === this.onServer?.walls && this.now.kerbs === this.onServer?.kerbs && this.now.aiCorrections === this.onServer?.aiCorrections && this.now.aiLine === this.onServer?.aiLine && this.now.aiMargins === this.onServer?.aiMargins && this.now.stitches === this.onServer?.stitches
       && this.now.treeSpacing === this.onServer?.treeSpacing && this.now.carDensity === this.onServer?.carDensity
       && this.history.saved(this.past, this.future);
   }
@@ -708,7 +718,7 @@ export class TrackEdits {
     const edits = this.edits(), number = ++this.sent, id = `${Date.now()}-${number}-${Math.random().toString(36).slice(2, 10)}`;
     const steps = this.history.change(this.past, this.future), past = [...this.past], future = [...this.future];
     const body = JSON.stringify({base: this.bound, revision: this.revision, deleted: edits.removed,
-                                 object_sorts: edits.objectSorts, heights: edits.heights, placed: edits.placed, copies: edits.copies, paints: edits.paints, models: edits.models, surfaces: edits.surfaces, trees: edits.trees, walls: edits.walls, kerbs: edits.kerbs, stitches: edits.stitches, aiCorrections: edits.aiCorrections, aiMargins: edits.aiMargins, tree_spacing: edits.treeSpacing ?? null, car_density: edits.carDensity ?? null, id, unanswered: this.unanswered.map(u => u.id), history: steps.change});
+                                 object_sorts: edits.objectSorts, heights: edits.heights, placed: edits.placed, copies: edits.copies, paints: edits.paints, models: edits.models, surfaces: edits.surfaces, trees: edits.trees, walls: edits.walls, kerbs: edits.kerbs, stitches: edits.stitches, aiCorrections: edits.aiCorrections, aiLine: edits.aiLine ?? null, aiMargins: edits.aiMargins, tree_spacing: edits.treeSpacing ?? null, car_density: edits.carDensity ?? null, id, unanswered: this.unanswered.map(u => u.id), history: steps.change});
     this.unanswered = [...this.unanswered, {id, number}].slice(-MAX_UNANSWERED);
     this.sending = true;
     this.set({save: "saving"});

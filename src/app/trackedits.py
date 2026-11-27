@@ -6,6 +6,7 @@ number in that file, its position only a check for later. Built again, the list 
 trees now, and a neighbour must never go in the place of the one that was picked. No file: the track's recipe, what its last Save was
 made of, while that counts (trackview.recipe); a saved empty list stays empty.
 """
+from pathlib import Path
 import json
 import math
 import os
@@ -17,7 +18,7 @@ import threading
 import numpy as np
 
 
-from app import (cardensity, mytracks, placement, trackcopies, trackdetail, trackheights, trackhistory, trackkerbs, trackmodels, tracknative, trackpaint, trackplace, trackstitch, tracksurfaces,
+from app import (lanerecording, cardensity, mytracks, placement, trackcopies, trackdetail, trackheights, trackhistory, trackkerbs, trackmodels, tracknative, trackpaint, trackplace, trackstitch, tracksurfaces,
                  tracktrees, trackview, trackwalls, treespacing)
 from track import aicorrections, aimargins, groundmaterial, objectlist
 
@@ -110,6 +111,7 @@ def _parts(stored):
             [json.dumps(w, sort_keys=True) for w in stored.get("walls", ())],
             [json.dumps(k, sort_keys=True) for k in stored.get("kerbs", ())],
             [json.dumps(k, sort_keys=True) for k in stored.get("stitches", ())],
+            [stored["aiLine"]] if stored.get("aiLine") else [],
             [json.dumps(c, sort_keys=True) for c in stored.get("aiCorrections", ())],
             list(enumerate(json.dumps(m, sort_keys=True) for m in stored.get("aiMargins", ()))),
             [json.dumps(stored['tree_spacing'], sort_keys=True)] if stored.get('tree_spacing') else [],
@@ -121,7 +123,7 @@ def _count(stored):
     return (len(stored["deleted"]) + len(stored.get("object_sorts", ())) + len(stored.get("heights", ()))
             + len(stored.get("placed", ())) + len(stored.get("copies", ())) + len(stored.get("paints", ())) + len(stored.get("models", ()))
             + len(stored.get("surfaces", ())) + len(stored.get("trees", ())) + len(stored.get("walls", ())) + len(stored.get("kerbs", ()))
-            + len(stored.get("stitches", ())) + len(stored.get("aiCorrections", ())) + len(stored.get("aiMargins", ()))
+            + bool(stored.get("aiLine")) + len(stored.get("stitches", ())) + len(stored.get("aiCorrections", ())) + len(stored.get("aiMargins", ()))
             + bool(stored.get('tree_spacing')) + bool(stored.get('car_density')))
 
 
@@ -141,6 +143,7 @@ def _well_formed(d):
             and trackmodels.problems(d.get("models", [])) is None and tracksurfaces.problems(d.get("surfaces", [])) is None
             and trackwalls.problems(d.get("walls", [])) is None
             and trackkerbs.problems(d.get("kerbs", [])) is None
+            and (d.get("aiLine") is None or lanerecording.valid(d["aiLine"]))
             and aicorrections.problem(d.get("aiCorrections", [])) is None
             and aimargins.problem(d.get("aiMargins", [])) is None
             and trackstitch.problems(d.get("stitches", [])) is None
@@ -165,6 +168,7 @@ def _stored(path, saved=None):
                     or trackcopies.problems(saved.get("copies", [])) or trackpaint.problems(saved.get("paints", []))
                     or trackmodels.problems(saved.get("models", [])) or tracksurfaces.problems(saved.get("surfaces", []))
                     or trackwalls.problems(saved.get("walls", [])) or trackkerbs.problems(saved.get("kerbs", []))
+                    or (saved.get("aiLine") is not None and not lanerecording.valid(saved["aiLine"]))
                     or aicorrections.problem(saved.get("aiCorrections", []))
                     or aimargins.problem(saved.get("aiMargins", []))
                     or trackstitch.problems(saved.get("stitches", []))
@@ -174,7 +178,7 @@ def _stored(path, saved=None):
                     "object_sorts": saved["object_sorts"], "heights": saved.get("heights", []), "placed": saved.get("placed", []), "copies": saved.get("copies", []), "paints": saved.get("paints", []), "models": saved.get("models", []),
                     "surfaces": saved.get("surfaces", []), "trees": saved.get("trees", []), "trees_next": saved.get("trees_next", 0),
                     "walls": saved.get("walls", []), "kerbs": saved.get("kerbs", []), "stitches": saved.get("stitches", []), "aiCorrections": saved.get("aiCorrections", []),
-                    "aiMargins": saved.get("aiMargins", []), 'tree_spacing': saved.get('tree_spacing'), 'car_density': saved.get('car_density')}
+                    "aiLine": saved.get("aiLine"), "aiMargins": saved.get("aiMargins", []), 'tree_spacing': saved.get('tree_spacing'), 'car_density': saved.get('car_density')}
         return {"base": None, "revision": 0, "deleted": []}
     except (ValueError, KeyError, TypeError):
         pass
@@ -207,6 +211,7 @@ def load(ac, name):
             "kerbs": s.get("kerbs", []) if same else [],
             "stitches": s.get("stitches", []) if same else [],
             "aiCorrections": s.get("aiCorrections", []) if same else [],
+            "aiLine": s.get("aiLine") if same else None,
             "aiMargins": s.get("aiMargins", []) if same else [],
             'tree_spacing': s.get('tree_spacing') if same else None,
             'car_density': s.get('car_density') if same else None,
@@ -223,6 +228,7 @@ def load(ac, name):
                 "kerbs": saved.get("kerbs", []) if not s.get("broken") else [],
                 "stitches": saved.get("stitches", []) if not s.get("broken") else [],
                 "aiCorrections": saved.get("aiCorrections", []) if not s.get("broken") else [],
+                "aiLine": saved.get("aiLine") if not s.get("broken") else None,
                 "aiMargins": saved.get("aiMargins", []) if not s.get("broken") else [],
                 'tree_spacing': saved.get('tree_spacing') if not s.get('broken') else None,
                 'car_density': saved.get('car_density') if not s.get('broken') else None}}
@@ -263,7 +269,7 @@ def saved_edits(ac, name):
     saved = trackview.recipe(ac, name)
     if saved and saved["base"] != revision:
         raise Conflict("The saved track changed; read it again")
-    return {"base": revision, 'tree_spacing': (saved or {}).get('tree_spacing'), 'car_density': (saved or {}).get('car_density'), **{key: (saved or {}).get(key, []) for key in
+    return {"base": revision, "aiLine": (saved or {}).get("aiLine"), 'tree_spacing': (saved or {}).get('tree_spacing'), 'car_density': (saved or {}).get('car_density'), **{key: (saved or {}).get(key, []) for key in
             ("deleted", "object_sorts", "heights", "placed", "copies", "paints", "models", "surfaces", "trees", "walls", "kerbs", "stitches", "aiCorrections", "aiMargins")}}
 
 
@@ -719,6 +725,11 @@ def save_telling(ac, name, body):
         corrections = body.get("aiCorrections", s.get("aiCorrections", []) if s["base"] == revision else [])
         if wrong := aicorrections.problem(corrections):
             raise Invalid(wrong)
+        line = body.get("aiLine", s.get("aiLine") if s["base"] == revision else None)
+        if line is not None:
+            model = Path(trackview.kn5_path(ac, name))
+            if not mytracks.is_circuit(model.parent) or not lanerecording.valid(line) or not lanerecording.path(model, line).is_file():
+                raise Invalid("The recorded circuit line is unavailable.")
         margins = body.get("aiMargins", s.get("aiMargins", []) if s["base"] == revision else [])
         if wrong := aimargins.problem(margins):
             raise Invalid(wrong)
@@ -772,7 +783,7 @@ def save_telling(ac, name, body):
         change = body.get("history")
         if change is not None and (wrong := trackhistory.problem(change)):
             raise Invalid(wrong)
-        if not known or ((deleted or object_sorts or heights or placed or copies or paints or models or surfaces or added or walls or kerbs or stitches or corrections or margins or spacing or density) and _old(s, revision)):
+        if not known or ((deleted or object_sorts or heights or placed or copies or paints or models or surfaces or added or walls or kerbs or stitches or corrections or margins or line or spacing or density) and _old(s, revision)):
             raise Conflict(name)
         new = s["revision"] + 1
         # All material validation/version publication happens before committing the draft. Pixel rendering belongs to GET.
@@ -790,7 +801,7 @@ def save_telling(ac, name, body):
         _write(path, {"schema": SCHEMA, "base": revision, "revision": new, "last": request, "deleted": deleted,
                       "object_sorts": object_sorts, "heights": heights, "placed": placed, "copies": copies, "paints": paints, "models": models,
                       "surfaces": surfaces, "trees": added, "trees_next": trees_next, "walls": walls, "kerbs": kerbs, "stitches": stitches, "aiCorrections": corrections,
-                      "aiMargins": margins,
+                      "aiLine": line, "aiMargins": margins,
                       'tree_spacing': spacing, 'car_density': density})
         same = s["base"] == revision
         before = {"heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "models": s.get("models", []) if same else [], "walls": s.get("walls", []) if same else [], "kerbs": s.get("kerbs", []) if same else [], "stitches": s.get("stitches", []) if same else []}
