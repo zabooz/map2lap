@@ -110,6 +110,7 @@ def _calculate(model, circuit, slot, revision, original, key):
                 metres = None if fields["metres"] is None else np.asarray(fields["metres"])
                 hints, _ = ailinestate._render(model.parent, target, circuit, margins, rejected, metres,
                                               "recorded", fields["gaps"], native=native)
+                lanerecording.bundle_floors(model, model, key)
                 ailinestate.publish_files(model.parent, key, target, fields, hints.data)
                 return ailinestate.status(model.parent, key)
             if answer["inputs"] != key:
@@ -138,8 +139,6 @@ def _installed_state(folder, circuit, state, retry, place_margins):
                 ailinestate.sync_hints(folder, circuit, report_deferred=True)
                 hints["state"] = "current"
             return {**state, "hints": hints}
-    if state.get("recorded"):
-        return None if status == "pending" else state
     if status == "pending" or retry and status in ("manual", "failed"):
         return None
     return state

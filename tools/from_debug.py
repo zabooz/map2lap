@@ -15,30 +15,10 @@ import os
 import sys
 import time
 
-import numpy as np
-
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "src"))
 import generator  # noqa: E402
 from app import version  # noqa: E402
-
-
-def route_latlon(path):
-    """(anchor (lat, lon), the route [(lat, lon), ...]) of a map2lap_route.txt ("anchor <lat> <lon>", then "<x> <z>" in
-    AC coordinates: x east, z = -north)."""
-    anchor, xz = None, []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            p = line.split()
-            if len(p) == 3 and p[0] == "anchor":
-                anchor = (float(p[1]), float(p[2]))
-            elif len(p) == 2:
-                xz.append((float(p[0]), float(p[1])))
-    if anchor is None or len(xz) < 2:
-        raise SystemExit(f"{path}: no anchor or route")
-    xz = np.asarray(xz)
-    lat, lon, _ = generator.geodesy.EnuFrame(*anchor).enu_to_geodetic(xz[:, 0], -xz[:, 1], np.zeros(len(xz)))
-    return anchor, [[float(a), float(b)] for a, b in zip(np.asarray(lat), np.asarray(lon))]
 
 
 def differences(info):
@@ -89,9 +69,12 @@ def main():
             print("  no route as built in the folder: routed again from the pins (OSRM, today's map)")
             res = generator.build(info["points"], info["width"], name, title, upto=a.upto, kind=kind)
         else:
-            _anchor, line = route_latlon(route)
+            try:
+                line = generator.SavedLine.read(route, int(info["route_end"]), info.get("stage_timing"))
+            except ValueError as error:
+                raise SystemExit(f"{route}: {error}") from error
             res = generator.build(info["points"], info["width"], name, title, upto=a.upto,
-                                  line=(line, int(info["route_end"])), kind=kind, circuit_timing=info.get("timing"))
+                                  line=line, kind=kind, circuit_timing=info.get("timing"))
     print(f"done: {res.get('track') or res.get('work')}")
 
 

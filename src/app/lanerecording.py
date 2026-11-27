@@ -2,10 +2,13 @@
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
+import gzip
 import json
+import math
 import re
 import shutil
 import tempfile
+import zlib
 
 import numpy as np
 
@@ -44,6 +47,78 @@ def stamp(file):
         return s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns
     except FileNotFoundError:
         return None
+
+
+def _sample_floors(model, xyz):
+    """Read the installed collision geometry at the recording's positions."""
+    meshes = fastlane._roads(model, fastlane.kn5.scan(model)["meshes"], free=True)
+    return drivenline.floor_columns(xyz, fastlane._local_roads(meshes, free=True))
+
+
+def _write_floors(destination, key, columns):
+    """Publish a complete, lane-bound height reference beside its immutable recording."""
+    data = json.dumps([key, columns], separators=(",", ":"), allow_nan=False).encode()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as stream:
+        temp = Path(stream.name)
+    try:
+        temp.write_bytes(gzip.compress(data, compresslevel=1, mtime=0))
+        temp.replace(destination)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def _local_floors(model, key):
+    """Track-local capture geometry for a raw spline shared by content hash. Pure."""
+    return Path(mytracks.ROOT, "out", "ai-recordings", model.parent.name, key + ".floors.gz")
+
+
+def _floors_file(model, raw):
+    """Locate the capture's portable reference or measure an unedited legacy source."""
+    local = _local_floors(model, raw.stem)
+    packed = model.parent / BUNDLE / local.name
+    for file in (packed, local):
+        if file.is_file():
+            return file
+    info = mytracks.load(model.parent)
+    edits = (info or {}).get("edits") or {}
+    if info is None or any(edits.get(k) for k in ("heights", "stitches", "surfaces", "kerbs")):
+        raise fastlane.NoLine("The recording has no height reference for this edited road. Record this line again.")
+    if ailinestate.checksum(raw) != raw.stem:
+        raise ValueError("The selected AI recording changed.")
+    xyz = fastlane.read_lane(raw)[0]["pos"].astype(float)
+    columns = _sample_floors(model, xyz)
+    if any(drivenline._floor_shift(col, col, p[1]) is None for col, p in zip(columns, xyz)):
+        raise fastlane.NoLine("The old recording cannot be matched to the installed road. Record this line again.")
+    _write_floors(local, raw.stem, columns)
+    return local
+
+
+def _read_floors(floors, key, count):
+    """Read a recording's complete, finite geometry reference or reject the export."""
+    try:
+        with gzip.open(floors, "rt", encoding="utf-8") as stream:
+            stored, columns = json.load(stream)
+        if (stored != key or not isinstance(columns, list) or len(columns) != count or
+                not all(isinstance(col, dict) and all(isinstance(levels, list) and levels and
+                        all(isinstance(h, (int, float)) and math.isfinite(h) for h in levels)
+                        for levels in col.values()) for col in columns)):
+            raise ValueError()
+    except (OSError, EOFError, ValueError, TypeError, OverflowError, zlib.error) as error:
+        raise ValueError("The height reference of the selected AI recording is damaged. Record this line again.") from error
+    return columns
+
+
+def bundle_floors(source, target, key):
+    """Include the original road levels with a recorded line when publishing its track."""
+    floors = _floors_file(source, path(source, key))
+    packed = target.parent / BUNDLE / floors.name
+    if floors != packed:
+        packed.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=packed.parent) as folder:
+            copy = Path(folder, packed.name)
+            shutil.copyfile(floors, copy)
+            copy.replace(packed)
 
 
 class Capture:
@@ -88,6 +163,10 @@ class Capture:
                 raise ValueError("The recording has too few distinct samples.")
             if trace is None and np.linalg.norm(xyz[0]-xyz[-1]) > 4*np.median(steps[steps > 0]):
                 raise ValueError("The recording does not contain a closed lap.")
+            columns = _sample_floors(self.model, xyz)
+            if stamp(self.model) != self.identity:
+                raise ValueError("The installed track changed during practice.")
+            _write_floors(_local_floors(self.model, key), key, columns)
             tmp.replace(folder / (key + ".ai"))
             return key
         finally:
@@ -232,8 +311,9 @@ def prepared_path(key):
 
 def _reference_key(model, source, key):
     raw = path(source, key)
-    files = [raw, model, model.parent / mytracks.FILE, model.parent / fastlane.ROUTE, *map(Path, editorinfo.archives(model))]
-    return model, raw, tuple(stamp(file) for file in files)
+    floors = _floors_file(source, raw)
+    files = [raw, floors, model, model.parent / mytracks.FILE, model.parent / fastlane.ROUTE, *map(Path, editorinfo.archives(model))]
+    return model, raw, floors, tuple(stamp(file) for file in files)
 
 
 def editing(model, key, source=None):
@@ -242,13 +322,14 @@ def editing(model, key, source=None):
 
 
 @lru_cache(maxsize=2)
-def _editing(model, raw, revisions):
+def _editing(model, raw, floors, revisions):
     if ailinestate.checksum(raw) != raw.stem:
         raise ValueError("The selected AI recording changed.")
     points, detail, _ = fastlane.read_lane(raw)
     circuit = mytracks.is_circuit(model.parent)
     inputs = fastlane.lane_inputs(model, circuit, lambda _: None, preview=True)
-    base, measured = drivenline.reference(inputs, points, detail, circuit)
+    captured = _read_floors(floors, raw.stem, len(points))
+    base, measured = drivenline.reference(inputs, points, detail, circuit, floors=captured)
     return inputs, base, measured
 
 
@@ -260,8 +341,8 @@ def prepare(model, key, corrections, source=None):
 
 
 @lru_cache(maxsize=12)
-def _prepare(model, raw, revisions, edits):
-    inputs, base, _ = _editing(model, raw, revisions)
+def _prepare(model, raw, floors, revisions, edits):
+    inputs, base, _ = _editing(model, raw, floors, revisions)
     pts, detail, skipped, stations = drivenline.corrected(model, inputs, base, json.loads(edits))
     directory = prepared_path(raw.stem).parent
     directory.mkdir(parents=True, exist_ok=True)
@@ -294,15 +375,14 @@ def stage(model, target, key):
         if base == folder:
             raise ValueError("The original AI line backup is missing.")
         restored = ailinestate.carry(base, target, circuit)
-        # A previously hand-installed spline has no automatic fingerprint. Selecting
-        # it via Undo is an explicit choice of those exact bytes for the next race.
         installed = dest / fastlane.FILE
-        if installed.exists() and restored.get("inputs") and restored["status"] != "ready":
-            metres = ailinestate.lane_metres(base, base / fastlane.FILE)
-            ailinestate.record_ready(dest, restored["inputs"], circuit=circuit, metres=metres)
-            restored["status"] = "ready"
-        elif not installed.exists():
+        # Undo explicitly selects a hand-installed spline. A tracked automatic preview
+        # stays pending when its fingerprint differs from the edited road.
+        if not installed.is_file():
             restored["status"] = "missing"
+        elif restored.get("inputs") and (restored["status"] == "manual" or not (base / ailinestate.FILE).is_file()):
+            ailinestate.record_ready(dest, restored["inputs"], circuit=circuit)
+            restored["status"] = "ready"
         shutil.rmtree(dest / BASE)
         return restored
     lane = path(model, key)
@@ -322,6 +402,7 @@ def stage(model, target, key):
     installed = dest / fastlane.FILE
     installed.parent.mkdir(exist_ok=True)
     file, fields = publication(target, key, model)
+    bundle_floors(model, target, key)
     shutil.copyfile(file, installed)
     ailinestate._write(dest, key, "ready", **fields)
     old = folder / aihints.FILE

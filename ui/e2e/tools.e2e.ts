@@ -152,6 +152,55 @@ test("dragging the AI line produces one removable, undoable saved move", async (
   await expect(scene(page)).not.toHaveCSS("cursor","crosshair");
 });
 
+for (const [gesture, action] of [["move", "play"], ["redraw", "save"]] as const) {
+  test(`Editor ${action} includes a released ${gesture} while validation is pending`, async ({page, backend}) => {
+    await backend.post("/__test/rebuild", {name:"alpha", title:"Alpha Test", ai_moves:true, trees:false});
+    const installed = await page.request.post("/api/editor/alpha/ai-line/recalculate", {data:{}});
+    expect((await installed.json()).status).toBe("ready");
+    const response = guideResponse(page);
+    await openEditor(page);
+    await keysOnView(page);
+    await page.keyboard.press(gesture === "move" ? "1" : "2");
+    const {onRow, screenRow} = await bandRows(page, (await (await response).json()).rows);
+    await expect(page.locator("#edit-ai-line-set")).toContainText("Side limits");
+    const {x, y} = screenRow(105);
+    await page.mouse.move(x, y);
+    await expect(scene(page)).toHaveCSS("cursor", gesture === "move" ? "grab" : "crosshair");
+
+    let release = () => {};
+    const held = new Promise<void>(resolve => { release = resolve; });
+    await page.route("**/ai-line/move-preview", async route => {
+      await held;
+      await route.continue();
+    });
+    try {
+      if (gesture === "move") {
+        await page.mouse.down();
+        await page.mouse.move(x + 15, y);
+        await page.mouse.up();
+      } else {
+        await onRow(105);
+        await onRow(185);
+      }
+      await page.locator(`#edit-${action}`).click();
+      await expect(page.getByText(/1 change still on its way/)).toBeVisible();
+      if (action === "play")
+        await expect(page.getByRole("dialog", {name:"Play"}).getByRole("button", {name:"Saving …"})).toBeDisabled();
+      else await expect(page.locator("#save-dialog")).toBeHidden();
+    } finally { release(); }
+    if (action === "play") {
+      await startDriving(page);
+      await expect.poll(backend.calls).toContainEqual(["play", "alpha"]);
+    } else {
+      await page.locator("#save-dialog").getByRole("button", {name:"Overwrite"}).click();
+    }
+    await expect.poll(async () => {
+      const draft = await (await page.request.get("/api/editor/alpha/edits")).json();
+      return draft.saved?.aiCorrections;
+    }).toMatchObject([{kind:gesture}]);
+  });
+}
+
 test("Redraw finishes on the line, Escape discards the stroke, and a saved free stroke reopens", async ({page,backend}) => {
   await backend.post("/__test/rebuild", {name:"alpha", title:"Alpha Test", ai_moves:true, trees:false});
   const response = guideResponse(page);

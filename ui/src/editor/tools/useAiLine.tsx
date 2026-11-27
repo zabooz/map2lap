@@ -152,8 +152,7 @@ export function useAiLine({name, view, mode, writes, source, unsaved, edits, mov
   const editMoves = canEdit && mode !== "margin";
   useEffect(() => {
     if (!editMoves || !guide) return;
-    const session = view.editAiMoves(guide, url, moves, !lane,
-      move => edits.addAiCorrection(move), id => edits.removeAiCorrection(id), setError, onNote);
+    const session = view.editAiMoves(guide, url, moves, !lane, edits, setError, onNote);
     editing.current = session;
     return () => { session.dispose(); editing.current = null; };
   }, [editMoves, guide, url, moves, lane, edits, view, onNote]);

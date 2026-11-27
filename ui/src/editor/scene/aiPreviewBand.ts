@@ -39,20 +39,19 @@ export function disposeStroke(root: THREE.Object3D) {
 /** At most one preview request in flight. Pointer events replace the pending position. */
 export class PreviewQueue {
   private pending?: () => Promise<void>;
-  private busy = false;
+  private running: Promise<void> | null = null;
   put(work: () => Promise<void>) {
     this.pending = work;
-    if (!this.busy) void this.run();
+    return this.running ??= this.run();
   }
   clear() { this.pending = undefined; }
   private async run() {
-    this.busy = true;
     try {
       while (this.pending) {
         const work = this.pending;
         this.pending = undefined;
         await work();
       }
-    } finally { this.busy = false; }
+    } finally { this.running = null; }
   }
 }

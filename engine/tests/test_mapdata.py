@@ -303,6 +303,13 @@ class CogTest(unittest.TestCase):
         c.read_window(0, 0, 64, 32)                                      # two neighbouring tiles: one read
         self.assertEqual(len(src.reads), n + 1)
 
+    def test_corrupt_deflate_tile_raises_a_raster_error(self):
+        c, src = self.check()
+        offset = int(c.offsets[0])
+        src.data = src.data[:offset] + b"xx" + src.data[offset + 2:]
+        with self.assertRaises(cog.CogError):
+            c.read_window(0, 0, 1, 1)
+
     def test_predictor_raw_bigendian(self):
         self.check(predictor=2)
         self.check(compress=False)

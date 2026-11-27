@@ -31,8 +31,9 @@ Marking a spot or recording a drive creates a session folder under `Documents\As
    differences. Use `--upto obj` to stop at the OBJ parts for measurement.
    For a reproduction, match terrain spacing, parked cars, tree spacing and ground quality from the session's
    `map2lap.json` using the [build environment](architecture.md#terrain-and-scenery-build-options). The tool
-   rebuilds the generated geometry. On an A–B Route the saved line ends after any runout and starts at the first
-   pin, so it omits the incoming road used for grid placement. Editor edits also require their original assets and recipe.
+   rebuilds the generated geometry. For A–B Routes, `stage_timing` records the incoming road used for the
+   start and grid in the same frame as the saved route. Older sessions without this field rebuild from the first pin,
+   which can move the start forward. Editor edits also require their original assets and recipe.
 3. Find the spot. The route metre is the same count in `measure.py` (`--from/--to`) and `check_drive.py`. AC coordinates:
    x east, z = −north, y up; the anchor is in the track's `data/map2lap_route.txt`.
 4. See what was built there. A command-line build, and one from the page with "Keep build files" (on by default under

@@ -58,30 +58,41 @@ def build_progress(phase, done, total, *, area):
 
 
 @dataclass(frozen=True)
-class SavedCircuit:
-    """The installed lap in its original ENU frame."""
+class SavedLine:
+    """The built route, including runout, in the same ENU frame as its grid approach."""
     anchor: tuple[float, float]
     xy: np.ndarray
+    end: int
+    stage_timing: dict | None = None
+
+    @classmethod
+    def read(cls, path, end=None, stage_timing=None):
+        """Read the anchor and AC coordinates from map2lap_route.txt."""
+        with Path(path).open(encoding="utf-8") as stream:
+            header, lat, lon = stream.readline().split()
+            xz = np.loadtxt(stream, ndmin=2)
+        anchor = float(lat), float(lon)
+        end = len(xz) - 1 if end is None else end
+        if (header != "anchor" or not np.isfinite(anchor).all() or not np.isfinite(xz).all()
+                or xz.shape[1] != 2 or not 1 <= end < len(xz)):
+            raise ValueError(f"Invalid saved route in {path}")
+        return cls(anchor, xz * [1.0, -1.0], end, stage_timing)
 
 
 def _saved_circuit(name):
     """Read the full installed Circuit line and its twice-driven spans for a rebuild."""
     folder = Path(make_track_folder.AC) / "content" / "tracks" / slug(name)
     try:
-        with (folder / fastlane.ROUTE).open(encoding="utf-8") as stream:
-            header, lat, lon = stream.readline().split()
-            xz = np.loadtxt(stream, ndmin=2)
-        anchor = float(lat), float(lon)
+        line = SavedLine.read(folder / fastlane.ROUTE)
     except FileNotFoundError:
         return None, None    # An old track without a saved line can still be routed from its pins.
     except ValueError as error:
         raise RuntimeError(f"Invalid saved Circuit line for {name}") from error
-    if (header != "anchor" or not np.isfinite(anchor).all() or not np.isfinite(xz).all() or
-            xz.shape[1] != 2 or len(xz) < 4 or not np.array_equal(xz[0], xz[-1])):
+    if len(line.xy) < 4 or not np.array_equal(line.xy[0], line.xy[-1]):
         raise RuntimeError(f"Invalid saved Circuit line for {name}")
     info = mytracks.load(folder)
     timing = (info or {}).get("timing") or {}
-    return SavedCircuit(anchor, xz * [1.0, -1.0]), {"twice": timing.get("twice", [])}
+    return line, {"twice": timing.get("twice", [])}
 
 
 def data_versions():
@@ -401,7 +412,7 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     """The whole chain up to the track folder; returns a dict with paths and figures.
     progress(phase, done, total): progress for the generator page (phases: PHASES).
     line: (route [(lat, lon), ...], index of the end pin in it) instead of OSRM's: an earlier build's route as it was,
-    the run-off behind the end pin included (tools/from_debug.py), or a SavedCircuit in its original ENU frame.
+    the run-off behind the end pin included, or a SavedLine in its original ENU frame.
     kind="circuit": route a closed lap. With line, circuit_timing holds the saved start/finish metre and twice-driven spans.
     clean: delete the temporary data afterwards (clean_up); the page does that while "Keep build files" is off.
     cache_gb: trim the map data cache to this limit afterwards (mapcache.trim; 0: none, None: don't tidy).
@@ -452,15 +463,16 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
     else:
         progress("route", 0, 0)
         lap = None
-        saved = line if isinstance(line, SavedCircuit) else None
+        saved = line if isinstance(line, SavedLine) else None
         if saved is not None:
-            log("Using saved Circuit line")
+            log(f"Using saved {kind.capitalize()} line")
             lat0, lon0 = saved.anchor
             xy = saved.xy
-            lead = np.empty((0, 2))
-            la, lo, _ = geodesy.EnuFrame(lat0, lon0).enu_to_geodetic(xy[:, 0], xy[:, 1], 0)
+            lead = np.asarray((saved.stage_timing or {}).get("approach", []), float).reshape(-1, 2)
+            course = xy[:saved.end + 1]
+            la, lo, _ = geodesy.EnuFrame(lat0, lon0).enu_to_geodetic(course[:, 0], course[:, 1], 0)
             pts = np.column_stack((la, lo)).tolist()
-            length = float(np.linalg.norm(np.diff(xy, axis=0), axis=1).sum())
+            length = float(np.linalg.norm(np.diff(course, axis=0), axis=1).sum())
         elif line is None:
             if circuit:
                 log("Calculating circuit (OSRM) ...")
@@ -483,7 +495,7 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
         loop = circuit or math.hypot(lat_gap, lon_gap) < LOOP_M
         approach = []
         gate_approach_count = 0
-        if circuit:
+        if circuit or saved is not None:
             ext = []
         elif line is not None:
             ext = given
@@ -528,6 +540,8 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
                 timing["twice"] = [[lo * scale, hi * scale] for lo, hi in lap.twice]
             if circuit_timing is not None and line is not None:
                 timing.update(mytracks.circuit_timing(circuit_timing))
+        elif saved is not None and saved.stage_timing is not None:
+            timing = saved.stage_timing
         elif not loop:          # start and finish line (m along xy; obj_to_kn5.ab_gates)
             s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
             end, more = float(s[len(pts) - 1]), float(s[-1] - s[len(pts) - 1])
@@ -680,6 +694,10 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
     if circuit:
         with open(anchor_path, encoding="utf-8") as f:
             info.update(kind="circuit", timing=mytracks.circuit_timing(json.load(f).get("timing")))
+    elif "approach" in (anc.get("timing") or {}):
+        # The debug rebuild places gates on the rebuilt road using the original approach and finish target.
+        info["stage_timing"] = {key: anc["timing"][key] for key in
+                                ("approach", "gate_approach_count", "start_m", "finish_m") if key in anc["timing"]}
     info.update(buildoptions.checked(anc))
     info["code"] = trackcode.encode(info)
     # The route anchors travel with the rebuilt copy, whose new meshes become its Editor source.

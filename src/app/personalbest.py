@@ -13,7 +13,8 @@ from . import system
 
 _write_lock = threading.Lock()
 _section = re.compile(r"^[ \t]*\[([^\]\r\n]+)\][^\r\n]*(?:\r?\n|$)", re.MULTILINE)
-_value = re.compile(r"^[ \t]*(TIME|DATE)[ \t]*=[ \t]*(.*?)[ \t]*(?:\r?\n|$)", re.MULTILINE | re.IGNORECASE)
+_value = re.compile(r"^[ \t]*(TIME|DATE)[ \t]*[=:][ \t]*(.*?)(?:[ \t]+[;#][^\r\n]*)?[ \t]*(?:\r?\n|$)",
+                    re.MULTILINE | re.IGNORECASE)
 
 
 def _result_path(documents):
@@ -65,7 +66,13 @@ def _updated_ini(raw, combo, best, date_ms):
         end = sections[index + 1].start() if index + 1 < len(sections) else len(text)
         body = text[section.end():end]
         for value in _value.finditer(body):
-            if value[1].upper() == "TIME" and re.fullmatch(r"\d+", value[2]) and 0 < int(value[2]) <= best:
+            if value[1].upper() != "TIME":
+                continue
+            try:
+                previous = int(value[2])
+            except ValueError:
+                continue
+            if 0 < previous <= best:
                 return None
         header = text[:section.end()]
         text = header + ("" if header.endswith("\n") else newline) + values + _value.sub("", body) + text[end:]

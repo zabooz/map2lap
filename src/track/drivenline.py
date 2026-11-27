@@ -6,6 +6,60 @@ import numpy as np
 from track import fastlane
 
 
+def floor_columns(xyz, road):
+    """Sample named collision surfaces beneath the recorded horizontal positions. Pure."""
+    columns = []
+    for x, _, z in xyz:
+        column = {}
+        for name, mesh in road(x, z, 0).items():
+            # Merge coplanar triangles to millimetre precision. Two separated
+            # surfaces in one mesh have no independent identity across height edits.
+            levels = fastlane.obj_to_kn5.road_levels({name: mesh}, x, z, gap=.001)
+            if levels:
+                # Saving a KN5 can renumber its meshes. Their node names survive.
+                owner = name.rsplit("/", 1)[0]
+                column.setdefault(owner, set()).update(levels)
+        columns.append({owner: sorted(levels) for owner, levels in column.items()})
+    return columns
+
+
+def _floor_shift(before, after, y):
+    """Displacement of the same supporting surface, or None when ambiguous. Pure."""
+    samples = [(abs(height-y), owner, height) for owner, levels in before.items() for height in levels]
+    closest = min((gap for gap, _, _ in samples), default=np.inf)
+    if closest >= fastlane.obj_to_kn5.LEVEL_GAP_M:
+        return None
+    reachable = [height for gap, _, height in samples if gap < fastlane.obj_to_kn5.LEVEL_GAP_M]
+    if max(reachable) - min(reachable) >= fastlane.obj_to_kn5.LEVEL_GAP_M:
+        return None
+    shifts = []
+    # At a shared triangle edge, both owners within a millimetre must agree.
+    for gap, owner, height in samples:
+        if gap > closest + .001:
+            continue
+        source, target = before[owner], after.get(owner, [])
+        if source == target:
+            shifts.append(0.)
+        elif len(source) == len(target) == 1:
+            shifts.append(target[0] - height)
+        else:
+            return None
+    return shifts[0] if max(shifts) - min(shifts) <= .001 else None
+
+
+def refit_heights(xyz, captured, road):
+    """Move recorded heights by the change in their driving surface. Pure."""
+    fitted = xyz.copy()
+    for i, (before, after) in enumerate(zip(captured, floor_columns(xyz, road), strict=True)):
+        if before == after:
+            continue
+        shift = _floor_shift(before, after, xyz[i, 1])
+        if shift is None:
+            raise fastlane.NoLine(f"The road level of the recording is unclear at sample {i+1}. Record this line again.")
+        fitted[i, 1] += shift
+    return fitted
+
+
 def records(xyz, stations, road, mapped, raw, source_stations, circuit):
     """Measure bank and clearance along the driven path, carrying its recorded driving inputs."""
     sides = fastlane._frame(xyz, circuit)[3]
@@ -46,10 +100,12 @@ def driven_route(points, origin, circuit=True):
     return xyz, keep, fastlane.aicorrections.Route(xyz[:,fastlane.XZ], origin, circuit)
 
 
-def reference(inputs, points, raw, circuit=True):
+def reference(inputs, points, raw, circuit=True, *, floors=None):
     """Make the driven positions the route and the reference for editing this lap."""
     _, markers, meshes, mapped, _, origin, _ = inputs
     xyz, keep, route = driven_route(points, origin, circuit)
+    if floors is not None:
+        xyz = refit_heights(points["pos"].astype(float), floors, fastlane._local_roads(meshes, free=True))[keep]
     raw = raw[keep]
     stations = route.metres[:-1] if circuit else route.metres
     road = fastlane._local_roads(meshes)

@@ -3,6 +3,21 @@ import {createHash} from "node:crypto";
 import {PerspectiveCamera, Vector3} from "three";
 import {saved} from "./edit-helpers";
 
+test("a recording can finish and close when session storage is blocked", async ({page, backend}) => {
+  await page.addInitScript(() => Object.defineProperty(window, "sessionStorage", {
+    get() { throw new DOMException("Storage blocked", "SecurityError"); },
+  }));
+  await backend.post("/__test/recording-track", {stage: true});
+  await openEditor(page);
+  await page.getByRole("button", {name: "Record AI line", exact: true}).click();
+  const dialog = page.getByRole("dialog", {name: "Record AI line"});
+  await expect(dialog).toContainText("Recording practice is open");
+  await backend.post("/__test/finish-recording", {});
+  await expect(dialog.getByRole("img")).toBeVisible();
+  await dialog.getByRole("button", {name: "Discard"}).click();
+  await expect(dialog).toBeHidden();
+});
+
 for (const course of ["circuit", "A–B route"]) test(`recording on ${course} previews, discards, resets, and survives Save, Undo, Redo and Save as`, async ({page, backend}) => {
   await backend.post("/__test/recording-track", {stage:course === "A–B route"});
   await openEditor(page);

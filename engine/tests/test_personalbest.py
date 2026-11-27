@@ -52,6 +52,16 @@ class PersonalBestTest(unittest.TestCase):
         self.assertIsNone(personalbest.import_result(self.documents, "one", "car", 0))
         self.assertEqual(written, self.ini.read_text())
 
+    def test_import_keeps_a_faster_time_with_an_inline_comment(self):
+        self.save_result()
+        for prefix in (";", "#"):
+            with self.subTest(prefix=prefix):
+                old = f"[car@one]\r\nTIME=47000 {prefix} Personal Best\r\nDATE=123\r\n".encode()
+                self.ini.write_bytes(old)
+                self.assertEqual({"one": ("car", 47000)}, personalbest.fastest_by_track(self.documents))
+                self.assertIsNone(personalbest.import_result(self.documents, "one", "car", 0))
+                self.assertEqual(old, self.ini.read_bytes())
+
     def test_ignores_wrong_or_stale_results_and_nonpositive_times(self):
         self.save_result()
         self.assertIsNone(personalbest.import_result(self.documents, "other", "car", 0))

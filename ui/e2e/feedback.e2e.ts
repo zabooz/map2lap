@@ -44,6 +44,11 @@ test("reports and replies accept images, and news stays unread per ticket", asyn
   await expect(page.getByTestId("ticket-1")).toHaveAttribute("aria-current", "page");
   await expect(page.getByTestId("history")).toContainText("Fixed in the next build");
   await expect(page.getByTestId("history")).toContainText("2 images");
+  await backend.post("/__test/feedback-news", {id: 1, text: "The updated track is available"});
+  await page.clock.fastForward(15 * 60_000);
+  await expect(page.getByTestId("history")).toContainText("The updated track is available");
+  await expect(page.getByTestId("ticket-1").getByLabel("Unread update")).toHaveCount(0);
+  await expect(page.getByTestId("ticket-2").getByLabel("Unread update")).toBeVisible();
   const reply = page.getByTestId("reply");
   await reply.getByLabel("Reply").fill("Confirmed");
   await page.getByTestId("feedback-new").click();

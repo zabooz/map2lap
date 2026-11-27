@@ -16,7 +16,7 @@ FILE = Path("data/map2lap_ai.json")
 RECORDINGS = Path("data/map2lap_recordings")
 # When line code changes, bump this and update LaneCodeVersionTest in engine/tests/test_fastlane.py.
 # For comments or refactors proven to leave the generated line unchanged, update only the test's source digest.
-CODE_VERSION = 14
+CODE_VERSION = 15
 ERRORS = (AssertionError, IndexError, KeyError, OSError, ValueError, struct.error)
 
 
@@ -373,10 +373,13 @@ def status(folder, inputs):
         record = _raw_record(folder)
         expected = record.get("lane") if record.get("recorded") and record.get("inputs") == inputs else inputs
         if lane.is_file() and checksum(lane) == expected:
-            if expected == inputs and "drivenMetres" not in record and (folder / RECORDINGS / (inputs+".ai")).is_file():
+            old_export = record.get("recorded") and record.get("code") != CODE_VERSION
+            raw_copy = expected == inputs and "drivenMetres" not in record and (folder / RECORDINGS / (inputs+".ai")).is_file()
+            if old_export or raw_copy:
                 return {"status":"pending", "inputs":inputs, "recorded":True}
             return {"status": "ready", "inputs": inputs, "lane": expected, "recorded": True}
-        return {"status": "failed", "recorded": True, "message": "The installed recording changed. Save the selected line again."}
+        return {"status": "failed", "recorded": True,
+                "message": "The installed recording is missing or changed. Recalculate the AI line to restore it."}
     record = _record(folder)
     if inputs == record.get("inputs") and record.get("status") == "failed" and record.get("message"):
         return {"status": "failed", "message": record["message"]}

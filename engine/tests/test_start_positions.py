@@ -459,6 +459,19 @@ def mapped_junctions(roads):
 
 
 class CircuitSectorsTest(unittest.TestCase):
+    def test_single_entrance_ring_accepts_sectors_and_rejects_a_crossing_of_both_sides(self):
+        anchor = circuit()
+        ring = np.asarray(anchor["route"]) * [1, -1]
+        junctions = mapped_junctions([ring.tolist(), [ring[0].tolist(), [150, 0]]])
+        nodes, metres = obj_to_kn5.circuit_splits(circuit_roads(anchor), anchor, 0.0, junctions)
+        self.assertEqual(metres, [400., 800.])
+        self.assertEqual(len(nodes), 4)
+        # A cross-section at a mapped vertex meets both incident edges at the same point.
+        across = obj_to_kn5._crosses_junction_arms
+        self.assertFalse(across(junctions[1], np.array([290., 0., -360.]), np.array([310., 0., -340.])))
+        # A line across the whole loop meets two physically separate carriageways.
+        self.assertTrue(across(junctions[1], np.array([100., 0., -40.]), np.array([100., 0., -360.])))
+
     def test_roadless_split_candidates_skip_the_junction_scan(self):
         xy, lengths = obj_to_kn5._closed_lap(circuit()["route"])
         junctions = (np.zeros((1, 3)), np.empty((0, 6)))

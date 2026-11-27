@@ -14,13 +14,23 @@ from app import lanerecording, mytracks
 from track import fastlane
 
 
-def lane(path, shift=0):
+def lane(path, shift=0, *, height=0):
     points = np.zeros(24, dtype=fastlane.POINT)
     angle = np.arange(24) * np.pi / 12
     points["pos"][:, 0] = (30 + shift) * np.cos(angle)
+    points["pos"][:, 1] = height
     points["pos"][:, 2] = (30 + shift) * np.sin(angle)
     points["length"] = np.arange(24) * 8
     fastlane._write_lane(path, points, np.zeros(24, dtype=fastlane.DETAIL))
+
+
+def road(model, height):
+    root = fastlane.obj_to_kn5.empty("root", (0, 0, 0), (0, 0, 1))
+    vertices = np.zeros(4, dtype=fastlane.kn5.VERTEX)
+    vertices["pos"] = [(x, height, z) for x, z in ((-50, -50), (50, -50), (50, 50), (-50, 50))]
+    root.children.append(fastlane.kn5.Node(2, "1ROAD_test", 1, vertices=vertices, bs_center=(0, 0, 0),
+                                          indices=np.array([0, 1, 2, 0, 2, 3], dtype=np.uint16)))
+    fastlane.kn5.write(model, [], [], root)
 
 
 class RecordingTest(unittest.TestCase):
@@ -30,7 +40,7 @@ class RecordingTest(unittest.TestCase):
         self.folder = self.root / "ac/content/tracks/loop"
         self.folder.mkdir(parents=True)
         self.model = self.folder / "loop.kn5"
-        self.model.touch()
+        road(self.model, 0)
         self.candidate = self.folder / "club/ai/fast_lane.ai.candidate"
 
     def test_preparing_practice_preserves_ini_and_arms_only_its_token(self):
@@ -66,6 +76,58 @@ class RecordingTest(unittest.TestCase):
             code, result = ailanejobs.race(self.model, True, {"recalculate":True}, lambda: (200, "started"))
         self.assertEqual((200, "started"), (code, result))
 
+    def test_undo_only_reuses_an_automatic_line_for_its_original_geometry(self):
+        from track import ailinestate
+
+        base = self.folder / lanerecording.BASE
+        lane(base / fastlane.FILE)
+        ailinestate.record_ready(base, "original", circuit=True)
+        mytracks.save(self.folder, {"kind": "circuit", "edits": {"aiLine": "a" * 64}})
+        for fingerprint, expected in (("original", "ready"), ("raised", "pending")):
+            with self.subTest(fingerprint=fingerprint):
+                dest = self.root / fingerprint
+                shutil.copytree(base, dest / lanerecording.BASE)
+                with mock.patch.object(ailinestate, "input_key", return_value=fingerprint):
+                    result = lanerecording.stage(self.model, dest / "copy.kn5", None)
+                self.assertEqual(expected, result["status"])
+                self.assertEqual(expected, ailinestate.status(dest, fingerprint)["status"])
+                self.assertEqual((base / fastlane.FILE).read_bytes(), (dest / fastlane.FILE).read_bytes())
+
+    def test_explicit_recalculate_republishes_the_selected_recording_after_file_damage(self):
+        from app import ailanejobs
+        from track import ailinestate
+
+        installed = self.folder / fastlane.FILE
+        lane(installed)
+        key = ailinestate.checksum(installed)
+        archive = self.folder / lanerecording.BUNDLE / (key + ".ai")
+        archive.parent.mkdir(parents=True)
+        shutil.copy2(installed, archive)
+        mytracks.save(self.folder, {"kind": "circuit", "edits": {"aiLine": key}})
+        points = fastlane.read_lane(archive)[0]["pos"]
+        route = fastlane.aicorrections.Route(points[:, fastlane.XZ], [46., 14.], True)
+        # Isolate geometry export while exercising the job, file installation and checksum checks.
+        fields = dict(lane=key, recorded=True, gaps=[], metres=None, drivenMetres=route.metres[:-1].tolist())
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                if missing:
+                    installed.unlink()
+                else:
+                    installed.write_bytes(b"incomplete")
+                self.assertEqual("failed", ailanejobs.ensure(self.model, True)["status"])
+                with (mock.patch.object(lanerecording, "publication", return_value=(archive, fields)) as export,
+                      mock.patch.object(lanerecording, "editing", return_value=(None, (None,) * 5 + (route,), None)),
+                      mock.patch.object(ailanejobs, "compute", side_effect=AssertionError("Selected an automatic line"))):
+                    result = ailanejobs.ensure(self.model, True, retry=True, place_margins=True)
+                export.assert_called_once_with(self.model, key, self.model)
+                self.assertEqual("ready", result["status"])
+                self.assertEqual(archive.read_bytes(), installed.read_bytes())
+        archive.unlink()
+        installed.write_bytes(b"damaged again")
+        with mock.patch.object(ailanejobs, "compute", side_effect=AssertionError("Selected an automatic line")):
+            self.assertEqual("failed", ailanejobs.ensure(self.model, True, retry=True)["status"])
+        self.assertEqual(b"damaged again", installed.read_bytes())
+
     def test_old_saved_raw_recording_with_its_archive_needs_measurement_before_racing(self):
         from track import ailinestate
         target = self.folder / fastlane.FILE
@@ -77,6 +139,24 @@ class RecordingTest(unittest.TestCase):
         mytracks.save(self.folder, {"kind":"circuit", "edits":{"aiLine":key}})
         ailinestate._write(self.folder, key, "ready", lane=key, recorded=True)
         self.assertEqual("pending", ailinestate.status(self.folder,key)["status"])
+
+    def test_old_recorded_export_is_remeasured_before_racing(self):
+        import json
+        from track import ailinestate
+
+        installed = self.folder / fastlane.FILE
+        lane(installed)
+        key = ailinestate.checksum(installed)
+        archive = self.folder / lanerecording.BUNDLE / (key + ".ai")
+        archive.parent.mkdir(parents=True)
+        shutil.copy2(installed, archive)
+        mytracks.save(self.folder, {"kind": "circuit", "edits": {"aiLine": key}})
+        ailinestate._write(self.folder, key, "ready", lane=key, recorded=True, drivenMetres=list(range(24)))
+        metadata = self.folder / ailinestate.FILE
+        record = json.loads(metadata.read_text(encoding="utf-8"))
+        record["code"] = 14
+        metadata.write_text(json.dumps(record), encoding="utf-8")
+        self.assertEqual("pending", ailinestate.status(self.folder, key)["status"])
 
     @unittest.skipUnless(shutil.which("luajit"), "LuaJIT is optional in development")
     def test_csp_enters_practice_once_and_leaves_export_to_ac(self):
@@ -111,8 +191,54 @@ assert(starts==1 and recordings==1, "Leaving practice must not resume driving")
         captured = session.finish()
         frozen = lanerecording.path(self.model, captured)
         self.assertEqual(self.candidate.read_bytes(), frozen.read_bytes())
+        floors = lanerecording._floors_file(self.model, frozen)
+        self.assertEqual([{"1ROAD_test": [0.]}] * 24, lanerecording._read_floors(floors, captured, 24))
+        lanerecording.bundle_floors(self.model, self.model, captured)
+        bundled = lanerecording._floors_file(self.model, frozen)
+        self.assertEqual(self.folder / lanerecording.BUNDLE / floors.name, bundled)
+        floors.write_bytes(b"later local capture")
+        self.assertEqual([{"1ROAD_test": [0.]}] * 24, lanerecording._read_floors(bundled, captured, 24))
+        bundled.write_bytes(bundled.read_bytes()[:-4])
+        with self.assertRaisesRegex(ValueError, "height reference"):
+            lanerecording._read_floors(bundled, captured, 24)
         lane(self.candidate, 3)
         self.assertNotEqual(self.candidate.read_bytes(), frozen.read_bytes())
+
+    def test_prepared_v7_positions_follow_only_the_height_change_since_capture(self):
+        (self.folder / "data").mkdir()
+        mytracks.save(self.folder, {"kind": "circuit", "edits": {"heights": [{"id": "old"}]}})
+        road(self.model, 5)
+        session = lanerecording.Capture(self.model, "club")
+        lane(self.candidate, height=5.125)
+        key = session.finish()
+        xyz = fastlane.read_lane(self.candidate)[0]["pos"]
+        target = self.root / "copy" / "copy.kn5"
+        (target.parent / "data").mkdir(parents=True)
+        mytracks.save(target.parent, {"kind": "circuit"})
+        np.savetxt(target.parent / fastlane.ROUTE, xyz[:, fastlane.XZ], header="anchor 0 0", comments="")
+        for height in (5., 11.):
+            with self.subTest(height=height):
+                road(target, height)
+                prepared = lanerecording.prepare(target, key, [], self.model)
+                exported = fastlane.read_lane(lanerecording.prepared_path(prepared["file"]))[0]["pos"]
+                np.testing.assert_array_equal(exported[:, fastlane.XZ], xyz[:, fastlane.XZ])
+                np.testing.assert_array_equal(exported[:, 1], np.full(len(xyz), height+.125))
+
+    def test_two_tracks_with_identical_raw_samples_keep_their_own_capture_surface(self):
+        session = lanerecording.Capture(self.model, "club")
+        lane(self.candidate)
+        key = session.finish()
+        other = self.root / "second" / "second.kn5"
+        other.parent.mkdir()
+        road(other, .25)
+        second = lanerecording.Capture(other, "club")
+        lane(second.file)
+        self.assertEqual(key, second.finish())
+        for model, expected in ((self.model, 0.), (other, .25)):
+            raw = lanerecording.path(model, key)
+            floors = lanerecording._read_floors(lanerecording._floors_file(model, raw), key, 24)
+            np.testing.assert_allclose([f["1ROAD_test"][0] for f in floors], np.full(24, expected),
+                                       rtol=0, atol=1e-10)
 
     def test_open_recording_requires_ordered_forward_crossings_on_the_gate_level(self):
         from track import drivenline, obj_to_kn5

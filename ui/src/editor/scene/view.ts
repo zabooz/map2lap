@@ -15,7 +15,7 @@ import {RoadMarkers, type RangeDrawing} from "./roadMarkers";
 import {PREVIEW_LIFT} from "./aiPreviewBand";
 import {editMoves} from "./aiMoves";
 import type {MoveGuide} from "./aiGuide";
-import type {AiCorrection} from "../state/edits";
+import type {AiCorrection, TrackEdits} from "../state/edits";
 import {editMargins, type MarginHit, type MarginMark, type MarginPreview, type MarginRange} from "./aiMargins";
 import {AiLineDraw} from "./aiLine";
 import {aiLinePoint, type AiLineHover, type InstalledAiLine} from "./aiLineData";
@@ -1136,9 +1136,9 @@ export class TrackView {
 
   /** Prepare the installed revision of the AI line, retaining its geometry while that revision holds. */
   editAiMoves(guide: MoveGuide, url: string, moves: AiCorrection[], showGuide: boolean,
-    add: (move: AiCorrection) => void, remove: (id: string) => void, note: (reason: string) => void, hint: (text: string) => void) {
+    edits: TrackEdits, note: (reason: string) => void, hint: (text: string) => void) {
     return editMoves(this.renderer.domElement, this.scene, this.camera, guide, url, moves, showGuide,
-      add, remove, note, hint, () => { this.dirty = true; }, mouse => this.pointing.hit(mouse)?.distance ?? Infinity,
+      edits, note, hint, () => { this.dirty = true; }, mouse => this.pointing.hit(mouse)?.distance ?? Infinity,
       mouse => {
         this.picker.setFromCamera(mouse, this.camera);
         const ray = this.picker.ray;

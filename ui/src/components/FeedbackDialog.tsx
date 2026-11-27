@@ -142,6 +142,10 @@ export function FeedbackDialog({feedback, close}: {feedback: ReturnType<typeof u
   const composer = (id: number) => <Composer draft={drafts[id] ?? EMPTY} reply={!!id} change={patch => change(id, patch)}
     add={files => add(id, files)} send={() => void send(id)} />;
   const active = feedback.reports.find(ticket => ticket.id === selected);
+  const {read} = feedback;
+  useEffect(() => {
+    if (active) void read(active);
+  }, [active, read]);
   return <dialog ref={dialog} aria-labelledby="feedback-title" className={styles.dialog}
     onCancel={e => { e.preventDefault(); close(); }}
     onPointerDown={e => { pressedBackdrop.current = e.target === e.currentTarget; }}
@@ -162,7 +166,7 @@ export function FeedbackDialog({feedback, close}: {feedback: ReturnType<typeof u
         <div className={styles.ticketList}>
           {feedback.reports.map(ticket => <button key={ticket.id} className={styles.summary} data-testid={`ticket-${ticket.id}`}
             aria-current={active?.id === ticket.id ? "page" : undefined}
-            onClick={() => { select(ticket.id); void feedback.read(ticket); }}>
+            onClick={() => select(ticket.id)}>
             <span className={styles.meta}>#{ticket.id} · {ticket.kind === "bug" ? "Bug" : "Feedback & ideas"}
               {feedback.unread(ticket) && <b aria-label="Unread update">!</b>}</span>
             <span className={styles.status} data-status={ticket.status}>{statusName[ticket.status]}</span>

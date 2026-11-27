@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import {post} from "../../api";
-import type {AiAnchor, AiCorrection, AiRedraw} from "../state/edits";
+import type {AiAnchor, AiCorrection, AiRedraw, TrackEdits} from "../state/edits";
 import {at, type Checked, type MoveGuide, type Row} from "./aiGuide";
 import {disposeStroke, previewBand, PREVIEW_LIFT, previewColour, PreviewQueue} from "./aiPreviewBand";
 import {editorInputBlocked} from "../tools/held";
@@ -65,7 +65,7 @@ export class Pencil {
     private guide: MoveGuide, private edits: AiCorrection[],
     private url: string, private ground: (mouse: THREE.Vector2) => THREE.Vector3 | null,
     private depth: (mouse: THREE.Vector2) => number, private pick: (e: PointerEvent) => number,
-    private add: (item: AiCorrection) => void, private remove: (id: string) => void,
+    private trackEdits: TrackEdits,
     private note: (why: string) => void, private hint: (text: string) => void, private draw: () => void) {
     window.addEventListener("keydown", e => {
       if ((this.draft || this.drag) && e.key === "Escape" && !editorInputBlocked(e.target) && this.el.checkVisibility()) {
@@ -180,13 +180,19 @@ export class Pencil {
     if (serial !== this.serial && (commit || !this.measuring)) return;
     this.finishing = false;
     const why = answer.error || answer.skipped?.[edit.id] || "";
-    if (commit && !why && answer.ink?.[edit.id]) { this.reset(); this.add(edit); }
+    if (commit && !why && answer.ink?.[edit.id]) { this.reset(); this.trackEdits.addAiCorrection(edit); }
     else if (commit && this.drag) { this.reset(); this.note(why); this.draw(); }
     else this.preview(answer.ink?.[edit.id] ?? fallback,why);
   }
   private validate(edit: AiRedraw, fallback: number[][], commit: boolean) {
-    ++this.serial; this.queue.clear(); this.finishing = commit; this.measuring = !commit;
-    this.queue.put(() => this.check(edit,fallback,commit));
+    const serial = ++this.serial;
+    this.queue.clear(); this.finishing = commit; this.measuring = !commit;
+    const check = () => this.check(edit,fallback,commit);
+    if (commit) {
+      void this.trackEdits.inTurn(() => {
+        if (serial === this.serial) return this.queue.put(check);
+      });
+    } else this.queue.put(check);
   }
   private prefix() {
     return this.opening ? this.opening.stroke.controls.slice(0,this.opening.gap.after+1) : [this.draft!.start.row.slice(0,3)];
@@ -231,8 +237,8 @@ export class Pencil {
         if (marker>=0) {
           const endpoint = marker===0 || marker===s.controls.length-1;
           if (e.button===2) {
-            if (endpoint) this.remove(s.item.id);
-            else this.add(removePoint(s.item,marker));
+            if (endpoint) this.trackEdits.removeAiCorrection(s.item.id);
+            else this.trackEdits.addAiCorrection(removePoint(s.item,marker));
           } else if (!endpoint) {
             this.drag = {stroke:s,marker,pointer:e.pointerId};
             this.el.setPointerCapture(e.pointerId);
@@ -244,7 +250,7 @@ export class Pencil {
       const sample = this.pen ? this.segment(e,s) : this.hit(e,s.points);
       if (sample<0) continue;
       if (this.pen) this.beginOpening(s,s.samples.findIndex(index => index>sample)-1);
-      else if (e.button===2) this.remove(s.item.id);
+      else if (e.button===2) this.trackEdits.removeAiCorrection(s.item.id);
       else if (s.error) this.note(s.error);
       else this.hint("Press 2 to edit this redraw.");
       return true;

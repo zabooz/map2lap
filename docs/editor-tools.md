@@ -49,7 +49,8 @@ or the stage from start gate to finish gate. Grid and runout colours clamp to th
 a timing gate, the legend spans the available samples. Save and Save as update the line in the background when its
 fingerprint changes. Until the replacement is ready, the old band stays visible, dimmed and labelled **Outdated**.
 If AC is open or a build is running, the update waits for the next Save, Recalculate or Race with opponents.
-Editor Play saves edits first. Only a Race with opponents needs a current line before launch.
+Editor Play waits for a completed Move or Redraw gesture to be checked, then saves the accepted edits.
+Only a Race with opponents needs a current line before launch.
 **Recalculate AI line** beside the tools saves pending edits first. It can retry a failed calculation or replace a manual
 line when the recipe has no hint zones.
 The button is disabled while calculating or when everything is current. The top-centre notification follows the Recalculate click through pending edits, the save choice, writing the track and calculating the line. Cancelling the save choice clears it. The finished calculation reports its result there.
@@ -118,8 +119,14 @@ share these display edges. The point inspector reads the original spline fields,
 Accept records the source ID and both choices in one draft history step. For a recording the Editor and Save
 use the same v7 calculation: bank, forward direction and passing widths come from the driven positions, connected
 KN5 surface and mapped carriageway. The car's recorded speed, gas and brake profile follows its samples.
+The recording stores the collision surfaces and their heights beneath each sample. Raising or lowering the
+same road moves the sample by that height change, preserving its original clearance. If a supporting deck
+disappears or its level becomes ambiguous, the Editor asks for a new recording.
 Save installs the calculated spline in `ai/fast_lane.ai` and writes the applicable hints. It retains the previous spline and its route correspondence for
-Undo, and bundles the recording for Save as. Race checks the checksum of the chosen spline before launching opponents.
+Undo, and bundles the recording for Save as. Undoing a recording after changing the road keeps the previous
+automatic spline as a preview until it has been recalculated. If the installed recording is missing or changed,
+**Recalculate AI line** restores it from the selected recording and the saved corrections.
+Race checks the checksum of the chosen spline before launching opponents.
 
 ### Marking AI hint zones
 

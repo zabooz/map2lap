@@ -73,7 +73,16 @@ export function RecordLine({name, stage, edits, state, view, disabled, onAccept}
 }) {
   const url = `/api/editor/${encodeURIComponent(name)}/ai-line`;
   const store = `map2lap:recording:${name}`;
-  const [token, setToken] = useState(() => sessionStorage.getItem(store));
+  const [token, setToken] = useState(() => {
+    try { return sessionStorage.getItem(store); } catch { return null; }
+  });
+  const remember = (next: string | null) => {
+    setToken(next);
+    try {
+      if (next) sessionStorage.setItem(store, next);
+      else sessionStorage.removeItem(store);
+    } catch { /* The open editor can follow the recording in memory. */ }
+  };
   const [open, setOpen] = useState(!!token);
   const [key, setKey] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -117,12 +126,12 @@ export function RecordLine({name, stage, edits, state, view, disabled, onAccept}
     setOpen(true); setMessage(text.start); setError(""); setPreview(null);
     setResetHints(false); setResetMoves(false);
     const answer = await post<{token:string}>(url + "/record", {clock:view.clockHours(), weather:view.weatherOptions()});
-    if (answer.token) { sessionStorage.setItem(store, answer.token); setToken(answer.token); }
+    if (answer.token) remember(answer.token);
     else setError(answer.error ?? "Practice could not start.");
   };
   const close = () => {
-    setToken(null); setKey(null); setPreview(null); setOpen(false);
-    sessionStorage.removeItem(store); view.focus();
+    remember(null); setKey(null); setPreview(null); setOpen(false);
+    view.focus();
   };
   const accept = () => {
     if (!key || !preview || preview.resetMoves !== resetMoves || !edits.canEdit()) return;

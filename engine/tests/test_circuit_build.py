@@ -298,9 +298,43 @@ class CircuitBuildTest(unittest.TestCase):
         kwargs = build.call_args.kwargs
         self.assertEqual(kwargs["kind"], "circuit")
         self.assertEqual(kwargs["circuit_timing"], SAVED_TIMING)
-        coords, end = kwargs["line"]
-        self.assertEqual(coords[0], coords[-1])
-        self.assertEqual(end, 3)
+        line = kwargs["line"]
+        np.testing.assert_array_equal(line.xy[0], line.xy[-1])
+        self.assertEqual(line.end, 3)
+
+    def test_from_debug_keeps_the_stage_approach_in_the_original_frame(self):
+        stage = {"approach": [[-100, 40], [-44, 40]], "gate_approach_count": 1, "start_m": 0., "finish_m": 350.}
+        xy = np.array([[0., 40.], [300., 40.], [400., 40.]])
+        original = {"points": PINS, "width": 120, "length_m": 300., "lat": PINS[0][0], "lon": PINS[0][1],
+                    "tiles": [[0, 0]], "timing": stage}
+        report = self.installed / "data"  # Track Debug copies both files from here verbatim.
+        report.mkdir(parents=True)
+
+        def convert(*args, prepare_output, **kwargs):
+            model = Path(prepare_output(True, 6))
+            model.touch()
+            return str(model)
+
+        with (mock.patch.object(generator.gates, "build", return_value=None),
+              mock.patch.object(generator.farview, "build", return_value=None),
+              mock.patch.object(generator, "where", return_value=("", "")),
+              mock.patch.object(generator.settings, "load", return_value={"debug_app": False}),
+              mock.patch.object(generator.make_track_folder, "make", return_value=str(self.installed)),
+              mock.patch.object(generator.obj_to_kn5, "convert", side_effect=convert),
+              mock.patch.object(generator.fastlane, "regenerate")):
+            generator._finish("test", "Test", self.work, original, xy, PINS, [], (0, 0, 0), 0,
+                              lambda msg: None, mock.Mock(), False, None)
+        with (mock.patch.object(sys, "argv", ["from_debug.py", str(report), "--upto", "obj"]),
+              mock.patch.object(from_debug, "differences", return_value=[]),
+              mock.patch.object(generator, "build", return_value={"work": str(self.work)}) as build,
+              redirect_stdout(io.StringIO())):
+            from_debug.main()
+        kwargs = build.call_args.kwargs
+        anchor, _ = self.build_anchor(kind=kwargs["kind"], line=kwargs["line"])
+        self.assertEqual([anchor["lat"], anchor["lon"]], list(PINS[0]))
+        self.assertEqual(anchor["timing"], stage)
+        self.assertEqual(anchor["route"], [[0, 40], [300, 40], [400, 40]])
+        self.assertEqual(anchor["length_m"], 300.)
 
     def test_from_debug_can_build_a_saved_lap_across_the_antimeridian(self):
         info = {"title": "Test", "points": DATELINE_LAP[:2], "width": 120, "kind": "circuit", "timing": SAVED_TIMING,

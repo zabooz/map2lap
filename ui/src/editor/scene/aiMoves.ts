@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import {post} from "../../api";
-import type {AiMove, AiCorrection} from "../state/edits";
+import type {AiMove, AiCorrection, TrackEdits} from "../state/edits";
 import {disposeStroke, previewBand, PreviewQueue} from "./aiPreviewBand";
 import {Pencil} from "./aiPencil";
 import {CLICK_PX, screenPoint} from "./pointer";
@@ -39,7 +39,7 @@ function placeAt(move: AiMove, x: number, z: number) {
 /** A pressed pointer owns a single move until release. Geometry stays in the view, outside React. */
 export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THREE.PerspectiveCamera,
   guide: MoveGuide, url: string, corrections: AiCorrection[], showGuide: boolean,
-  add: (move: AiCorrection) => void, remove: (id: string) => void, note: (why: string) => void, hint: (text: string) => void,
+  edits: TrackEdits, note: (why: string) => void, hint: (text: string) => void,
   redraw: () => void, groundDistance: (mouse: THREE.Vector2) => number, groundPoint: (mouse: THREE.Vector2) => THREE.Vector3 | null, previewing: (spans:number[][][]) => void, cursor: (value:string) => void,
   hintAt: (mouse:THREE.Vector2) => (() => void) | undefined) {
   let pen = false, free = true;
@@ -141,7 +141,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
   }
   const amber = new THREE.Color(0xffd23b);
   const pencil = new Pencil(el, scene, camera, guide, corrections, url, groundPoint, groundDistance,
-    e => pick(e), add, remove, note, hint, () => draw());
+    e => pick(e), edits, note, hint, () => draw());
   draw();
   if (corrections.length) void post<Checked>(url, {aiCorrections: corrections}).then(check => {
     if (signal.aborted) return;
@@ -197,7 +197,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     const row = guide.rows[i], m = guide.closed ? row[3] % guide.length : row[3];
     const existing = owner(m);
     if (e.button === 2) {
-      if (existing) { e.stopImmediatePropagation(); e.preventDefault(); remove(existing.id); }
+      if (existing) { e.stopImmediatePropagation(); e.preventDefault(); edits.removeAiCorrection(existing.id); }
       return;
     }
     if (row[8]) return;
@@ -226,6 +226,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
   el.addEventListener("pointerleave", () => { lastPointer = null; hoverCursor(); }, opts);
   el.addEventListener("pointermove", e => {
     lastPointer = e;
+    if (busy) return;
     if (!drag) {
       hoverCursor();
       if (pencil.hover(e)) return;
@@ -276,7 +277,7 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
   }, opts);
   el.addEventListener("pointerup", async e => {
     if (pencil.release(e)) { e.stopImmediatePropagation(); return; }
-    if (!drag || e.button !== 0) return;
+    if (busy || !drag || e.button !== 0) return;
     e.stopImmediatePropagation();
     queue.clear(); ++serial;
     const gesture = drag, {move} = drag;
@@ -284,12 +285,16 @@ export function editMoves(el: HTMLCanvasElement, scene: THREE.Scene, camera: THR
     if (drag.hint && Math.hypot(e.clientX-drag.x,e.clientY-drag.y) < CLICK_PX) drag.hint();
     else if (Math.abs(drag.shift) > .001) {
       busy = true;
-      const check = await post<Checked>(url, {aiCorrections: withMove(move)});
+      await edits.inTurn(async () => {
+        if (signal.aborted || drag !== gesture) return;
+        const check = await post<Checked>(url, {aiCorrections: withMove(move)});
+        if (signal.aborted || drag !== gesture) return;
+        const reason = check.error ?? check.skipped?.[move.id];
+        if (reason) note(reason);
+        else edits.addAiCorrection(move);
+      });
       busy = false;
       if (signal.aborted || drag !== gesture) return;
-      const reason = check.error ?? check.skipped?.[move.id];
-      if (reason) note(reason);
-      else add(move);
     }
     drag = null; hoverCursor(); checkedPositions.clear(); setBand(keptBand); draw();
   }, opts);

@@ -40,12 +40,12 @@ export function useFeedback() {
     const timer = window.setInterval(reload, 15 * 60_000);
     return () => { clearTimeout(initial); clearInterval(timer); };
   }, [reload]);
-  const read = async (ticket: Ticket) => {
+  const read = useCallback(async (ticket: Ticket) => {
     const entry = newestUpdate(ticket);
     if (entry <= (seen[ticket.id] ?? 0)) return;
     const result = await post(`/api/feedback/${ticket.id}/seen`, {entry});
     if (result.error) setError(result.error);
     else setSeen(old => ({...old, [ticket.id]: Math.max(old[ticket.id] ?? 0, entry)}));
-  };
+  }, [seen]);
   return {reports, error, reload, read, unread: (t: Ticket) => newestUpdate(t) > (seen[t.id] ?? 0)};
 }

@@ -335,7 +335,10 @@ class Cog:
             # (libtiff's predictor 2 on floats differences their 32-bit words, not the float values)
             return self._libtiff_decode(data, rows)
         if self.compression == "deflate":
-            data = zlib.decompress(data)
+            try:
+                data = zlib.decompress(data)
+            except zlib.error as error:
+                raise CogError("invalid Deflate raster block") from error
         elif self.compression == "packbits":
             data = _packbits(data, self.tile_w * rows * self.dtype.itemsize)
         if self.predictor == 3:

@@ -761,19 +761,26 @@ def _junction_geometry(roads):
     for index, centre in enumerate(junctions):
         x, z = np.asarray(centre) * NODE_TOL
         areas.append((x, z, (widths[centre] / 2) ** 2))
+        traced = set()
         for branch, arm in enumerate(sorted(arms[centre])):
-            previous, node = centre, arm
-            while True:
-                coords = np.asarray([*previous, *node]) * NODE_TOL
+            if arm in traced:
+                continue
+            path = [centre, arm]
+            while len(arms[path[-1]]) == 2:
+                path.append(next(iter(arms[path[-1]] - {path[-2]})))
+            if path[-1] == centre:
+                # A ring with one entrance returns to this junction. Keep its edges once
+                # and mark the closed branch so a cross-section can count distinct visits.
+                traced.add(path[-2])
+                branch = -1 - branch
+            for first, second in zip(path, path[1:]):
+                coords = np.asarray([*first, *second]) * NODE_TOL
                 branches.append((*coords, index, branch))
-                if len(arms[node]) != 2:
-                    break
-                previous, node = node, next(iter(arms[node] - {previous}))
     return np.asarray(areas).reshape(-1, 3), np.asarray(branches).reshape(-1, 6)
 
 
 def _crosses_junction_arms(branches, left, right):
-    """Whether a timing segment meets two different mapped arms of a junction. Pure."""
+    """Whether the segment from left to right meets two junction arms or two places on a returning ring. Pure."""
     if not len(branches):
         return False
     origin = left[[0, 2]]
@@ -785,10 +792,16 @@ def _crosses_junction_arms(branches, left, right):
     t = a[crosses] / (a[crosses] - b[crosses])
     cut = first[crosses] + t[:, None] * (second[crosses] - first[crosses])
     along = cut @ axis
-    groups = branches[crosses, 4:][(0 <= along) & (along <= axis @ axis)]
+    within = (0 <= along) & (along <= axis @ axis)
+    groups = branches[crosses, 4:][within]
     # A shallow fork's axes can both be inside its single paved cross-section past the junction centre.
     distinct = np.unique(groups, axis=0)
-    return len(np.unique(distinct[:, 0])) < len(distinct)
+    if len(np.unique(distinct[:, 0])) < len(distinct):
+        return True
+    # A directed ring owns each vertex at its outgoing edge, so a cut at that vertex
+    # counts once. Cutting both sides of a folded ring still gives two visits.
+    ring_hits = groups[(groups[:, 1] < 0) & (b[crosses][within] != 0)]
+    return len(ring_hits) > 1 and len(ring_hits) > len(np.unique(ring_hits, axis=0))
 
 
 def timing_points(route, timing):

@@ -40,7 +40,7 @@ export function useSave({name, timedMode, edits, state, view, onSaved, lanePendi
     : saving.action === "recalculate" ? "Saving the track before updating the AI line …" : null;
   useToasts(recalculatePhase ? [aiLineProgress("edit-recalculate-save", recalculatePhase)] : []);
   const current = isCurrent(state), asBuilt = isAsBuilt(state);
-  const canSave = edits.canEdit() && !busy && (lanePending || (!current && !asBuilt));
+  const canSave = edits.canEdit() && !busy && !waiting && (state.inTurn > 0 || lanePending || (!current && !asBuilt));
 
   /** The track written as its edits say (trackcopy.save): in its place, or (copyTitle) as a new track the Editor then goes on
       with. The name it was written as, or null. */
