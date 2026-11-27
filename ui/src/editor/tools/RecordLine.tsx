@@ -27,39 +27,49 @@ function LapPreview({line}: {line: InstalledAiLine}) {
     ctx.lineWidth = 3;
     ctx.beginPath(); ctx.moveTo(x(0),y(0));
     for (let i = 1; i < line.count; i++) ctx.lineTo(x(i),y(i));
-    ctx.closePath(); ctx.stroke();
+    if (line.closed) ctx.closePath();
+    ctx.stroke();
     ctx.beginPath(); ctx.arc(x(0), y(0), 5, 0, 2*Math.PI); ctx.fill();
+    if (!line.closed) ctx.fillRect(x(line.count-1)-4,y(line.count-1)-4,8,8);
   }, [line]);
   return <canvas ref={canvas} width={720} height={270} className={styles.preview}
-    role="img" aria-label={'Recorded circuit with ' + line.count + ' samples'} />;
+    role="img" aria-label={line.closed ? text.circuitPreview : text.stagePreview} />;
 }
 
 const text = navigator.language.toLowerCase().startsWith("de") ? {
   title:"KI-Linie einfahren", start:"Training wird gestartet…", driving:"Training läuft.",
-  read:"Aufnahme wird gelesen…", empty:"In diesem Training wurde keine neue Runde für dieses Layout gespeichert.",
+  read:"Aufnahme wird gelesen…", empty:"In diesem Training wurde keine neue Fahrt für dieses Layout gespeichert.",
   discard:"Verwerfen", close:"Schließen", accept:"Übernehmen", hints:"KI-Hinweise zurücksetzen",
   moves:"Linienkorrekturen zurücksetzen", stored:"Nur gespeichert", active:"Wirkt auf der Aufnahme",
   move:"Move line", redraw:"Redraw line",
   labels:{braking:"Bremsen", corner:"Kurventempo", speedLimit:"Tempolimit", danger:"Gefahrenzone"},
+  stagePreview:"Aufgenommene A–B-Strecke", circuitPreview:"Aufgenommener Rundkurs",
+  stageStart:"Falls AC im Menü bleibt, klicke auf Drive. Warte auf „Recorder armed“.",
+  stageDrive:"Fahre in Streckenrichtung durch Start A und Ziel B.",
+  stageExit:"Beende nach „Finish B crossed“ das Training, um die Aufnahme zu prüfen.",
   drive:"Überquere Start/Ziel und fahre eine vollständige Runde.",
   fallback:"Falls AC im Menü bleibt, klicke auf Drive. Fehlt „Recorder armed“, öffne rechts AI und klicke vor Start/Ziel auf Start recording.",
   exit:"Beende nach der Runde das Training. Die Vorschau erscheint hier.",
-  installed:"Das Training verwendet den zuletzt installierten Stand des Rundkurses.",
+  installed:"Das Training verwendet den zuletzt installierten Stand der Strecke.",
 } : {
   title:"Record AI line", start:"Starting practice…", driving:"Recording practice is open.",
-  read:"Reading the recorded lap…", empty:"This practice produced no new lap for this layout.",
+  read:"Reading the recording…", empty:"This practice produced no new recording for this layout.",
   discard:"Discard", close:"Close", accept:"Accept recording", hints:"Reset AI hints",
   moves:"Reset Move / Redraw corrections", stored:"Stored only", active:"Applies to recording",
   move:"Move line", redraw:"Redraw line",
   labels:{braking:"Braking", corner:"Corner speed", speedLimit:"Speed limit", danger:"Danger zone"},
+  stagePreview:"Recorded A–B route", circuitPreview:"Recorded circuit",
+  stageStart:"If AC stays in the menu, click Drive. Wait for “Recorder armed”.",
+  stageDrive:"Drive through start A and finish B in the course direction.",
+  stageExit:"After “Finish B crossed”, exit practice to preview the recording.",
   drive:"Cross start/finish and drive one complete lap.",
   fallback:"If AC stays in the menu, click Drive. If “Recorder armed” is missing, open AI in the right sidebar and click Start recording before crossing start/finish.",
   exit:"Exit practice after the lap to preview it here.",
-  installed:"Practice uses the installed version of the circuit.",
+  installed:"Practice uses the installed version of the track.",
 };
 
-export function RecordLine({name, edits, state, view, disabled, onAccept}: {
-  name:string; edits:TrackEdits; state:EditState; view:TrackView; disabled:boolean; onAccept:()=>void;
+export function RecordLine({name, stage, edits, state, view, disabled, onAccept}: {
+  name:string; stage:boolean; edits:TrackEdits; state:EditState; view:TrackView; disabled:boolean; onAccept:()=>void;
 }) {
   const url = `/api/editor/${encodeURIComponent(name)}/ai-line`;
   const store = `map2lap:recording:${name}`;
@@ -136,7 +146,8 @@ export function RecordLine({name, edits, state, view, disabled, onAccept}: {
         {!resetMoves && state.aiCorrections.length > 0 && <ul className={styles.zones}>{state.aiCorrections.map(m =>
           <li key={m.id}>{text[m.kind]} · {Math.round(m.anchor.metre)} m · {preview.line.skipped?.[m.id] ? text.stored+" · "+preview.line.skipped[m.id] : text.active}</li>)}</ul>}
       </> : <><p role="status">{key ? text.read : message}</p>
-        <ol><li>{text.fallback}</li><li>{text.drive}</li><li>{text.exit}</li></ol></>}
+        <ol><li>{stage ? text.stageStart : text.fallback}</li><li>{stage ? text.stageDrive : text.drive}</li>
+          <li>{stage ? text.stageExit : text.exit}</li></ol></>}
       <div className={styles.actions}><button type="button" disabled={!token && !error} onClick={close}>{preview ? text.discard : text.close}</button>
         {preview && !error && <button type="button" className={styles.primary} disabled={disabled || preview.resetMoves !== resetMoves} onClick={accept}>{text.accept}</button>}</div>
     </dialog>, document.body)}</>;

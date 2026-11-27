@@ -639,26 +639,30 @@ class Handler(server.Handler):
                        tree_model=body.get('tree_model', 'spruce'), terrain_cell_m=body.get('terrain_cell_m', 2),
                        parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'), structure=body.get('structure'), roof_material=body.get('roof_material'), ground_quality=body.get('ground_quality', 'sd'), ai_moves=body.get('ai_moves', False),
                        hairpin=body.get('hairpin', False), margin_profile=body.get('margin_profile', False), margin_redraw=body.get('margin_redraw', False))
-        elif self.path == "/__test/recording-circuit":
+        elif self.path == "/__test/recording-track":
             nodes = [obj_to_kn5.empty("AC_TIME_0_" + side, (x, 0, -96), (0, 0, 1))
                      for side, x in (("L", 164), ("R", 172))]
-            make_track("alpha", "Alpha Test", circuit={"kind": "circuit"}, timing_nodes=nodes, with_trees=False)
+            circuit = not body.get("stage")
+            make_track("alpha", "Alpha Test", circuit={"kind": "circuit"} if circuit else None,
+                       timing_nodes=nodes if circuit else (), ai_moves=not circuit, with_trees=False)
             folder = Path(AC, "content/tracks/alpha")
             theta = np.linspace(0, 2*np.pi, 96, endpoint=False)
             xyz = np.column_stack((128+40*np.cos(theta), np.zeros(96), -96+40*np.sin(theta)))
+            if not circuit:
+                xyz = np.column_stack((np.full(251,128),np.zeros(251),-np.arange(251)))
             np.savetxt(folder / fastlane.ROUTE, xyz[:, [0, 2]], header=f"anchor {ANCHOR[0]} {ANCHOR[1]}", comments="")
-            route = ailinestate._route(folder, True)
+            route = ailinestate._route(folder, circuit)
             def anchor(m):
                 return dict(metre=m, route=route.key, level=0, origin=list(ANCHOR), context=route.context(m).tolist())
             margins = [dict(id=f"brake{i}", kind="braking", value=.9, start=anchor(m), end=anchor(m+15))
-                       for i, m in enumerate((20, 60, 120))]
+                       for i, m in enumerate((20 if circuit else 50, 60, 120))]
             move = dict(id="bend", kind="move", anchor=anchor(90), free=True, range=20, routeOffset=1.)
             mytracks.save(folder, {**mytracks.load(folder), "edits":{"aiMargins":margins, "aiCorrections":[move]}})
             pts = np.zeros(len(xyz), fastlane.POINT)
             pts["pos"] = xyz
             fastlane._write_lane(folder / fastlane.FILE, pts, np.zeros(len(pts), fastlane.DETAIL))
-            ailinestate.record_ready(folder, ailinestate.input_key(folder / "alpha.kn5", True), circuit=True,
-                                     metres=route.metres[:-1])
+            ailinestate.record_ready(folder, ailinestate.input_key(folder / "alpha.kn5", circuit), circuit=circuit,
+                                     metres=route.metres[:-1] if circuit else route.metres)
             for file, contents in (("cfg/race.ini", "[RACE]\nMODEL=car_a\n"),
                                    ("system/cfg/assetto_corsa.ini", "[AC_APPS]\nENABLE_DEV_APPS=0\n")):
                 ini = Path(AC, file)
@@ -671,8 +675,17 @@ class Handler(server.Handler):
             candidate = folder / "fast_lane.ai.candidate"
             points["pos"][:, 0] += 1.5 if candidate.exists() else 1.
             if body.get("detour"):
-                points["pos"][20:29, 1] += 10
-            if body.get("invalid"):
+                detour = slice(20,29) if mytracks.is_circuit(folder.parent) else slice(68,73)
+                points["pos"][detour, 1] += 10
+            if not mytracks.is_circuit(folder.parent):
+                from app import recordingpractice
+                trace = recordingpractice._current.trace
+                n = 110 if body.get("partial") else len(points)
+                if body.get("invalid"):
+                    trace.write_text("partial")
+                elif not body.get("cancel"):
+                    np.savetxt(trace, np.column_stack((points["pos"][:n], np.tile([15.,.5,0.,0.], (n,1)))))
+            elif body.get("invalid"):
                 candidate.write_bytes(b"incomplete v7 file")
             elif not body.get("cancel"):
                 fastlane._write_lane(candidate, points, details)

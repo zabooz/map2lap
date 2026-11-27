@@ -20,7 +20,7 @@ import numpy as np
 
 from app import (lanerecording, cardensity, mytracks, placement, trackcopies, trackdetail, trackheights, trackhistory, trackkerbs, trackmodels, tracknative, trackpaint, trackplace, trackstitch, tracksurfaces,
                  tracktrees, trackview, trackwalls, treespacing)
-from track import aicorrections, aimargins, groundmaterial, objectlist
+from track import aicorrections, aimargins, groundmaterial, objectlist, route_race
 
 SCHEMA = 2
 MAX_BYTES = 16 * 1024 * 1024        # about 150,000 objects: far more than anyone clicks away, far less than fills the memory
@@ -728,8 +728,12 @@ def save_telling(ac, name, body):
         line = body.get("aiLine", s.get("aiLine") if s["base"] == revision else None)
         if line is not None:
             model = Path(trackview.kn5_path(ac, name))
-            if not mytracks.is_circuit(model.parent) or not lanerecording.valid(line) or not lanerecording.path(model, line).is_file():
-                raise Invalid("The recorded circuit line is unavailable.")
+            if not lanerecording.valid(line) or not lanerecording.path(model, line).is_file():
+                raise Invalid("The recorded AI line is unavailable.")
+            if not mytracks.is_circuit(model.parent):
+                markers = trackview._scan(str(model), trackview._revision(model.stat()))["points"]
+                if not route_race.has_gates(markers):
+                    raise Invalid("The recorded Route requires start and finish timing gates.")
         margins = body.get("aiMargins", s.get("aiMargins", []) if s["base"] == revision else [])
         if wrong := aimargins.problem(margins):
             raise Invalid(wrong)

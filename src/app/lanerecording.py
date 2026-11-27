@@ -57,10 +57,14 @@ class Capture:
         self.before = stamp(self.file)
         self.digest = ailinestate.checksum(self.file) if self.before else None
 
-    def finish(self):
+    def finish(self, *, trace=None):
         """Freeze a complete, changed candidate from the requested layout after AC exits."""
         if stamp(self.model) != self.identity:
             raise ValueError("The installed track changed during practice.")
+        if trace is not None:
+            if not trace.is_file():
+                return None
+            drivenline.stage_candidate(self.model, trace, self.file)
         after = stamp(self.file)
         if after is None or after == self.before:
             return None
@@ -71,7 +75,7 @@ class Capture:
         try:
             shutil.copyfile(self.file, tmp)
             key = ailinestate.checksum(tmp)
-            if key == self.digest or stamp(self.file) != after:
+            if (trace is None and key == self.digest) or stamp(self.file) != after:
                 return None
             points, detail, _ = fastlane.read_lane(tmp)
             if not all(np.isfinite(row[k]).all() for row in (points, detail) for k in row.dtype.names):
@@ -80,7 +84,9 @@ class Capture:
             steps = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
             # A closed lap ends within a few sample intervals of its start. A stopped
             # recorder halfway around a circuit can still contain valid v7 records.
-            if len(xyz) < 3 or not steps.any() or np.linalg.norm(xyz[0]-xyz[-1]) > 4*np.median(steps[steps > 0]):
+            if len(xyz) < 3 or not steps.any():
+                raise ValueError("The recording has too few distinct samples.")
+            if trace is None and np.linalg.norm(xyz[0]-xyz[-1]) > 4*np.median(steps[steps > 0]):
                 raise ValueError("The recording does not contain a closed lap.")
             tmp.replace(folder / (key + ".ai"))
             return key
@@ -88,9 +94,11 @@ class Capture:
             tmp.unlink(missing_ok=True)
 
 
-def _nearby_legs(reference, reach):
+def _nearby_legs(reference, reach, circuit):
     """Index the reference lane segments within reach of each horizontal grid cell. Pure."""
     ends = np.roll(reference, -1, axis=0)
+    if not circuit:
+        reference, ends = reference[:-1], ends[:-1]
     step = ends - reference
     cells = defaultdict(list)
     for i, (a, b) in enumerate(zip(reference, ends)):
@@ -102,13 +110,13 @@ def _nearby_legs(reference, reach):
     return cells, step
 
 
-def _projections(xyz, reference, metres, length):
+def _projections(xyz, reference, metres, length, circuit):
     """Project each driven sample onto a unique nearby passage at its driving level. Pure."""
     reach = MATCH_REACH
-    cells, step = _nearby_legs(reference, reach)
+    cells, step = _nearby_legs(reference, reach, circuit)
     squared = np.sum(step*step, axis=1)
     mapped = []
-    spans = (np.roll(metres, -1) - metres) % length
+    spans = (np.roll(metres, -1) - metres) % length if circuit else np.diff(metres)
     for p in xyz:
         legs = np.array(cells.get(tuple(np.floor(p[[0, 2]] / reach).astype(int)), []), dtype=int)
         legs = legs[squared[legs] > 0]
@@ -119,22 +127,42 @@ def _projections(xyz, reference, metres, length):
         if not near.any():
             mapped.append(np.nan)
             continue
-        stations = (metres[legs[near]] + t[near]*spans[legs[near]]) % length
+        stations = metres[legs[near]] + t[near]*spans[legs[near]]
+        if circuit:
+            stations %= length
         at = stations[np.argmin(gap[near])]
         # Adjacent legs may describe the same passage. Parallel or crossing legs
         # farther apart along the route cannot establish which section was driven.
-        ambiguous = (abs((stations-at+length/2) % length-length/2) > reach*2).any()
+        offset = stations - at
+        if circuit:
+            offset = (offset+length/2) % length-length/2
+        ambiguous = (abs(offset) > reach*2).any()
         mapped.append(np.nan if ambiguous else at)
     return np.asarray(mapped)
 
 
-def alignment(xyz, reference, metres, length):
-    """Map one forward lap to route metres and identify stretches unsuitable for hints. Pure."""
-    mapped = _projections(xyz, reference, metres, length)
+def alignment(xyz, reference, metres, length, circuit=True):
+    """Map a forward drive to route metres and identify stretches unsuitable for hints. Pure."""
+    mapped = _projections(xyz, reference, metres, length, circuit)
     anchors = np.flatnonzero(np.isfinite(mapped))
     if len(anchors) < 3:
         return None, []
     stations = mapped[anchors]
+    if not circuit:
+        if stations[-1] <= stations[0]:
+            return None, []
+        ordered = np.maximum.accumulate(stations)
+        estimate = np.interp(np.arange(len(xyz)), anchors, ordered)
+        supported = np.isclose(mapped, estimate, atol=.001)
+        gaps = _gaps(xyz, estimate, supported, length, False)
+        # On a backtrack the same route metres describe multiple driven passages.
+        # Exclude the whole repeated interval, including its first forward traversal.
+        gaps.extend(zip(stations[stations < ordered], ordered[stations < ordered]))
+        if estimate[0] > metres[0]:
+            gaps.append((metres[0], estimate[0]))
+        if estimate[-1] < metres[-1]:
+            gaps.append((estimate[-1], metres[-1]))
+        return estimate, _merged(gaps)
     advance = (np.roll(stations, -1)-stations+length/2) % length-length/2
     if not np.isclose(advance.sum(), length):
         return None, []
@@ -148,18 +176,26 @@ def alignment(xyz, reference, metres, length):
     estimate = np.interp(np.arange(len(mapped)), np.r_[offsets, len(mapped)], ordered)
     estimate = (np.roll(estimate, anchors[0])+stations[0]) % length
     supported = np.isfinite(mapped) & np.isclose(mapped, estimate, atol=.001)
-    return estimate, _gaps(xyz, estimate, supported, length)
+    return estimate, _merged(_gaps(xyz, estimate, supported, length))
 
 
-def _gaps(xyz, estimate, supported, length):
-    """Merge unsupported route intervals, splitting them at the route seam. Pure."""
+def _gaps(xyz, estimate, supported, length, circuit=True):
+    """Unsupported intervals between consecutive samples, split at a circuit seam. Pure."""
     gaps = []
     for i, dist in enumerate(np.linalg.norm(np.roll(xyz, -1, axis=0)-xyz, axis=1)):
+        if not circuit and i == len(xyz)-1:
+            break
         j = (i+1) % len(xyz)
         # A jump across a hairpin can have valid endpoints. If it covers more
         # than twice the driven chord plus one lane width, the stretch is uncertain.
-        if not (supported[i] and supported[j]) or (estimate[j]-estimate[i]) % length > 2*dist+MATCH_REACH:
-            gaps.extend(aimargins.intervals(estimate[i], estimate[j], length))
+        advance = estimate[j]-estimate[i]
+        if not (supported[i] and supported[j]) or (advance % length if circuit else advance) > 2*dist+MATCH_REACH:
+            gaps.extend(aimargins.intervals(estimate[i], estimate[j], length) if circuit else [(estimate[i], estimate[j])])
+    return gaps
+
+
+def _merged(gaps):
+    """Sorted union of uncertain route intervals. Pure."""
     merged = []
     for start, end in sorted(gaps):
         if merged and start <= merged[-1][1]:
@@ -173,18 +209,18 @@ def route_alignment(folder, lane):
     """Map this recording to the checksum-bound original, caching only exact file revisions."""
     source = original(folder)
     old = source / fastlane.FILE
-    return _alignment(folder, lane, old, (stamp(lane), stamp(old), stamp(source / ailinestate.FILE),
+    return _alignment(folder, lane, old, mytracks.is_circuit(folder), (stamp(lane), stamp(old), stamp(source / ailinestate.FILE),
                                           stamp(folder / fastlane.ROUTE)))
 
 
 @lru_cache(maxsize=3)
-def _alignment(folder, lane, old, revisions):
+def _alignment(folder, lane, old, circuit, revisions):
     metres = ailinestate.lane_metres(original(folder), old)
-    route = ailinestate._route(folder, True)
+    route = ailinestate._route(folder, circuit)
     if metres is None or route is None:
         return None, []
     return alignment(fastlane.read_lane(lane)[0]["pos"].astype(float),
-                     fastlane.read_lane(old)[0]["pos"].astype(float), metres, route.length)
+                     fastlane.read_lane(old)[0]["pos"].astype(float), metres, route.length, circuit)
 
 
 def prepared_path(key):
@@ -196,7 +232,7 @@ def prepared_path(key):
 
 def _reference_key(model, source, key):
     raw = path(source, key)
-    files = [raw, model, model.parent / fastlane.ROUTE, *map(Path, editorinfo.archives(model))]
+    files = [raw, model, model.parent / mytracks.FILE, model.parent / fastlane.ROUTE, *map(Path, editorinfo.archives(model))]
     return model, raw, tuple(stamp(file) for file in files)
 
 
@@ -210,8 +246,9 @@ def _editing(model, raw, revisions):
     if ailinestate.checksum(raw) != raw.stem:
         raise ValueError("The selected AI recording changed.")
     points, detail, _ = fastlane.read_lane(raw)
-    inputs = fastlane.lane_inputs(model, True, lambda _: None, preview=True)
-    base, measured = drivenline.reference(inputs, points, detail)
+    circuit = mytracks.is_circuit(model.parent)
+    inputs = fastlane.lane_inputs(model, circuit, lambda _: None, preview=True)
+    base, measured = drivenline.reference(inputs, points, detail, circuit)
     return inputs, base, measured
 
 
@@ -252,16 +289,17 @@ def stage(model, target, key):
     """Stage a recorded line or restore the pre-recording source in an Editor Save."""
     folder, dest = model.parent, target.parent
     base = original(folder)
+    circuit = mytracks.is_circuit(folder)
     if key is None:
         if base == folder:
             raise ValueError("The original AI line backup is missing.")
-        restored = ailinestate.carry(base, target, True)
+        restored = ailinestate.carry(base, target, circuit)
         # A previously hand-installed spline has no automatic fingerprint. Selecting
         # it via Undo is an explicit choice of those exact bytes for the next race.
         installed = dest / fastlane.FILE
         if installed.exists() and restored.get("inputs") and restored["status"] != "ready":
             metres = ailinestate.lane_metres(base, base / fastlane.FILE)
-            ailinestate.record_ready(dest, restored["inputs"], circuit=True, metres=metres)
+            ailinestate.record_ready(dest, restored["inputs"], circuit=circuit, metres=metres)
             restored["status"] = "ready"
         elif not installed.exists():
             restored["status"] = "missing"
@@ -288,5 +326,5 @@ def stage(model, target, key):
     ailinestate._write(dest, key, "ready", **fields)
     old = folder / aihints.FILE
     aihints.replace(dest, old.read_bytes() if old.is_file() else None)
-    ailinestate.sync_hints(dest, True)
+    ailinestate.sync_hints(dest, circuit)
     return {"status": "ready", "inputs": key}

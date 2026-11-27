@@ -90,16 +90,23 @@ contract is 23 consecutive columns of `count` little-endian values each, 92 byte
 is Float32 except `id` (Int32). In order they are `x, y, z, distance, id, speed, gas, brake, lat_g, radius, left, right,
 camber, direction, normal_x, normal_y, normal_z, segment_length, forward_x, forward_y, forward_z, tag, grade`.
 
-### Driving a circuit line
+### Driving an AI line
 
-**Record AI line** opens Practice on the installed circuit. The CSP app consumes a one-use token from Play’s
-race configuration, enters the car and arms AC’s fast-lane recorder. Cross start/finish, drive a complete lap
+**Record AI line** opens Practice on the installed Circuit or timed A–B Route. The CSP app consumes a one-use
+token from Play’s race configuration and enters the car. On a Circuit it arms AC’s native fast-lane recorder.
+Cross start/finish, drive a complete lap
 and exit Practice. AC writes its completed lap on exit. Explicitly stopping the recorder after the crossing
 can export the first samples of the following lap. The dialog includes the native AI app controls for a manual start.
 
-The server checks the launched track, layout, Practice token and candidate revision after AC exits. A readable
-new lap is frozen by SHA-256, including AC’s trailing spline grid. The preview lists the hint zones that will
-apply. Placement uses the original spline’s route metres, driving level and the recorded lap’s forward order.
+On a timed A–B Route the CSP helper samples wheel contact positions, speed, throttle, brake and lateral
+acceleration from the player car. It writes the session’s trace after crossing A and B forwards. Map2Lap
+checks both crossings on their KN5 level and writes an open v7 candidate for that layout. The grid approach
+and driveable runout come from the installed geometry. The preview marks the start with a circle and the
+finish with a square. A session that ends before B leaves the draft untouched.
+
+The server checks the launched track, layout, Practice token and candidate revision after AC exits. It archives
+the candidate by SHA-256, preserving any trailing spline grid supplied by AC. The preview lists the hint zones
+that will apply. Placement uses the original spline’s route metres, driving level and the recording’s forward order.
 An inherited stretch crossing a detour or ambiguous passage stays in the recipe. New hints anchor directly to
 the driven lap. Move and Redraw use the driven positions as their editing guide. The preview identifies applied
 and rejected corrections. Both sets of edits have separate reset controls and both are retained by default.

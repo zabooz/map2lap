@@ -11,6 +11,10 @@ local function report(message)
   ac.log('Map2Lap recorder: ' .. message)
   ui.toast(ui.Icons.Flag, message)
 end
+local stage
+if race:get('RACE', '__MAP2LAP_STAGE', 0) == 1 then
+  stage = require('stage')(__dirname .. '/' .. token, report)
+end
 function script.update(dt)
   local car = ac.getCar(0)
   if finished then return end
@@ -20,6 +24,12 @@ function script.update(dt)
   end
   entered = true
   if not car then return end
+  if stage then
+    if not started then report("Recorder armed. Drive from start A through finish B.") end
+    started = true
+    finished = stage(car, dt)
+    return
+  end
   if not ac.isAISplineRecorderPresent or not ac.isAISplineRecorderPresent() then
     finished = true
     report('Open AI on the right and click Start recording before crossing the line.')

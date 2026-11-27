@@ -293,7 +293,7 @@ export function EditTools({name, title, routeTrack, loaded, timedMode, visible, 
       {fileHost && createPortal(<FileButtons edits={edits} view={view} saving={saving} onLibrary={openLibrary} />, fileHost)}
       {savedHost && createPortal(saving.savedText, savedHost)}
       {toolsHost && createPortal(<ToolPanel routeTrack={routeTrack} aiPanel={<>{aiLine.panel(() => void saving.save(true), saving.busy || saving.recalculating)}
-        {timedMode === "circuit" && <RecordLine name={name} edits={edits} state={state} view={view}
+        {timedMode && <RecordLine stage={timedMode === "route"} name={name} edits={edits} state={state} view={view}
           disabled={!editable || saving.busy || aiLine.working} onAccept={() => { if (tool !== "ai-move") takeUp("ai-move"); view.focus(); }} />}</>} state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={openModels} />, toolsHost)}
       <Models name={name} view={view} edits={edits} replace={replaceTargets} enabled={working("model")}
         onWheel={setPlacingWheel}

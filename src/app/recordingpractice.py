@@ -9,7 +9,8 @@ import threading
 import time
 import uuid
 
-from app import debugapp, lanerecording, system
+from app import debugapp, lanerecording, mytracks, system
+from track import fastlane, route_race
 from app.paths import SRC
 
 APP = Path("apps/lua/Map2LapRecorder")
@@ -30,8 +31,8 @@ def _replace(path, data):
         tmp.unlink(missing_ok=True)
 
 
-def prepare(ac, token):
-    """Enable the AC AI app without rewriting unrelated settings and arm the CSP helper."""
+def _enable_ai(ac):
+    """Enable AC's native developer AI recorder, retaining the prior configuration."""
     ini = Path(ac, "system/cfg/assetto_corsa.ini")
     raw = ini.read_bytes()
     section = re.search(rb"(?ims)^[ \t]*\[AC_APPS\][^\n]*\n.*?(?=^[ \t]*\[|\Z)", raw)
@@ -42,15 +43,20 @@ def prepare(ac, token):
     if count != 1:
         raise ValueError("AC's ENABLE_DEV_APPS setting could not be identified.")
     updated = raw[:section.start()] + options + raw[section.end():]
+    if updated != raw:
+        _replace(ini, updated)
+        return ini, raw, updated
+    return None
+
+
+def prepare(ac, token, *, native=True):
+    """Install and arm this practice's CSP helper."""
     app = Path(ac) / APP
     if app.exists() and not debugapp.ours(app):
         raise ValueError("The Map2LapRecorder app directory belongs to another app.")
     shutil.copytree(Path(SRC, "acapp/Map2LapRecorder"), app, dirs_exist_ok=True)
     _replace(app / "armed", token.encode("ascii"))
-    if updated != raw:
-        _replace(ini, updated)
-        return ini, raw, updated
-    return None
+    return _enable_ai(ac) if native else None
 
 
 class Session:
@@ -61,12 +67,16 @@ class Session:
         self.ac = Path(ac)
         self.result = {"status": "starting"}
         self.dev_config = None
+        self.trace = None
 
     def disarm(self):
         """Release only the settings and token still owned by this session."""
         armed = self.ac / APP / "armed"
         if armed.exists() and armed.read_bytes() in (b"", self.token.encode("ascii")):
             armed.unlink(missing_ok=True)
+        if self.trace is not None:
+            self.trace.unlink(missing_ok=True)
+            self.trace.with_suffix(".gates").unlink(missing_ok=True)
         if self.dev_config:
             ini, before, enabled = self.dev_config
             if ini.read_bytes() == enabled:
@@ -100,9 +110,9 @@ class Session:
                             and ini.get("RACE", "TRACK", fallback=None) == self.capture.model.parent.name
                             and ini.get("RACE", "CONFIG_TRACK", fallback=None) == self.capture.layout
                             and ini.get("SESSION_0", "TYPE", fallback=None) == "1")
-            key = self.capture.finish() if same_session else None
+            key = self.capture.finish(trace=self.trace) if same_session else None
             self.result = {"status": "ready", "key": key} if key else {
-                "status": "empty", "message": "This practice produced no new lap for this layout."}
+                "status": "empty", "message": "This practice produced no new recording for this layout."}
         except (OSError, ValueError, configparser.Error) as error:
             self.result = {"status": "invalid", "message": str(error)}
         finally:
@@ -120,7 +130,19 @@ def launch(ac, model, layout, race_file, ini, start):
                 raise ValueError("Another recording practice is starting.")
         session = Session(ac, model, layout, race_file)
         try:
-            session.dev_config = prepare(ac, session.token)
+            circuit = mytracks.is_circuit(model.parent)
+            session.dev_config = prepare(ac, session.token, native=circuit)
+            if not circuit:
+                markers = fastlane.kn5.scan(model)["points"]
+                keys = route_race.GATES if all(k in markers for k in route_race.GATES) else route_race.ALIASES.values()
+                if not route_race.has_gates(markers):
+                    raise ValueError("Recording requires start and finish timing gates.")
+                session.trace = session.ac / APP / (session.token + ".drive")
+                with session.trace.with_suffix(".gates").open("w", encoding="ascii") as stream:
+                    for k in keys:
+                        matrix = markers[k]
+                        print(*matrix[12:15], *matrix[8:11], file=stream)
+                ini["RACE"]["__MAP2LAP_STAGE"] = "1"
             ini["RACE"]["__MAP2LAP_RECORDING"] = session.token
             start()
         except (OSError, ValueError):

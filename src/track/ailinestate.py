@@ -152,8 +152,10 @@ def _route(folder, circuit):
     return aicorrections.Route(path, origin, circuit)
 
 
-def crosses_gap(start, end, gaps, length):
-    """Whether a directed hint includes an unverified section of a recorded circuit. Pure."""
+def crosses_gap(start, end, gaps, length, circuit=True):
+    """Whether a hint includes an unverified section of the selected recording. Pure."""
+    if not circuit:
+        return any(low <= max(start, end) and min(start, end) <= high for low, high in gaps)
     return any(low <= b and a <= high for a, b in aimargins.intervals(start % length, end % length, length)
                for low, high in gaps)
 
@@ -162,6 +164,10 @@ def _driven_hints(margins, route, metres, native, gaps, rejected):
     """Translate inherited marks onto a measured lap. Marks created on this lap already own its metres."""
     driven, stations = native
     def translate(value, before, after, source_length, target_length):
+        if not driven.circuit:
+            if not before[0] <= value <= before[-1]:
+                raise ValueError("Stored only: outside the verified route section.")
+            return float(np.interp(value, before, after))
         source = np.unwrap(before, period=source_length)
         target = np.unwrap(after, period=target_length)
         at = source[0] + (value-source[0]) % source_length
@@ -185,7 +191,7 @@ def _driven_hints(margins, route, metres, native, gaps, rejected):
                 for key in ("start","end"):
                     if key not in old:
                         old[key] = translate(marks[key]["metre"], stations, metres, driven.length, route.length)
-                if crosses_gap(old["start"], old["end"], gaps, route.length):
+                if crosses_gap(old["start"], old["end"], gaps, route.length, route.circuit):
                     raise ValueError("Stored only: the recording diverges from this route section.")
             placed.append(marks)
         except ValueError as error:
@@ -212,7 +218,7 @@ def _render(folder, lane, circuit, margins, rejected, metres, unplaced, gaps=(),
                 for margin in margins:
                     try:
                         start, end = (route.resolve(margin[k])[0] for k in ("start", "end"))
-                        if crosses_gap(start, end, gaps, route.length):
+                        if crosses_gap(start, end, gaps, route.length, circuit):
                             rejected[margin["id"]] = "Stored only: the recording diverges from this route section."
                     except ValueError as error:
                         rejected[margin["id"]] = str(error)
@@ -241,7 +247,7 @@ def _expected(folder, circuit, lane=None, metres=None, margins=None):
                 from track import drivenline
                 raw = folder / RECORDINGS / (digest_source + ".ai")
                 _, origin = fastlane.read_route(folder)
-                native = drivenline.driven_route(fastlane.read_lane(raw)[0], origin)[2], np.asarray(record["drivenMetres"])
+                native = drivenline.driven_route(fastlane.read_lane(raw)[0], origin, circuit)[2], np.asarray(record["drivenMetres"])
         elif record.get("status") == "ready" and record.get("lane") and record["lane"] != digest:
             unplaced = "manual"
     try:

@@ -563,6 +563,7 @@ def _launch_play(ac, track_file, race_file, ini, selected_weather, effects, *, t
                     ini.write(f, space_around_delimiters=False)
                 system.start_ac(ac, weather_effects=effects)
             ini.remove_option("RACE", "__MAP2LAP_RECORDING")
+            ini.remove_option("RACE", "__MAP2LAP_STAGE")
             if record:
                 from app import recordingpractice
                 try:
@@ -610,8 +611,8 @@ def play(name, clock=None, weather_options=None, car=None, *, session=None, laps
         return 400, {"error": "Choose Practice, Hotlap or Race"}
     if session != "race" and (laps is not None or ai is not None):
         return 400, {"error": "Laps and AI opponents are Race options"}
-    if record and (not circuit or session != "practice"):
-        return 400, {"error": "Recording requires a Circuit practice."}
+    if record and (not (circuit or timed_route) or session != "practice"):
+        return 400, {"error": "Recording requires Practice on a Circuit or a Route with start and finish timing."}
     if session == "hotlap" and not (circuit or timed_route):
         return 400, {"error": "Hotlap requires a Circuit or a Route with start and finish timing"}
     lane_choice = ai if isinstance(ai, dict) else {}

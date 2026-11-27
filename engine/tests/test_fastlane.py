@@ -24,7 +24,7 @@ class LaneCodeVersionTest(unittest.TestCase):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (14, "1b0a8e3fd01cd4466e601481167243b59b11987237ea45e6f40f9165d007bd9b")
+        expected = (14, "2f5b70bb98e4d3057bc4226ca132a0fe1949dbf1d30d5b0f2340282c1fc3265f")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments or refactors proven to preserve the generated line, update only the digest.")

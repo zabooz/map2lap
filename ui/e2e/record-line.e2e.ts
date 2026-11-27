@@ -3,8 +3,8 @@ import {createHash} from "node:crypto";
 import {PerspectiveCamera, Vector3} from "three";
 import {saved} from "./edit-helpers";
 
-test("recording a circuit previews, discards, resets, and survives Save, Undo, Redo and Save as", async ({page, backend}) => {
-  await backend.post("/__test/recording-circuit", {});
+for (const course of ["circuit", "A–B route"]) test(`recording on ${course} previews, discards, resets, and survives Save, Undo, Redo and Save as`, async ({page, backend}) => {
+  await backend.post("/__test/recording-track", {stage:course === "A–B route"});
   await openEditor(page);
   const draft = async (name="alpha") => (await page.request.get(`/api/editor/${name}/edits`)).json();
   const installed = async (name="alpha") => {
@@ -24,7 +24,17 @@ test("recording a circuit previews, discards, resets, and survives Save, Undo, R
     await expect(dialog.getByLabel("Reset Move / Redraw corrections (1)")).not.toBeChecked();
     await expect(dialog.getByText(/Braking.*Applies to recording/)).toHaveCount(3);
   }
+  if (course === "A–B route") {
+    await page.getByRole("button",{name:"Record AI line",exact:true}).click();
+    await expect(dialog).toContainText("finish B");
+    await expect(dialog).toContainText("Recording practice is open");
+    await backend.post("/__test/finish-recording",{partial:true});
+    await expect(dialog.getByRole("alert")).toContainText("FINISH");
+    await dialog.getByRole("button",{name:"Close"}).click();
+    expect(await draft()).toEqual(before);
+  }
   await drive();
+  if (course === "A–B route") await expect(dialog.getByRole("img")).toHaveAccessibleName(/A–B/);
   await dialog.getByRole("button",{name:"Discard"}).click();
   expect(await draft()).toEqual(before);
   await drive();
@@ -68,8 +78,8 @@ test("recording a circuit previews, discards, resets, and survives Save, Undo, R
   expect(await installed(copy)).toEqual(chosen);
 });
 
-test("kept hints follow only verified stretches; a cancelled or invalid next drive leaves history alone", async ({page, backend}) => {
-  await backend.post("/__test/recording-circuit", {});
+for (const course of ["circuit", "A–B route"]) test(`kept hints on ${course} follow only verified stretches; a cancelled or invalid next drive leaves history alone`, async ({page, backend}) => {
+  await backend.post("/__test/recording-track", {stage:course === "A–B route"});
   await openEditor(page);
   const dialog = page.getByRole("dialog", {name:"Record AI line"});
   const drive = async (result: object) => {
@@ -99,7 +109,7 @@ test("kept hints follow only verified stretches; a cancelled or invalid next dri
 });
 
 test("a braking zone colours the band beside the driven path on a recording without side limits", async ({page,backend}) => {
-  await backend.post("/__test/recording-circuit", {});
+  await backend.post("/__test/recording-track", {});
   await openEditor(page);
   await page.getByRole("button",{name:"Record AI line",exact:true}).click();
   const dialog = page.getByRole("dialog",{name:"Record AI line"});
@@ -151,8 +161,8 @@ test("a braking zone colours the band beside the driven path on a recording with
   expect(await (await page.request.get("/__test/ai-hints?name=alpha")).text()).toContain("[BRAKEHINT_0]");
 });
 
-test("Move and Redraw edit the driven centreline and publish their geometry together", async ({page,backend}) => {
-  await backend.post("/__test/recording-circuit", {});
+for (const course of ["circuit", "A–B route"]) test(`Move and Redraw on ${course} edit the driven centreline and publish their geometry together`, async ({page,backend}) => {
+  await backend.post("/__test/recording-track", {stage:course === "A–B route"});
   await openEditor(page);
   await page.getByRole("button",{name:"Record AI line",exact:true}).click();
   const dialog = page.getByRole("dialog",{name:"Record AI line"});
@@ -171,7 +181,9 @@ test("Move and Redraw edit the driven centreline and publish their geometry toge
   camera.position.set(128,22,5); camera.lookAt(128,0,-40); camera.updateMatrixWorld();
   const onTrack = (degrees:number, offset=0): [number,number] => {
     const angle = degrees*Math.PI/180;
-    const p = new Vector3(129+(40+offset)*Math.cos(angle),.34,-96+(40+offset)*Math.sin(angle)).project(camera);
+    const world = course === "A–B route" ? new Vector3(129+offset,.34,-degrees)
+      : new Vector3(129+(40+offset)*Math.cos(angle),.34,-96+(40+offset)*Math.sin(angle));
+    const p = world.project(camera);
     return [bounds.x+(p.x+1)*bounds.width/2,bounds.y+(1-p.y)*bounds.height/2];
   };
   await expect(page.locator("#edit-ai-move")).toHaveAttribute("aria-pressed","true");
@@ -212,7 +224,7 @@ test("Move and Redraw edit the driven centreline and publish their geometry toge
 test.describe("German recording controls", () => {
   test.use({locale:"de-AT"});
   test("offers Übernehmen and Verwerfen with both resets initially clear", async ({page, backend}) => {
-    await backend.post("/__test/recording-circuit", {});
+    await backend.post("/__test/recording-track", {});
     await openEditor(page);
     await page.getByRole("button",{name:"KI-Linie einfahren"}).click();
     const dialog = page.getByRole("dialog",{name:"KI-Linie einfahren"});

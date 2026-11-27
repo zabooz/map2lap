@@ -114,6 +114,37 @@ assert(starts==1 and recordings==1, "Leaving practice must not resume driving")
         lane(self.candidate, 3)
         self.assertNotEqual(self.candidate.read_bytes(), frozen.read_bytes())
 
+    def test_open_recording_requires_ordered_forward_crossings_on_the_gate_level(self):
+        from track import drivenline, obj_to_kn5
+        markers = {f"AC_AB_{gate}_{side}": obj_to_kn5.empty("gate", (x, 0, z), (0, 0, 1)).matrix
+                   for gate, z in (("START", 5), ("FINISH", 25)) for side, x in (("L", -4), ("R", 4))}
+        xyz = np.column_stack((np.zeros(32), np.zeros(32), np.arange(32)))
+        self.assertEqual((5., 25.), drivenline.stage_gates(xyz, markers))
+        for partial in (xyz[:23], xyz[::-1], xyz + [0, 12, 0], xyz + [7, 0, 0]):
+            with self.subTest(last=partial[-1]), self.assertRaises(ValueError):
+                drivenline.stage_gates(partial, markers)
+
+    def test_open_alignment_never_projects_onto_a_return_chord(self):
+        xyz = np.array([[0, 0, 0], [0, 0, 20], [20, 0, 20], [20, 0, 0]], float)
+        stations = np.arange(4)*20.
+        mapped, gaps = lanerecording.alignment(xyz, xyz, stations, 60., circuit=False)
+        np.testing.assert_equal(mapped, stations)
+        self.assertFalse(gaps)
+        detour = np.insert(xyz, 2, [10, 0, 0], axis=0)
+        _, gaps = lanerecording.alignment(detour, xyz, stations, 60., circuit=False)
+        self.assertEqual([[20.,40.]], gaps)
+        self.assertIsNone(lanerecording.alignment(xyz[::-1], xyz, stations, 60., circuit=False)[0])
+
+    def test_open_hint_on_a_twice_driven_section_stays_stored(self):
+        from track import ailinestate
+        metres = np.arange(11)*10.
+        reference = np.column_stack((metres*0, metres*0, metres))
+        revisited = reference[[0,1,2,3,4,5,4,3,2,3,4,5,6,7,8,9,10]]
+        mapped, gaps = lanerecording.alignment(revisited, reference, metres, 100., circuit=False)
+        self.assertIsNotNone(mapped)
+        self.assertTrue(ailinestate.crosses_gap(23, 30, gaps, 100., circuit=False))
+        self.assertFalse(ailinestate.crosses_gap(70, 90, gaps, 100., circuit=False))
+
     def test_unrelated_hint_survives_a_local_detour(self):
         from track import ailinestate
         lane(self.folder / fastlane.FILE)

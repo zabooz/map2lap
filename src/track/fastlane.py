@@ -1629,7 +1629,7 @@ def _drawn_reference(model, inputs, circuit, report_returns, *, diagnostic=False
     along = _distances(points)
     if driven:
         from track import drivenline
-        records, detail, _ = drivenline.records(xyz, metres, queries, mapped, driven[1], driven[2].metres)
+        records, detail, _ = drivenline.records(xyz, metres, queries, mapped, driven[1], driven[2].metres, circuit)
         aicorrections.check_centreline(xyz, metres, authored, circuit, obj_to_kn5.LEVEL_GAP_M)
     elif diagnostic:
         records, detail = np.zeros(len(xyz), POINT), np.zeros(len(xyz), DETAIL)
