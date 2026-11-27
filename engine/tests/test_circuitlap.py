@@ -85,15 +85,16 @@ class CircuitRequestTest(unittest.TestCase):
 
         self.assertEqual(open_url.call_count, 2)
         paths = []
-        for call in open_url.call_args_list:
+        plain = [("overview", "full"), ("geometries", "geojson"), ("annotations", "nodes,distance")]
+        # The return leaves the last pin the way the car arrives (north-east here, 45°), within 90° either side: a
+        # separate request knows no heading, and its shortest way back could begin with a U-turn.
+        for call, query in zip(open_url.call_args_list, (plain, [*plain, ("bearings", "45,90;")]), strict=True):
             request, = call.args
             self.assertEqual(call.kwargs, {"timeout": 30})
             self.assertEqual(request.get_header("User-agent"), USER_AGENT)
             url = urlsplit(request.full_url)
             paths.append(url.path)
-            self.assertCountEqual(parse_qsl(url.query), [
-                ("overview", "full"), ("geometries", "geojson"), ("annotations", "nodes,distance"),
-            ])
+            self.assertCountEqual(parse_qsl(url.query), query)
         self.assertEqual(paths, ["/route/v1/driving/2.000000,1.000000;4.000000,3.000000",
                                  "/route/v1/driving/4.000000,3.000000;2.000000,1.000000"])
         self.assertEqual(lap, circuitlap.Lap([(lat, lon) for lon, lat in coords], 600.0, [], [0.0, 300.0]))
@@ -214,21 +215,21 @@ class CircuitLapTest(unittest.TestCase):
         # The turn is at 627 m, with pins 2 and 3 at 330 m and 696 m.
         legs = [([1, 2], [330]), ([2, 3, 4, 3], [228, 69, 69]), ([3, 1], [200])]
         with self.assertRaisesRegex(
-            circuitlap.NoLap, "^Near pin 3 the car would have to turn around: put it on the through road$"
+            circuitlap.NoLap, "^Near pin 3 the car would have to turn around: add a pin on the road the lap should take there$"
         ):
             circuitlap.lap(answer(legs, [A, B, C, A]))
 
     def test_u_turn_inside_a_leg_names_the_nearer_start_pin(self):
         legs = [([1, 2], [330]), ([2, 4, 2, 3], [25, 25, 250]), ([3, 1], [200])]
         with self.assertRaisesRegex(
-            circuitlap.NoLap, "^Near pin 2 the car would have to turn around: put it on the through road$"
+            circuitlap.NoLap, "^Near pin 2 the car would have to turn around: add a pin on the road the lap should take there$"
         ):
             circuitlap.lap(answer(legs, [A, B, C, A]))
 
     def test_u_turn_inside_closing_leg_can_name_pin_1(self):
         legs = [([1, 2], [300]), ([2, 3], [300]), ([3, 4, 5, 4, 1], [140, 50, 50, 60])]
         with self.assertRaisesRegex(
-            circuitlap.NoLap, "^Near pin 1 the car would have to turn around: put it on the through road$"
+            circuitlap.NoLap, "^Near pin 1 the car would have to turn around: add a pin on the road the lap should take there$"
         ):
             circuitlap.lap(answer(legs, [A, B, C, A]))
 

@@ -55,12 +55,12 @@ def _twice_driven(legs, pin_count, same_snap):
             if edge != previous and edge == previous[::-1]:
                 if i == 0:
                     at_pin = pin if leg_index else 1
-                    raise NoLap(f"At pin {at_pin} the car would have to turn around: put it on the through road")
+                    raise NoLap(f"At pin {at_pin} the car would have to turn around: add a pin on the road the lap should take there")
                 next_pin = pin + 1 if pin < pin_count else 1
                 from_start = start - edges[0][1]
                 to_end = edges[-1][2] - start
                 near_pin = pin if from_start <= to_end else next_pin
-                raise NoLap(f"Near pin {near_pin} the car would have to turn around: put it on the through road")
+                raise NoLap(f"Near pin {near_pin} the car would have to turn around: add a pin on the road the lap should take there")
             if i == 0:
                 # A join is within one directed edge or at a node shared by both edges.
                 if (not leg_index and not same_snap) or (previous != edge and previous[1] != edge[0]):

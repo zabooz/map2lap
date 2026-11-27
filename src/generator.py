@@ -152,10 +152,10 @@ def _circuit_refusal(error):
     return None
 
 
-def _circuit_answer(points):
+def _circuit_answer(points, extra_query=""):
     """The ordinary OSRM route through (lat, lon) points, with edges for Circuit validation."""
     try:
-        return _osrm_route(points, "&annotations=nodes,distance")
+        return _osrm_route(points, "&annotations=nodes,distance" + extra_query)
     except urllib.error.HTTPError as error:
         with error:
             advice = _circuit_refusal(error)
@@ -174,6 +174,18 @@ def circuit_draft(points):
     return [(lat, lon) for lon, lat in rt["geometry"]["coordinates"]], float(rt["distance"])
 
 
+def _arrival_bearing(answer):
+    """The compass bearing (degrees from north, clockwise) of an OSRM answer's last step into its last pin, or None
+    when its geometry has no length. Pure."""
+    coords = answer["routes"][0]["geometry"]["coordinates"]
+    lon1, lat1 = coords[-1]
+    for lon0, lat0 in reversed(coords[:-1]):
+        east, north = (lon1 - lon0) * math.cos(math.radians(lat1)), lat1 - lat0
+        if east or north:
+            return round(math.degrees(math.atan2(east, north))) % 360
+    return None
+
+
 def circuit_route(points: list[tuple[float, float]]) -> circuitlap.Lap:
     """Keep the open route through the pins and append one OSRM return from the last pin to the first."""
     if len(points) < 2:
@@ -182,7 +194,12 @@ def circuit_route(points: list[tuple[float, float]]) -> circuitlap.Lap:
     waypoints = outward["waypoints"]
     if waypoints[0]["location"] == waypoints[-1]["location"]:
         return circuitlap.lap(outward)
-    return circuitlap.close(outward, _circuit_answer((points[-1], points[0])))
+    # The return is a request of its own and knows no heading: its shortest way back could begin with a U-turn at the
+    # last pin (the Pischeldorfer test circuit's pin 4, reached from the north, the return heading north again). It
+    # leaves the way the car arrives, within 90 degrees either side.
+    bearing = _arrival_bearing(outward)
+    heading = f"&bearings={bearing},90;" if bearing is not None else ""
+    return circuitlap.close(outward, _circuit_answer((points[-1], points[0]), heading))
 
 
 def extend(pts, ahead=FINISH_AFTER_M + RUNOUT_M, *, incoming=False):
