@@ -6,7 +6,7 @@ find(roads) looks for short cycles of the road graph (endpoints joined within JO
 mostly bounded by one-way roads (a ring is one-way; two-way loops this small are usually city blocks of alleys,
 which keep their sidewalks). For each: the side of each bounding road that faces the inside (no sidewalk, gutter
 or curb-return corner there) and the island's curb line, the loop inset by each road's half width: the tile gets
-a curbed island along it (a sidewalk run of ISLAND_BAND_M inward) and the inside shows the ground (the photo's
+a curbed island along it (a curbstone, ISLAND_BAND_M inward) and the inside shows the ground (the photo's
 planting). Pure.
 """
 import math
@@ -25,7 +25,10 @@ MAX_AREA_M2 = 12000.0
 SMALL_AREA_M2 = 1200.0  # below this: any mostly-one-way loop (turnarounds, teardrops); above: must be round
 MIN_AREA_M2 = 25.0
 ONEWAY_SHARE = 0.4      # at least this share of the loop's length one-way
-ISLAND_BAND_M = 1.2     # the island's curb band (a sidewalk run this wide, inward)
+# The island's curb band (a sidewalk run this wide, inward from the curb line): a curbstone and the island's ground
+# behind it, like a narrow median's band (walks: at least 0.3 m). Nobody walks on a roundabout's island: 1.2 m gave a
+# paved sidewalk ring inside every roundabout (the user's Heiligenblut report). The curb line stays where it was.
+ISLAND_BAND_M = 0.3
 MIN_INSET_AREA_M2 = 6.0  # an inset loop smaller than this (a thin median): no island ring, only no inner sidewalks
 
 
