@@ -236,18 +236,18 @@ for (const course of ["circuit", "A–B route"]) test(`Move and Redraw on ${cour
   expect((await read()).aiCorrections).toEqual(moves);
 });
 
-test.describe("German recording controls", () => {
+test.describe("Recording controls with a German browser locale", () => {
   test.use({locale:"de-AT"});
-  test("offers Übernehmen and Verwerfen with both resets initially clear", async ({page, backend}) => {
+  test("shows the English controls with both resets initially clear", async ({page, backend}) => {
     await backend.post("/__test/recording-track", {});
     await openEditor(page);
-    await page.getByRole("button",{name:"KI-Linie einfahren"}).click();
-    const dialog = page.getByRole("dialog",{name:"KI-Linie einfahren"});
-    await expect(dialog).toContainText("Training läuft");
+    await page.getByRole("button",{name:"Record AI line",exact:true}).click();
+    const dialog = page.getByRole("dialog",{name:"Record AI line"});
+    await expect(dialog).toContainText("Recording practice is open.");
     await backend.post("/__test/finish-recording",{});
-    await expect(dialog.getByRole("button",{name:"Übernehmen"})).toBeEnabled();
-    await expect(dialog.getByLabel("KI-Hinweise zurücksetzen (3)")).not.toBeChecked();
-    await expect(dialog.getByLabel("Linienkorrekturen zurücksetzen (1)")).not.toBeChecked();
-    await dialog.getByRole("button",{name:"Verwerfen"}).click();
+    await expect(dialog.getByRole("button",{name:"Accept recording"})).toBeEnabled();
+    await expect(dialog.getByLabel("Reset AI hints (3)")).not.toBeChecked();
+    await expect(dialog.getByLabel("Reset Move / Redraw corrections (1)")).not.toBeChecked();
+    await dialog.getByRole("button",{name:"Discard"}).click();
   });
 });

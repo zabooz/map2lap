@@ -36,22 +36,7 @@ function LapPreview({line}: {line: InstalledAiLine}) {
     role="img" aria-label={line.closed ? text.circuitPreview : text.stagePreview} />;
 }
 
-const text = navigator.language.toLowerCase().startsWith("de") ? {
-  title:"KI-Linie einfahren", start:"Training wird gestartet…", driving:"Training läuft.",
-  read:"Aufnahme wird gelesen…", empty:"In diesem Training wurde keine neue Fahrt für dieses Layout gespeichert.",
-  discard:"Verwerfen", close:"Schließen", accept:"Übernehmen", hints:"KI-Hinweise zurücksetzen",
-  moves:"Linienkorrekturen zurücksetzen", stored:"Nur gespeichert", active:"Wirkt auf der Aufnahme",
-  move:"Move line", redraw:"Redraw line",
-  labels:{braking:"Bremsen", corner:"Kurventempo", speedLimit:"Tempolimit", danger:"Gefahrenzone"},
-  stagePreview:"Aufgenommene A–B-Strecke", circuitPreview:"Aufgenommener Rundkurs",
-  stageStart:"Falls AC im Menü bleibt, klicke auf Drive. Warte auf „Recorder armed“.",
-  stageDrive:"Fahre in Streckenrichtung durch Start A und Ziel B.",
-  stageExit:"Beende nach „Finish B crossed“ das Training, um die Aufnahme zu prüfen.",
-  drive:"Überquere Start/Ziel und fahre eine vollständige Runde.",
-  fallback:"Falls AC im Menü bleibt, klicke auf Drive. Fehlt „Recorder armed“, öffne rechts AI und klicke vor Start/Ziel auf Start recording.",
-  exit:"Beende nach der Runde das Training. Die Vorschau erscheint hier.",
-  installed:"Das Training verwendet den zuletzt installierten Stand der Strecke.",
-} : {
+const text = {
   title:"Record AI line", start:"Starting practice…", driving:"Recording practice is open.",
   read:"Reading the recording…", empty:"This practice produced no new recording for this layout.",
   discard:"Discard", close:"Close", accept:"Accept recording", hints:"Reset AI hints",
