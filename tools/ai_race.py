@@ -420,6 +420,10 @@ def active():
     return games
 
 
+# race.ini [MAP2LAP_AI] keys read by map2lap.dll's spacing feature, and their argparse names.
+SPACING = (('SIDE', 'side'), ('PASS', 'pass_factor'), ('PER_CAR', 'per_car'), ('TARGET', 'target'), ('APEX', 'apex'))
+
+
 def race_bytes(raw, args, ac, track):
     """Prepare a race with the Play grid writer and installed track's actual slot count."""
     import server
@@ -452,8 +456,7 @@ def race_bytes(raw, args, ac, track):
         ini[f'CAR_{slot}']['AI_LEVEL'] = str(strength)
     if getattr(args, 'dll_probe', False):
         ini['MAP2LAP_PROBE'] = {'ACTIVE': '1'}  # read by map2lap.dll's probe feature
-    spacing = {k: str(v) for k, v in (('SIDE', getattr(args, 'side', None)), ('PASS', getattr(args, 'pass_factor', None)))
-               if v is not None}
+    spacing = {key: str(getattr(args, attr, None)) for key, attr in SPACING if getattr(args, attr, None) is not None}
     if spacing:
         ini['MAP2LAP_AI'] = spacing  # read by map2lap.dll's spacing feature
     out = io.StringIO()
@@ -675,7 +678,7 @@ def begin(args):
     app = ac / 'apps/lua/M2LAutoStart'
     if app.exists():
         raise RuntimeError('M2LAutoStart already exists; its owner must remove it first')
-    dll = getattr(args, 'dll_probe', False) or getattr(args, 'side', None) or getattr(args, 'pass_factor', None)
+    dll = getattr(args, 'dll_probe', False) or any(getattr(args, attr, None) is not None for _, attr in SPACING)
     if dll and not acplugin.install(str(ac)):
         raise RuntimeError('Could not install map2lap.dll while AC is running')
     docs = Path(system.documents(str(ac))) / 'Assetto Corsa'
@@ -865,9 +868,15 @@ def main():
     launch.add_argument('--caution', type=cautions, metavar='X,X,...',
                         help='CSP AI caution: one value for all opponents or one per opponent')
     launch.add_argument('--side', type=float, metavar='F',
-                        help='AI gap alongside a car in carHalfWidth units (stock 3.0, 1.5–5)')
+                        help='AI gap alongside a car in carHalfWidth units (stock 3.0, 1.8–5)')
     launch.add_argument('--pass', dest='pass_factor', type=float, metavar='F',
-                        help='base of all AI passing distances in carHalfWidth units (stock 2.5, 1.5–5)')
+                        help='base of all AI passing distances in carHalfWidth units (stock 2.5, 2–5)')
+    launch.add_argument('--per-car', type=float, metavar='F',
+                        help='extra passing room per car ahead (stock 0.2, 0–1)')
+    launch.add_argument('--target', type=float, metavar='F',
+                        help='passing target and in-the-way overlap in PASS units (stock 1.5, 1–3)')
+    launch.add_argument('--apex', type=float, metavar='M',
+                        help='at equal speed, pass only if the next apex is farther (stock 200 m, 0–1000)')
     launch.add_argument('--dll-probe', action='store_true',
                         help='install map2lap.dll and log AI hook bytes and per-car AIDriver values')
     launch.add_argument('--timeout', type=int, default=1200, help='wall seconds including loading')

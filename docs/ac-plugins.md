@@ -245,10 +245,11 @@ on the same stretch at the same speeds.
 
 The DLL's spacing feature redirects the two multiplies to its own floats in a page within rel32 reach of
 `acs.exe`, because the 3.0 and 2.5 constants are shared `.rdata` pool entries (84 and 12 readers).
-`race.ini` `[MAP2LAP_AI]` requests `SIDE=` (stock 3.0, alongside) and `PASS=` (stock 2.5, the base of all
-passing distances), each 1.5–5 carHalfWidth; a missing key leaves that instruction stock. Under CSP 0.2.11 the
+`race.ini` `[MAP2LAP_AI]` requests `SIDE=` (stock 3.0, alongside), `PASS=` (2.5, the base of all passing
+distances), `PER_CAR=` (0.2 extra room per car ahead), `TARGET=` (1.5, passing target and in-the-way overlap)
+and `APEX=` (200 m corner gate); a missing key leaves that instruction stock. Ranges and effects are in the source. Under CSP 0.2.11 the
 probe showed CSP hooks only at function entries, so the two sites are stock before the trial.
-`tools/ai_race.py start <track> --side 2.2 --pass 1.9` installs the DLL and requests both.
+`tools/ai_race.py start <track> --side 2.2 --per-car 0.05 --target 1.15 --apex 80` installs the DLL and requests them.
 [Spacing](../native/acplugin/spacing.h)
 
 ## Measuring a change
