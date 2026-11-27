@@ -39,6 +39,17 @@ unsigned long GetFileSize(void *file, unsigned long *high) {
 int ReadFile(void *file, void *dest, unsigned long size, unsigned long *got, void *overlap) {
     (void)overlap; memcpy(dest, file, size); *got=short_read ? size - 1 : size; return 1;
 }
+int WriteFile(void *file, const void *data, unsigned long size, unsigned long *wrote, void *overlap) {
+    (void)file; (void)data; (void)size; (void)overlap;
+    assert(0 && "The timing fixture has no probe log");
+    *wrote = 0;
+    return 0;
+}
+void *VirtualAlloc(void *address, size_t size, unsigned long type, unsigned long protection) {
+    (void)address; (void)size; (void)type; (void)protection;
+    assert(0 && "The timing fixture has no AI spacing override");
+    return NULL;
+}
 int CloseHandle(void *handle) { (void)handle; return 1; }
 void *GetProcessHeap(void) { return NULL; }
 void *HeapAlloc(void *heap, unsigned long flags, size_t size) { (void)heap; (void)flags; return malloc(size); }

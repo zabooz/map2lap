@@ -19,7 +19,7 @@ import make_release
 import test_play_clock as play_fixture
 
 INPUTS = ('native/acplugin/plugin.c', 'native/acplugin/green_clock.h', 'native/acplugin/route_json.h',
-          'native/acplugin/rollover.h', 'tools/build_acplugin.py')
+          'native/acplugin/rollover.h', 'native/acplugin/spacing.h', 'native/acplugin/probe.h', 'tools/build_acplugin.py')
 DLL = 'src/bin/map2lap.dll'
 RECEIPT = 'src/bin/map2lap.json'
 FOREIGN = b'\xef\xbb\xbf[Plugins]\r\n; \xfc keep map2lap.dll=0\r\nOTHER.dll = 1\n[more]\r\nvalue=keep'
