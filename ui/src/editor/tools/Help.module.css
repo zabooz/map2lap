@@ -1,8 +1,9 @@
-/* How the Editor is worked, then the keys of the tool that is on: "Shift + wheel   turn" */
+/* The tool that is on: its name, what it is for, then its keys ("Shift + wheel   turn"); with Select first how the Editor is worked */
 .help { padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; }
 .help p { margin: 6px 0 0; }
 .helpTitle { cursor: pointer; font-size: var(--sidebar-heading); font-weight: 650; }
 .helpTool { margin: 12px 0 6px; font-size: var(--sidebar-label); }
+.help .about { margin: 0 0 8px; color: var(--text); font-size: var(--sidebar-note); }
 .keys { display: grid; gap: 4px; margin: 0; font-size: var(--sidebar-note); }
 .keys div { display: grid; grid-template-columns: minmax(0, 9em) minmax(0, 1fr); gap: 8px; }
 .keys dt { color: var(--text); font-variant-numeric: tabular-nums; }

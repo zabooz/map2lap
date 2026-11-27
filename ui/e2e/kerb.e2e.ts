@@ -68,7 +68,6 @@ test("mark a kerb, adjust its physical profile, undo and save", async ({page, ba
   await page.keyboard.down("Control"); await page.keyboard.down("Alt"); await page.mouse.wheel(0, 100);
   await page.keyboard.up("Alt"); await page.keyboard.up("Control");
   await expect(options.getByLabel("Kerb profile")).toHaveValue("rounded");
-  await page.locator("#edit-help").getByText("Help").click();
   await expect(page.locator("#edit-help")).toContainText("B");
   await expect(page.locator("#edit-help")).toContainText("complete range");
   await options.getByLabel("Height").fill("0.10");

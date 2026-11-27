@@ -444,15 +444,17 @@ test("Delete's brush frames what is under its ring and deletes it as one Undo; S
   expect((await stored(page)).deleted).toEqual([]);
 });
 
-test("Help says how the Editor is worked and shows the keys of the tool that is on, changing with it", async ({page}) => {
+test("Help says how the Editor is worked with Select, and what the tool on does with its keys, changing with it", async ({page}) => {
   await openEditor(page);
   const help = page.locator("#edit-help");
-  await help.locator("summary").click();
+  await expect(help).toHaveAttribute("open", "");
   await expect(help).toContainText("Esc ends a tool");
   await expect(help.getByRole("heading")).toHaveText("Select (V)");
   await scene(page).focus();
   await page.keyboard.press("t");
   await expect(help.getByRole("heading")).toHaveText("Transform (T)");
+  await expect(help).not.toContainText("Esc ends a tool");
+  await expect(help).toContainText("Moves, turns, raises and resizes");
   await expect(help.locator("dl")).toContainText("Alt + wheelsize");
   await page.keyboard.press("h");
   await expect(help.locator("dl")).toContainText("Ctrl + Alt + wheelsoft edge");

@@ -124,7 +124,6 @@ test("T transforms, R smooths and E inserts; bars and help show the same keys", 
   await scene(page).focus();
   await page.keyboard.press("t");
   await expect(page.locator("#edit-move")).toHaveAttribute("aria-pressed", "true");
-  await page.locator("#edit-help summary").click();
   await expect(page.locator("#edit-help")).toContainText("Transform (T)");
   await scene(page).focus(); await page.keyboard.press("r");
   await expect(page.locator("#edit-smooth")).toHaveAttribute("aria-pressed", "true");

@@ -1,7 +1,7 @@
 import {expect, test} from "bun:test";
 import {renderToStaticMarkup} from "react-dom/server";
 import {Help} from "./Help";
-import {TOOLS} from "./toolDefs";
+import {TOOL_DEFS, TOOLS, toolTitle} from "./toolDefs";
 
 test("Transform, Smooth road and Insert use T, R and E consistently without duplicate tool keys", () => {
   for (const [tool, key] of [["move", "T"], ["smooth", "R"], ["model", "E"]]) {
@@ -12,13 +12,27 @@ test("Transform, Smooth road and Insert use T, R and E consistently without dupl
   expect(new Set(keys).size).toBe(keys.length);
 });
 
-test("Help says how the Editor is worked, then the keys of the tool that is on", () => {
-  const html = renderToStaticMarkup(<Help tool="move" />);
-  expect(html).toContain("Esc");
-  expect(html).toContain("W A S D");
-  expect(html).toContain("Transform (T)");
-  expect(html).toMatch(/Alt \+ wheel.*size/);
-  expect(html).not.toContain("Elevation");
+test("Select's help says how the Editor is worked; another tool's starts at once with its own", () => {
+  const select = renderToStaticMarkup(<Help tool="select" />);
+  expect(select).toContain("Esc ends a tool");
+  expect(select).toContain("W A S D");
+  const move = renderToStaticMarkup(<Help tool="move" />);
+  expect(move).not.toContain("W A S D");
+  expect(move).not.toContain("Esc ends a tool");
+  expect(move).toContain("Transform (T)");
+  expect(move).toMatch(/Alt \+ wheel.*size/);
+  expect(move).not.toContain("Elevation");
+});
+
+test("every tool's help says what the tool does, under its name and before its keys", () => {
+  for (const def of TOOL_DEFS) {
+    expect(def.about.length).toBeGreaterThan(20);
+    const html = renderToStaticMarkup(<Help tool={def.tool} />);
+    const name = html.indexOf(toolTitle(def)), about = html.indexOf(def.about), keys = html.indexOf("<dl");
+    expect(name).toBeGreaterThan(-1);
+    expect(about).toBeGreaterThan(name);
+    expect(keys).toBeGreaterThan(about);
+  }
 });
 
 test("every tool has its keys, Elevation its soft edge", () => {
@@ -60,4 +74,8 @@ test("Racing kerb Help names B, Road and Free, and the modifier controls", () =>
   expect(help).toMatch(/Ctrl \+ wheel.*width by 5 cm/);
   expect(help).toMatch(/Alt \+ wheel.*physical height by 1 cm/);
   expect(help).toMatch(/Ctrl \+ Alt \+ wheel.*flat, rounded or ribbed profile/);
+});
+
+test("Help starts open, so a tool's keys show without a click", () => {
+  expect(renderToStaticMarkup(<Help tool="select" />)).toMatch(/<details id="edit-help"[^>]* open=""/);
 });
