@@ -3,6 +3,21 @@ import {centre, dragMouse, expect, openEditor as loadEditor, openSettings, scene
 
 const box = (page: import("@playwright/test").Page) => page.locator("#hover-box");
 
+test("the Editor tools scroll at the right edge of the sidebar", async ({page}) => {
+  await page.setViewportSize({width: 1280, height: 620});
+  await loadEditor(page);
+  const scroller = page.locator("#editor > div").first();
+  const rightGap = await scroller.evaluate(el => {
+    const sidebar = el.closest("aside")!;
+    return sidebar.getBoundingClientRect().right - parseFloat(getComputedStyle(sidebar).borderRightWidth)
+      - el.getBoundingClientRect().right;
+  });
+  expect(rightGap).toBeCloseTo(0);
+  await scroller.hover();
+  await page.mouse.wheel(0, 350);
+  await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+});
+
 async function openEditor(page: import("@playwright/test").Page, name = "alpha") {
   await loadEditor(page, name);
   await page.getByRole("tab", {name: "Details", exact: true}).click();
