@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -16,6 +17,15 @@ class NoNetwork:
 
 
 class BundleTest(unittest.TestCase):
+    def test_single_item_collection_uses_its_only_extent(self):
+        box = [-179.1, -71.6, 177.4, 78.9]
+        collection = {"links": [{"rel": "item", "href": "part.json"}],
+                      "extent": {"spatial": {"bbox": [box]}}}
+        with tempfile.TemporaryDirectory() as raw:
+            index = overture.StacIndex("fixture", raw, NoNetwork())
+            with patch.object(index, "_json", return_value=collection):
+                self.assertEqual(index.collection("buildings", "building_part")["bboxes"], [box])
+
     def test_every_layer_without_a_request(self):
         self.assertTrue(os.path.exists(overture.BUNDLED.format(release=overture.RELEASE)),
                         "run tools/data/build_stac_index.py after a release bump")

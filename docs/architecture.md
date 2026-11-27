@@ -103,6 +103,15 @@ buried low-voltage lines, street lamp spacing.
 
 ## Build caches and comparisons
 
+New builds and Rebuild select the newest published Overture release whose catalogue declares the supported schema.
+The build log names that release. All workers inherit it, the map-cell and geometry caches distinguish it, and the
+installed track records it in `data/map2lap.json`. On a later Rebuild, roads and scenery can change even with the
+same pins. Build as copy keeps the previous track. An installed track needs no Overture connection to drive.
+
+If the catalogue is unavailable, the build uses the most recent compatible release previously built on this machine
+or the bundled release. Uncached areas still need accessible source data. If Overture only lists incompatible
+releases, the build stops before installing the track. Converting kept OBJ parts to KN5 retains their recorded release.
+
 ### Terrain and scenery build options
 
 `app/buildoptions.py` validates the per-track choices: terrain spacing (2 m by default, optionally 1 m), parked cars

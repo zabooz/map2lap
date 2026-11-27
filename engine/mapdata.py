@@ -248,8 +248,11 @@ class MapData:
     """See the module docstring. fetcher: the server's netfetch.Fetcher (None: one of its own);
     release: the Overture release (overture.RELEASE)."""
 
-    def __init__(self, cache_dir=DEFAULT_CACHE, fetcher=None, release=overture.RELEASE,
+    def __init__(self, cache_dir=DEFAULT_CACHE, fetcher=None, release=None,
                  threads=overture.DUCKDB_THREADS):
+        if release is None:
+            from overturebuild import effective
+            release = effective()
         self.cache_dir = cache_dir
         self.fetcher = fetcher if fetcher is not None else netfetch.Fetcher()
         self.release = release

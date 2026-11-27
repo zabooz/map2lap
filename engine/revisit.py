@@ -27,6 +27,7 @@ import time
 import zipfile
 
 import buildtrace
+import overturebuild
 
 ON = os.environ.get("BNE_REVISIT", "on") != "off"
 SKIP = {k for k in os.environ.get("BNE_REVISIT_SKIP", "").split(",") if k}     # kinds left out (tests: "roads,far")
@@ -96,7 +97,8 @@ def code_key():
                     h.update(f"{k}={os.environ[k]}".encode())
             h.update(runtime().encode())
             _code.append(h.hexdigest()[:16])
-        return _code[0]
+        # Geometry and grading from the previous month's map cannot serve this build.
+        return hashlib.sha1(f"{_code[0]}:{overturebuild.effective()}".encode()).hexdigest()[:16]
 
 
 def key(kind, *parts):

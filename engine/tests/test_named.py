@@ -24,6 +24,23 @@ class WhereTest(unittest.TestCase):
 
 
 class MakeTest(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows inherited input pipe")
+    def test_interpreter_probe_can_start_while_parent_reads_a_pipe(self):
+        code = """
+import os, sys, threading, time
+sys.path.insert(0, sys.argv[1])
+from app import named
+threading.Thread(target=lambda: os.read(0, 1), daemon=True).start()
+time.sleep(0.1)
+named.CHECK_TIMEOUT_S = 5
+raise SystemExit(0 if named._check(sys.executable, False) else 1)
+"""
+        with subprocess.Popen([sys.executable, "-c", code, os.path.abspath(SRC)], stdin=subprocess.PIPE) as proc:
+            try:
+                self.assertEqual(proc.wait(timeout=10), 0)
+            finally:
+                proc.stdin.close()
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

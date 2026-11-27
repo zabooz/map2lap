@@ -35,6 +35,7 @@ import geodesy              # noqa: E402
 import borders  # noqa: E402
 import navgraph             # noqa: E402
 import overture             # noqa: E402
+import overturebuild        # noqa: E402
 import plancache            # noqa: E402
 import revisit              # noqa: E402
 
@@ -96,7 +97,7 @@ def _saved_circuit(name):
 
 
 def data_versions():
-    """The map data a build reads beside the code: Overture's release (pinned in overture.RELEASE) and the OpenStreetMap
+    """The map data a build reads beside the code: its selected Overture release and the OpenStreetMap
     tags file's version (its ETag, pinned in the cache for a week: osmtags.OsmTags.version; None if not fetched yet).
     Stored with the track: a build from the same inputs on other data differs where the map was edited."""
     try:
@@ -104,7 +105,7 @@ def data_versions():
             osm = f.readline().strip().strip('"') or None
     except OSError:
         osm = None
-    return {"overture": overture.RELEASE, "osm": osm}
+    return {"overture": overturebuild.effective(), "osm": osm}
 
 
 def slug(name):
@@ -439,7 +440,8 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     replace a track saved in the Editor."""
     if not upto:
         _refuse_saved(slug(name))
-    with plancache.one_run(os.path.join(ROOT, "cache")):
+    cache = os.path.join(ROOT, "cache")
+    with overturebuild.for_build(cache, log), plancache.one_run(cache):
         return _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, kind,
                       circuit_timing, ai_corrections, ai_margins)
 
@@ -592,7 +594,7 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
     log(f"Tiles done in {time.perf_counter() - t0:.0f} s")
     anc = {"kind": kind, "lat": lat0, "lon": lon0, "aid": build_tiles.AID, "dem_zoom": build_tiles.DEM_ZOOM,
            "tiles": [list(t) for t in tiles], "width": width, "length_m": length, "points": points,
-           "rules": rules, "title": title, "code_key": revisit.code_key()}
+           "rules": rules, "title": title, "code_key": revisit.code_key(), "overture": overturebuild.effective()}
     anc.update(options)
     if ai_corrections:
         anc["aiCorrections"] = ai_corrections
@@ -627,13 +629,14 @@ def finish_obj(name, title=None, log=print, progress=None):
     area = anc.get("area")
     if not area and "line" not in anc:
         raise RuntimeError(f"{name} was built before anchor.json held the route as it came: build it again")
-    if anc.get("code_key") != revisit.code_key():
-        log(f"NOTE: the engine changed since {name}'s OBJ parts were built: they don't show it, only a build does")
     xy = None if area else np.asarray(anc["route"], np.float64)
     pts = None if area else anc["line"]
     parts = [os.path.join(work, "obj", "parts", f"t_{tx}_{ty}.obj") for tx, ty in anc["tiles"]]
-    return _finish(name, title or anc.get("title") or name, work, anc, xy, pts, parts, (None, None, None), time.perf_counter(), log, progress, False,
-                   None)
+    with overturebuild.using(anc.get("overture") or overture.RELEASE):
+        if anc.get("code_key") != revisit.code_key():
+            log(f"NOTE: the engine changed since {name}'s OBJ parts were built: they don't show it, only a build does")
+        return _finish(name, title or anc.get("title") or name, work, anc, xy, pts, parts, (None, None, None),
+                       time.perf_counter(), log, progress, False, None)
 
 
 def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progress, clean, cache_gb):
@@ -707,7 +710,7 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
             "area": [float(v) for v in area] if area else None, "length_m": length,
             "area_m": list(size) if area else None, "tiles": len(tiles), "built": time.time(),
             "line": None if area else mytracks.thin(pts),
-            "route_end": None if area else len(pts) - 1, "data": data_versions()}
+            "route_end": None if area else len(pts) - 1, "data": {**data_versions(), "overture": anc.get("overture")}}
     if circuit:
         with open(anchor_path, encoding="utf-8") as f:
             info.update(kind="circuit", timing=mytracks.circuit_timing(json.load(f).get("timing")))

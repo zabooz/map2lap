@@ -61,7 +61,9 @@ def changing(model, *, drain=False):
 def compute(model, circuit, target):
     """Run the numerical calculation outside the server interpreter."""
     command = [named.exe("worker"), "-m", "app.ailanejobs", str(model), str(int(circuit)), str(target)]
-    result = subprocess.run(command, cwd=SRC, env={**named.child_env(), "PYTHONIOENCODING": "utf-8"},
+    # The worker takes its inputs from files. Inheriting a pipe being read by the server
+    # can block Python's startup on Windows before the calculation even begins.
+    result = subprocess.run(command, cwd=SRC, stdin=subprocess.DEVNULL, env={**named.child_env(), "PYTHONIOENCODING": "utf-8"},
                             capture_output=True, text=True, encoding="utf-8")
     if result.returncode:
         raise ValueError(f"AI line worker exited with code {result.returncode}")

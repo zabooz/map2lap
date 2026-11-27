@@ -65,8 +65,9 @@ class PassingHintsTest(unittest.TestCase):
         self.write([[0,0,0], [80,0,0]], 7., old / fastlane.FILE)
         (old / "data").mkdir()
         (old / "data/ai_hints.ini").write_text("[DANGER_0]\nSTART=0.000000000\nEND=1.000000000\nLEFT=0.50\nRIGHT=0.50\n")
+        original = self.hints.read_bytes()
         self.assertTrue(route_race.remove_race_layout(model))
-        self.assertEqual(self.hints.read_bytes(), b"[old]\n")
+        self.assertEqual(self.hints.read_bytes(), original)
         self.assertFalse(old.exists())
 
 

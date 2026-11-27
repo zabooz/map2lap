@@ -72,7 +72,8 @@ def child_env(apart=None):
 
 def _check(path, apart):
     """Whether the copy at path starts and finds our packages (a virus scanner may stop it)."""
-    r = subprocess.run([path, "-c", "import numpy"], env=child_env(apart), capture_output=True, timeout=CHECK_TIMEOUT_S)
+    r = subprocess.run([path, "-c", "import numpy"], env=child_env(apart), stdin=subprocess.DEVNULL,
+                       capture_output=True, timeout=CHECK_TIMEOUT_S)
     return r.returncode == 0
 
 
