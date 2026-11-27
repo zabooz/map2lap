@@ -11,7 +11,7 @@ import staging
 
 from .style import (
     BUILT, CENTRE, DRAIN, DRAIN_EVERY, DRAIN_IN, EDGE_DECAL, EDGE_DECAL_GAP_M, EDGE_LINE, GUTTER, LADDER_LINE_W,
-    LOOK, OVERLAP, ROADS_IN_GROUND, SIDEWALK, VERSION, look_of, terrain_surface
+    OVERLAP, ROADS_IN_GROUND, SIDEWALK, VERSION, look_of, terrain_surface
 )
 from .tags import _rule_value
 from .specs import is_ring, road_specs
@@ -315,7 +315,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         junctions.find(roads, has_sidewalks, None)
     # (no curb extensions: they were on every town street with parking, after Fells Point's, and most streets have none:
     # the corners stuck out into the road in Tustin's suburbs)
-    # small road loops (roundabouts, turnaround loops): no sidewalks facing their inside, a paved band round the island
+    # small road loops (roundabouts, turnaround loops): no sidewalks facing their inside, a curbed island instead
     import islands
     isl = islands.find(roads, structures=structures) if walks is not None else []
     inner = islands.inner_sides(isl)
@@ -328,15 +328,14 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
             # (closed: offset with a vertex either side of its start, so its ends meet mitred, not 5 cm apart)
             band = offset_polyline(np.vstack([ring[-1:], ring, ring[:2]]), islands.ISLAND_BAND_M / 2)[1:-1]
             # tight simplify + denser nodes: the default 0.25 m / 12 m spacing faceted the curb into a hexagon (PR
-            # #468). The whole ring simplified before it is clipped, so neighbouring tiles' pieces share its vertices
+            # #468). The whole ring simplified before it is clipped, so neighbouring tiles' pieces (each to its box and
+            # the skin margin, the skin cutting them exactly at the tile's quad) share its vertices and meet
             band = simplify(band, tol=0.08)
-            # setts draped on the ground like the road's other pieces, square: a DecalRoad stretches its texture
-            # across the width (LOOK), so one repeat along it is as long as the band is wide
-            apron = {**LOOK["cobble"], "tl": islands.ISLAND_BAND_M}
-            for piece in clip_polyline(band, *box):
-                for c in split(densify(piece, spacing=3.0)):
-                    if len(c) >= 2:
-                        chunks.append(dict(_chunk(apron, islands.ISLAND_BAND_M, c), surface_id="island"))
+            for piece in clip_polyline(band, *wexact):
+                run = densify(piece, spacing=3.0)
+                if len(run) >= 2:
+                    walks.append({"pts": run, "side": 1, "caps": (False, False), "ramps": [],
+                                  "w": islands.ISLAND_BAND_M, "fid": "island"})
     cornered = set()                            # road pairs whose sidewalks meet at a curb return
     if walks is not None:
         for (fid, side), cl in jcuts.items():
