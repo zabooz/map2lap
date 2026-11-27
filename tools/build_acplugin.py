@@ -10,10 +10,10 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = 'native/acplugin/plugin.c'
 INPUTS = (SOURCE, 'native/acplugin/green_clock.h', 'native/acplugin/route_json.h',
-          'native/acplugin/rollover.h', 'tools/build_acplugin.py')
+          'native/acplugin/rollover.h', 'native/acplugin/probe.h', 'tools/build_acplugin.py')
 DLL = 'src/bin/map2lap.dll'
 IMPORTS = {
-    'kernel32': ('GetModuleHandleW', 'GetModuleFileNameW', 'CreateFileW', 'GetFileSize', 'ReadFile',
+    'kernel32': ('GetModuleHandleW', 'GetModuleFileNameW', 'CreateFileW', 'GetFileSize', 'ReadFile', 'WriteFile',
                  'CloseHandle', 'GetProcessHeap', 'HeapAlloc', 'HeapFree', 'ReadProcessMemory',
                  'GetPrivateProfileStringW', 'VirtualProtect',
                  'RtlCaptureStackBackTrace', 'FlushInstructionCache', 'GetCurrentProcess'),

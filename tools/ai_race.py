@@ -19,7 +19,7 @@ import time
 import uuid
 
 from rendering_preview import ROOT, ini_bytes, prepare, restore_files, sha
-from app import csp, mytracks, settings, system
+from app import acplugin, csp, mytracks, settings, system
 from watch_build import role
 
 OUT = ROOT / 'out/ai-race'
@@ -218,11 +218,21 @@ local function emit(line)
   ac.log(line)
   ac.broadcastSharedEvent('__KEY__', line)
 end
+-- Optional CSP AI caution per opponent (index 1 is CAR_1), applied once on the first update.
+local caution, cautionSet = {__CAUTION__}, false
+local function applyCaution(elapsed)
+  cautionSet = true
+  for i, value in ipairs(caution) do
+    local ok, err = pcall(physics.setAICaution, i, value)
+    emit(string.format('M2L_CAUTION,%.2f,%d,%.3f,%s', elapsed, i, value, ok and 'ok' or tostring(err)))
+  end
+end
 __ROLLOVER_FUNCTION__
 function script.update(dt)
   local sim = ac.getSim()
   if sim.isReplayActive or sim.isOnlineRace or ended then return end
   elapsed, clock = elapsed + dt, clock + dt
+  if not cautionSet then applyCaution(elapsed) end
   __ROLLOVER_UPDATE__
   local tick = clock >= 0.5
   local parts = {string.format('M2L_ALL,%.2f,%d', elapsed, sim.raceSessionType)}
@@ -440,6 +450,8 @@ def race_bytes(raw, args, ac, track):
     server._write_race_grid(ini, player, ai, str(ac), installed)
     for slot, strength in enumerate(args.strengths or (), start=1):
         ini[f'CAR_{slot}']['AI_LEVEL'] = str(strength)
+    if getattr(args, 'dll_probe', False):
+        ini['MAP2LAP_PROBE'] = {'ACTIVE': '1'}  # read by map2lap.dll's probe feature
     out = io.StringIO()
     ini.write(out, space_around_delimiters=False)
     return out.getvalue().encode()
@@ -488,7 +500,7 @@ def recover(manifest):
 
 def output_paths(docs, track=None, car=None):
     """Native AC outputs replaced by an offline race, including saved setups and locale files."""
-    paths = [docs / 'logs' / name for name in (*LOGS, 'py_log.txt')]
+    paths = [docs / 'logs' / name for name in (*LOGS, 'py_log.txt', 'map2lap_probe.txt')]
     paths.extend(docs / 'out' / name for name in ('race_out.json', 'laps.ini', 'warnings.json'))
     paths.extend(docs / 'cfg' / name for name in ('video.ini', 'exposure.ini', 'acos.ini', 'telemetry_user.ini',
                  'extension/state/odometers.ini', 'extension/state/lua/app/CspDebug.ini'))
@@ -624,9 +636,14 @@ def roof_observed(trace, opponent):
 
 
 
-def probe_bytes(token, opponents, rollover_ai=None):
-    """Build the temporary telemetry script and, on request, roll one AI opponent."""
+def probe_bytes(token, opponents, rollover_ai=None, caution=None):
+    """Build the temporary telemetry script and, on request, roll one AI opponent or set AI caution."""
     script, update = '', ''
+    values = caution or []
+    if len(values) == 1:
+        values = values * opponents
+    if values and len(values) != opponents:
+        raise ValueError('--caution takes one value or one per opponent')
     if rollover_ai is not None:
         if not 1 <= rollover_ai <= opponents:
             raise ValueError('--rollover-ai must select an opponent in this grid (1 through --opponents)')
@@ -634,6 +651,7 @@ def probe_bytes(token, opponents, rollover_ai=None):
         script = script.replace('__TARGET__', str(rollover_ai))
         update = 'rollOpponent(dt, sim, elapsed)'
     return (PROBE.replace('__KEY__', token).replace('__COUNT__', str(opponents))
+            .replace('__CAUTION__', ', '.join(repr(float(v)) for v in values))
             .replace('__ROLLOVER_FUNCTION__', script).replace('__ROLLOVER_UPDATE__', update).encode())
 
 
@@ -653,6 +671,8 @@ def begin(args):
     app = ac / 'apps/lua/M2LAutoStart'
     if app.exists():
         raise RuntimeError('M2LAutoStart already exists; its owner must remove it first')
+    if getattr(args, 'dll_probe', False) and not acplugin.install(str(ac)):
+        raise RuntimeError('Could not install map2lap.dll while AC is running')
     docs = Path(system.documents(str(ac))) / 'Assetto Corsa'
     cfg = track / 'extension/ext_config.ini'
     race = docs / 'cfg/race.ini'
@@ -663,7 +683,8 @@ def begin(args):
     probe = 'm2l_probe_' + token + '.lua'
     writes = {race: race_bytes(race.read_bytes(), args, ac, track),
               cfg: cfg.read_bytes() + f'\n[SCRIPT_...]\nSCRIPT = {probe}\n'.encode(),
-              cfg.parent / probe: probe_bytes(token, args.opponents, getattr(args, 'rollover_ai', None)),
+              cfg.parent / probe: probe_bytes(token, args.opponents, getattr(args, 'rollover_ai', None),
+                                              getattr(args, 'caution', None)),
               app / 'manifest.ini': MANIFEST, app / 'M2LAutoStart.lua': code.replace('__KEY__', token).encode()}
     replay = race.with_name('replay.ini')
     replay_source = replay if replay.is_file() else ac / 'cfg/replay.ini'
@@ -800,6 +821,17 @@ def report(run, csp_path=None, ac_path=None, model=None, opponents=None):
     return result
 
 
+def cautions(value):
+    """Read comma-separated CSP AI caution values (0–16). Pure."""
+    try:
+        values = [float(part) for part in value.split(',')]
+    except ValueError:
+        raise argparse.ArgumentTypeError('expected comma-separated numbers') from None
+    if any(not 0 <= v <= 16 for v in values):
+        raise argparse.ArgumentTypeError('each AI caution must be 0–16')
+    return values
+
+
 def grid_strengths(value):
     """Read comma-separated integer AI levels in grid order. Pure."""
     try:
@@ -825,6 +857,10 @@ def main():
                         help='one strength (70–100) per opponent, in CAR_1, CAR_2, … order')
     launch.add_argument('--rollover-ai', type=int, metavar='CAR', help='roll this AI opponent once after green')
     launch.add_argument('--aggression', type=int, default=50)
+    launch.add_argument('--caution', type=cautions, metavar='X,X,...',
+                        help='CSP AI caution: one value for all opponents or one per opponent')
+    launch.add_argument('--dll-probe', action='store_true',
+                        help='install map2lap.dll and log AI hook bytes and per-car AIDriver values')
     launch.add_argument('--timeout', type=int, default=1200, help='wall seconds including loading')
     for action in ('status', 'restore', 'stop'):
         sub.add_parser(action)

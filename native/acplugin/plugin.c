@@ -9,6 +9,7 @@ API unsigned long GetModuleFileNameW(void *, wchar_t *, unsigned long);
 API void *CreateFileW(const wchar_t *, unsigned long, unsigned long, void *, unsigned long, unsigned long, void *);
 API unsigned long GetFileSize(void *, unsigned long *);
 API int ReadFile(void *, void *, unsigned long, unsigned long *, void *);
+API int WriteFile(void *, const void *, unsigned long, unsigned long *, void *);
 API int CloseHandle(void *);
 API void *GetProcessHeap(void);
 API void *HeapAlloc(void *, unsigned long, size_t);
@@ -23,6 +24,12 @@ API int FlushInstructionCache(void *, const void *, size_t);
 API void *GetCurrentProcess(void);
 
 #define COUNT(a) (sizeof(a) / sizeof(*(a)))
+
+// The MSVC target references this marker whenever code uses floating point; the CRT normally defines it.
+int _fltused;
+
+// The IACPPluginHost passed to acpInit: AC's ACPlugin object for this DLL.
+static const unsigned char *acp_host;
 
 static bool read_bytes(const void *src, void *out, size_t n) {
     size_t got = 0;
@@ -129,10 +136,14 @@ static bool one_lap(const wchar_t *ini) {
            (race_one && equal(laps, L"\x1f"));
 }
 
+static bool race_ini(wchar_t ini[320]) {
+    return SHGetFolderPathW(NULL, 5 /* documents */, NULL, 0, ini) == 0 &&
+           append(ini, 320, L"\\Assetto Corsa\\cfg\\race.ini");
+}
+
 static const wchar_t *race_gate(bool allow_circuit) {
     wchar_t ini[320];
-    if (SHGetFolderPathW(NULL, 5 /* documents */, NULL, 0, ini) != 0 ||
-        !append(ini, COUNT(ini), L"\\Assetto Corsa\\cfg\\race.ini")) return L"off: race.ini";
+    if (!race_ini(ini)) return L"off: race.ini";
     if (!setting(ini, L"SESSION_0", L"TYPE", L"3")) return L"off: session";
     if (!allow_circuit && !one_lap(ini)) return L"off: laps";
     if (!setting(ini, L"REMOTE", L"ACTIVE", L"0")) return L"off: remote";
@@ -142,6 +153,7 @@ static const wchar_t *race_gate(bool allow_circuit) {
 
 #include "green_clock.h"
 #include "rollover.h"
+#include "probe.h"
 
 typedef struct {
     const wchar_t *name;
@@ -153,11 +165,12 @@ typedef struct {
 
 static Feature features[] = {
     { L" green=", green_gate, green_start, green_stop, NULL },
-    { L" rollover=", rollover_gate, rollover_start, rollover_stop, NULL }
+    { L" rollover=", rollover_gate, rollover_start, rollover_stop, NULL },
+    { L" probe=", probe_gate, probe_start, probe_stop, NULL }
 };
 
 EXPORT bool acpInit(void *host) {
-    (void)host;
+    acp_host = host;
     unsigned char *base = GetModuleHandleW(L"acs.exe");
     bool known = known_image(base);
     for (size_t i = 0; i < COUNT(features); ++i) {
@@ -184,7 +197,8 @@ EXPORT bool acpGetName(wchar_t *out) {
 }
 
 EXPORT bool acpUpdate(const void *player, float dt) {
-    (void)player; (void)dt;
+    (void)player;
+    probe_update(dt);
     return true;
 }
 

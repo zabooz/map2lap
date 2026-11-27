@@ -248,4 +248,12 @@ For each retired car, follow its ID from the first DNF sample through the last c
 world position and `isRetired` after arrival, then look for active opponents crossing the cleared slot
 in the same lane at speed. Use the report's coverage and the final telemetry marker to bound the claim.
 A native trial also needs evidence that AC loaded the intended DLL and ran its update callback.
+
+`--dll-probe` enables the DLL's read-only probe through a `[MAP2LAP_PROBE] ACTIVE=1` entry in `race.ini`.
+It writes `Documents/Assetto Corsa/logs/map2lap_probe.txt` at Init and 0, 3, 15, 45 and 90 s after the first
+update. `site` lines compare 16 live bytes at the stock AI function entries and candidate constants with the
+stock executable; `DIFF` marks a hook by CSP or another mod. `car` lines follow `ACPlugin+0x68` (player car)
+to `PhysicsEngine::cars` and, for each stock `AIDriver`, log CSP's byte at `AIDriver+0x384` with aggression,
+target speed, offsets and the push factors. With `--caution` this shows whether `setAICaution` writes that byte.
+[Probe](../native/acplugin/probe.h)
 [Race measurement tool](../tools/README.md)
