@@ -162,8 +162,21 @@ def _grid_join(a, direction, b, forward):
     return []
 
 
+def _distinct_path(path):
+    """Read finite X/Z legs, collapsing consecutive points equal at saved route precision. Pure."""
+    path = np.asarray(path, dtype=float)
+    if path.ndim != 2 or path.shape[1] != 2 or not np.isfinite(path).all():
+        raise NoLine("invalid X/Z coordinates in the saved route")
+    if len(path):
+        path = path[np.r_[True, (path[1:] != path[:-1]).any(axis=1)]]
+    if len(path) < 2:
+        raise NoLine("saved route has fewer than two points")
+    return path
+
+
 def _route_path(path, points, grid):
     """Place an open X/Z path through the rear grid and both KN5 timing gates. Pure."""
+    path = _distinct_path(path)
     if not len(grid):
         raise NoLine("missing start grid")
     positions = grid[:, 12:15]
@@ -525,15 +538,9 @@ def _rounded(path, metres, fixed, heights, road, mapped=(), rings=(), *, ownersh
 
 def _sample(path, points, circuit, road, mapped=(), rings=(), *, ownership=False, grouped=True, redraws=(), free_road=None, diagnostic=False):
     """Sample a rounded track on its KN5 road while holding the timing lines and grid in place. Pure."""
-    path = np.asarray(path, dtype=float)
-    if path.ndim != 2 or path.shape[1] != 2 or not np.isfinite(path).all():
-        raise NoLine("invalid X/Z coordinates in the saved route")
-    path = path[np.r_[True, (path[1:] != path[:-1]).any(axis=1)]]
-    if len(path) < 2:
-        raise NoLine("saved route has fewer than two points")
     grid = _grid(points)
     if circuit:
-        path, metres = obj_to_kn5._closed_lap(path)
+        path, metres = obj_to_kn5._closed_lap(_distinct_path(path))
         if len(path) < 4:
             raise NoLine("saved Circuit has fewer than three distinct points")
         first = _gate(path, metres, points, "AC_TIME_0")

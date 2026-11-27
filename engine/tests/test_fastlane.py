@@ -24,7 +24,7 @@ class LaneCodeVersionTest(unittest.TestCase):
             # Text mode makes the same source hash identical on CRLF and LF checkouts.
             digest.update((folder / f"{name}.py").read_text(encoding="utf-8").encode("utf-8"))
             digest.update(b"\0")
-        expected = (14, "2f5b70bb98e4d3057bc4226ca132a0fe1949dbf1d30d5b0f2340282c1fc3265f")
+        expected = (14, "66080c048749c86e19e02b41a1a842a1daabf4fd9ee933a0ba6321dc8e4c8653")
         self.assertEqual(expected, (ailinestate.CODE_VERSION, digest.hexdigest()),
                          "Bump CODE_VERSION and update the pair for code changes. "
                          "For comments or refactors proven to preserve the generated line, update only the digest.")
@@ -602,6 +602,21 @@ class AILineTest(unittest.TestCase):
         self.assertEqual(16 + len(points)*20 + 4 + len(points)*fastlane.DETAIL.itemsize + 4,
                          self.lane.stat().st_size)
         self.assertRegex(log[-1], r"AI line: \d+ points in")
+
+    def test_recorded_stage_uses_last_distinct_route_leg_for_the_runout(self):
+        from track import drivenline
+        trace = self.folder / "session.drive"
+        np.savetxt(trace, [[x, 9, 11, 20, .5, 0, 0] for x in range(19, 82)])
+        candidate = self.folder / "ai/fast_lane.ai.candidate"
+        route = [(20, 10), (50, 10), (80, 10)]
+        self.write_track(route)
+        drivenline.stage_candidate(self.model, trace, candidate)
+        expected = candidate.read_bytes()
+        # The routing data for the Cap Corse runout repeats its final coordinate.
+        self.write_track([point for point in route for _ in range(2)])
+        drivenline.stage_candidate(self.model, trace, candidate)
+        self.assertEqual(candidate.read_bytes(), expected)
+        self.assertFalse(self.lane.exists())
 
     def test_open_line_follows_the_saved_bent_runout_to_its_end(self):
         self.write_track([(20, 10), (80, 10), (93, 10), (107, 22)])
